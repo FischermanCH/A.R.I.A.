@@ -145,6 +145,11 @@ async def handle_ssh_save(
         clean_host = str(host).strip()
         clean_user = str(user).strip()
         clean_service_url = str(service_url).strip()
+        existing_row = rows.get(original_ref_clean or ref, {})
+        existing_key_path = str(
+            existing_row.get("key_path", "") if isinstance(existing_row, dict) else ""
+        ).strip()
+        clean_key_path = str(key_path).strip() or existing_key_path
         metadata, metadata_autofilled = await autofill_service_connection_metadata(
             connection_ref=ref,
             service_url=clean_service_url,
@@ -159,7 +164,7 @@ async def handle_ssh_save(
             "port": max(1, int(port)),
             "user": clean_user,
             "service_url": clean_service_url,
-            "key_path": str(key_path).strip(),
+            "key_path": clean_key_path,
             "timeout_seconds": max(5, int(timeout_seconds)),
             "strict_host_key_checking": str(strict_host_key_checking).strip() or "accept-new",
             "guardrail_ref": selected_guardrail_ref,

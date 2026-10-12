@@ -35,14 +35,7 @@ def _runtime(*, webhook: object | None = None, http_api: object | None = None, g
     )
     return RecipeRuntime(
         settings=settings,
-        llm_client=None,
-        memory_skill_getter=lambda: None,
         execute_custom_ssh_command=lambda **_: None,
-        extract_memory_store_text=lambda *args, **kwargs: "",
-        extract_memory_recall_query=lambda *args, **kwargs: "",
-        facts_collection_for_user=lambda user: f"facts-{user}",
-        preferences_collection_for_user=lambda user: f"prefs-{user}",
-        normalize_spaces=lambda text: " ".join(str(text or "").split()),
         truncate_text=lambda text, limit=4000: str(text or "")[:limit],
     )
 

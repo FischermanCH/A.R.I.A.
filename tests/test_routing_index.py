@@ -29,6 +29,8 @@ class FakeQdrant:
     def __init__(self) -> None:
         self.collections: dict[str, int] = {}
         self.upserts: list[tuple[str, list[object]]] = []
+        self.point_ids: dict[str, set[str]] = {}
+        self.deletes: list[tuple[str, list[str]]] = []
 
     async def collection_exists(self, collection_name: str) -> bool:
         return collection_name in self.collections
@@ -44,6 +46,16 @@ class FakeQdrant:
 
     async def upsert(self, collection_name: str, points: list[object]) -> None:
         self.upserts.append((collection_name, list(points)))
+        self.point_ids.setdefault(collection_name, set()).update(str(point.id) for point in points)
+
+    async def scroll(self, collection_name: str, **_kwargs):  # noqa: ANN201
+        return ([SimpleNamespace(id=value) for value in sorted(self.point_ids.get(collection_name, set()))], None)
+
+    async def delete(self, collection_name: str, points_selector, wait: bool = True) -> None:  # noqa: ANN001
+        assert wait is True
+        ids = [str(value) for value in points_selector.points]
+        self.deletes.append((collection_name, ids))
+        self.point_ids.setdefault(collection_name, set()).difference_update(ids)
 
 
 def test_build_connection_routing_documents_keeps_metadata_and_excludes_secrets() -> None:
@@ -54,14 +66,14 @@ def test_build_connection_routing_documents_keeps_metadata_and_excludes_secrets(
             "connections": {
                 "ssh": {
                     " dns-node-01 ": {
-                        "host": "dns-node-01.example.lan",
+                        "host": "dns-node-01.example",
                         "user": "root",
                         "key_path": "/secrets/pihole_ed25519",
                         "title": "Pi-hole DNS",
                         "description": "DNS blocker and DHCP helper",
                         "aliases": ["dns blocker"],
                         "tags": ["infra", "dns"],
-                        "service_url": "https://dns-node-01.example.lan/admin",
+                        "service_url": "https://dns-node-01.example/admin",
                     }
                 },
                 "discord": {
@@ -83,7 +95,7 @@ def test_build_connection_routing_documents_keeps_metadata_and_excludes_secrets(
     assert "dns blocker" in ssh_doc.aliases
     assert "infra" in ssh_doc.tags
     assert "run command" in ssh_doc.supported_actions
-    assert "dns-node-01.example.lan" in ssh_doc.text
+    assert "dns-node-01.example" in ssh_doc.text
     assert "/secrets/pihole_ed25519" not in ssh_doc.text
 
     all_text = "\n".join(doc.text for doc in docs)
@@ -99,7 +111,7 @@ async def _upsert_documents() -> tuple[dict[str, object], FakeQdrant]:
             "connections": {
                 "ssh": {
                     "dns-node-01": {
-                        "host": "dns-node-01.example.lan",
+                        "host": "dns-node-01.example",
                         "title": "Pi-hole DNS",
                     }
                 }
@@ -133,6 +145,29 @@ def test_routing_index_store_upserts_documents() -> None:
     assert payload["embedding_model"] == "fake-embedding"
     assert payload["routing_index_hash"] == result["routing_index_hash"]
     assert payload["routing_index_document_count"] == 1
+
+
+def test_routing_index_store_rebuild_removes_deleted_or_renamed_profiles() -> None:
+    settings = Settings.model_validate(
+        {"llm": {"model": "fake"}, "connections": {"ssh": {"current": {"title": "Current"}}}}
+    )
+    docs = build_connection_routing_documents(settings)
+    qdrant = FakeQdrant()
+    qdrant.collections["aria_routing_connections_test"] = 2
+    qdrant.point_ids["aria_routing_connections_test"] = {"removed-profile", "renamed-profile"}
+    store = RoutingIndexStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name="aria_routing_connections_test",
+    )
+
+    asyncio.run(store.upsert_documents(docs))
+
+    assert len(qdrant.point_ids["aria_routing_connections_test"]) == 1
+    assert qdrant.point_ids["aria_routing_connections_test"] == {docs[0].id}
+    assert qdrant.deletes == [
+        ("aria_routing_connections_test", ["removed-profile", "renamed-profile"]),
+    ]
 
 
 def test_routing_documents_fingerprint_is_stable_and_changes_with_metadata() -> None:

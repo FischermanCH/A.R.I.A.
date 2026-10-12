@@ -1,13 +1,10 @@
-{% extends "base.html" %}
+{% extends "page_types/settings_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% block page_body %}
 {% set memory_lang_de = request and request.state and (request.state.lang|string).lower().startswith('de') %}
-{% set config_ui_prompts_path = module_route_path('config_ui', '/config/prompts') %}
 {% set memory_config_backend_save_path = module_route_path('memory_admin_ui', '/memories/config/backend-save') %}
 {% set memory_config_select_path = module_route_path('memory_admin_ui', '/memories/config/select') %}
 {% set memory_config_create_path = module_route_path('memory_admin_ui', '/memories/config/create') %}
-{% set memory_config_compression_save_path = module_route_path('memory_admin_ui', '/memories/config/compression-save') %}
-{% set memory_config_compress_path = module_route_path('memory_admin_ui', '/memories/config/compress') %}
 {% set ops_memory_reindex_save_path = module_route_path('ops_config_backup', '/memories/reindex/save') %}
 <main class="config-layout memory-config-layout memory-domain-shell">
   {% include "_memories_nav.html" %}
@@ -16,7 +13,7 @@
       <span>{{ icon('memories', 'page-title-icon') }}</span>
       <h2>{{ tr(request, 'config_memory.setup_title', 'Memory setup (Qdrant)') }}</h2>
     </div>
-    <p>{{ tr(request, 'config_memory.setup_subtitle', 'Without selection, the default user collection is used automatically:') }} <code>{{ default_collection }}</code></p>
+    <p class="ui-page-purpose">{{ tr(request, 'config_memory.setup_subtitle', 'Konfiguriere Qdrant, aktive Collections, Kompression und den Reindex-Scheduler. Standard-Collection:') }} <code>{{ default_collection }}</code></p>
 
     {% if saved %}
     <div class="alert ok">{{ tr(request, 'config_memory.saved', 'Memory setup updated.') }}</div>
@@ -67,7 +64,7 @@
           <span class="memory-section-icon">{{ icon('settings', 'ui-action-icon') }}</span>
           <div>
             <h2>{{ tr(request, 'config_memory.qdrant_access_title', 'Qdrant-Zugriff') }}</h2>
-            <p>{{ tr(request, 'config_memory.qdrant_access_desc', 'Ein zentraler Ort fuer Dashboard, URL und API-Key fuer Copy/Paste.') }}</p>
+            <p>{{ tr(request, 'config_memory.qdrant_access_desc', 'Ein zentraler Ort für Dashboard, URL und API-Key für Copy/Paste.') }}</p>
           </div>
         </div>
       </div>
@@ -76,7 +73,7 @@
           <span>{{ tr(request, 'config_memory.qdrant_url', 'Qdrant URL') }}</span>
           <span class="memory-qdrant-access-row">
             <input type="text" value="{{ memory_cfg.qdrant_url }}" readonly data-copy-source="qdrant-url">
-            <button type="button" class="memory-qdrant-copy-button" data-copy-target="qdrant-url">
+            <button type="button" class="memory-qdrant-copy-button ui-secondary-action" data-copy-target="qdrant-url">
               {{ icon('copy', 'ui-action-icon') }}
               <span>{{ tr(request, 'config_memory.copy_action', 'Kopieren') }}</span>
             </button>
@@ -93,14 +90,14 @@
               data-copy-source="qdrant-key"
               data-copy-value="{{ qdrant_api_key_value if has_qdrant_api_key else '' }}"
             >
-            <button type="button" class="memory-qdrant-copy-button" data-copy-target="qdrant-key" {% if not has_qdrant_api_key %}disabled{% endif %}>
+            <button type="button" class="memory-qdrant-copy-button ui-secondary-action" data-copy-target="qdrant-key" {% if not has_qdrant_api_key %}disabled{% endif %}>
               {{ icon('copy', 'ui-action-icon') }}
               <span>{{ tr(request, 'config_memory.copy_action', 'Kopieren') }}</span>
             </button>
           </span>
           <small class="hint-text">
             {% if has_qdrant_api_key %}
-            {{ tr(request, 'config_memory.secret_copy_hint', 'Der aktuell geladene Key wird hier nur fuer Admin-Copy/Paste angezeigt.') }}
+            {{ tr(request, 'config_memory.secret_copy_hint', 'Der aktuell geladene Key wird hier nur für Admin-Copy/Paste angezeigt.') }}
             {% else %}
             {{ tr(request, 'config_memory.secret_optional_hint', 'Only needed when this Qdrant instance is protected by an API key.') }}
             {% endif %}
@@ -111,7 +108,7 @@
         {% if request.state.auth_role == "admin" and request.state.debug_mode and qdrant_dashboard_url %}
         <button
           type="button"
-          class="nav-link memory-qdrant-dashboard-button"
+          class="nav-link memory-qdrant-dashboard-button ui-secondary-action"
           data-dashboard-url="{{ qdrant_dashboard_url }}"
           {% if has_qdrant_api_key %}data-copy-target="qdrant-key"{% endif %}
         >{{ tr(request, 'config_memory.qdrant_dashboard_with_key', 'Qdrant Dashboard + API-Key kopieren') if has_qdrant_api_key else tr(request, 'config_memory.qdrant_dashboard', 'Qdrant dashboard') }}</button>
@@ -166,14 +163,14 @@
         <option value="{{ name }}" {% if name == active_collection %}selected{% endif %}>{{ name }}</option>
         {% endfor %}
       </select>
-      <button type="submit">{{ tr(request, 'config_memory.set_active_collection', 'Set active collection') }}</button>
+      <button type="submit" class="ui-secondary-action">{{ tr(request, 'config_memory.set_active_collection', 'Set active collection') }}</button>
     </form>
 
     <form method="post" action="{{ memory_config_create_path }}" class="editor-form">
       <label for="collection_name">{{ tr(request, 'config_memory.new_collection_name', 'New collection (name)') }}</label>
       <input id="collection_name" name="collection_name" type="text" placeholder="{{ tr(request, 'config_memory.new_collection_placeholder', 'e.g. aria_memory_demo_lab') }}" required>
       <small class="hint-text">{{ tr(request, 'config_memory.new_collection_hint', 'Will be created in Qdrant on first store with matching embedding dimension.') }}</small>
-      <button type="submit">{{ tr(request, 'config_memory.activate_collection', 'Activate collection') }}</button>
+      <button type="submit" class="ui-secondary-action">{{ tr(request, 'config_memory.activate_collection', 'Activate collection') }}</button>
     </form>
 
     <div class="prompt-table-wrap">
@@ -208,47 +205,6 @@
         </tbody>
       </table>
     </div>
-
-    <hr class="config-divider">
-
-    <h2 id="rollup">{{ tr(request, 'config_memory.rollup_title', 'Kontext-Rollup (Qdrant)' if memory_lang_de else 'Context rollup (Qdrant)') }}</h2>
-    <p>{{ tr(request, 'config_memory.rollup_desc_plain', 'Verschiebt alten Tageskontext automatisch in' if memory_lang_de else 'Moves old day context automatically into') }} <code>aria_context-mem_{{ username|lower }}</code> {{ tr(request, 'config_memory.rollup_desc_plain_after', 'und löscht danach die alten Tageskontext-Sammlungen.' if memory_lang_de else 'and deletes the old day-context collections afterwards.') }}</p>
-    <div class="inline-actions">
-      <a class="nav-link" href="{{ config_ui_prompts_path }}?file={{ memory_cfg.compression_summary_prompt|urlencode }}&return_to=%2Fmemories%2Fconfig">
-        {{ tr(request, 'config_memory.edit_summary_prompt_label', 'Zusammenfassungs-Prompt bearbeiten' if memory_lang_de else 'Edit summary prompt') }}
-      </a>
-      <span class="hint-text">{{ tr(request, 'config_memory.summary_prompt_hint_plain', 'Der Prompt-Text wird im Prompt Studio gepflegt, nicht als Dateipfad in der Benutzeroberfläche.' if memory_lang_de else 'Prompt text is managed in Prompt Studio, not as a file path in the user interface.') }}</span>
-    </div>
-    <form method="post" action="{{ memory_config_compression_save_path }}" class="editor-form">
-      <label for="compress_after_days">{{ tr(request, 'config_memory.compress_after_days_plain', 'Nach wie vielen Tagen Tageskontext ins Rollup verschieben?' if memory_lang_de else 'Move day context to rollup after how many days?') }}</label>
-      <input
-        id="compress_after_days"
-        name="compress_after_days"
-        type="number"
-        min="1"
-        value="{{ memory_cfg.collections.sessions.compress_after_days or 7 }}"
-        required
-      >
-      <label for="monthly_after_days">{{ tr(request, 'config_memory.monthly_after_days_plain', 'Nach wie vielen Tagen als Monatszusammenfassung verdichten?' if memory_lang_de else 'Create monthly summary after how many days?') }}</label>
-      <input
-        id="monthly_after_days"
-        name="monthly_after_days"
-        type="number"
-        min="1"
-        value="{{ memory_cfg.collections.sessions.monthly_after_days or 30 }}"
-        required
-      >
-      <button type="submit">{{ tr(request, 'config_memory.save_settings', 'Save settings') }}</button>
-    </form>
-    <form method="post" action="{{ memory_config_compress_path }}" class="editor-form memory-config-secondary-action">
-      <button type="submit">{{ tr(request, 'config_memory.move_now', 'Move now') }}</button>
-      <small class="hint-text">{{ tr(request, 'config_memory.move_now_hint', 'Processes only day-context collections that are older than the configured threshold.') }}</small>
-    </form>
-    {% if compress_result %}
-    <div class="alert ok">{{ compress_result }}</div>
-    {% endif %}
-
-    <hr class="config-divider">
 
     {% if request.state.can_access_advanced_config %}
     <section id="reindex-scheduler" class="config-domain-section">

@@ -14,11 +14,13 @@ from aria.modules.ssh_admin_ui.mutations import register_ssh_mutation_routes
 class ConnectionMutationRouteDeps:
     rss_poll_interval_save: Any
     connection_delete: Any
+    credential_rotate: Any
     ssh_save: Any
     discord_save: Any
     sftp_save: Any
     smb_save: Any
     webhook_save: Any
+    webhook_test: Any
     smtp_save: Any
     imap_save: Any
     http_api_save: Any
@@ -49,6 +51,10 @@ def register_connection_mutation_routes(app: FastAPI, deps: ConnectionMutationRo
         connection_ref: str = Form(...),
     ) -> RedirectResponse:
         return await deps.connection_delete(request, kind, connection_ref)
+
+    @app.post("/config/connections/credential-rotate")
+    async def config_connections_credential_rotate(request: Request) -> RedirectResponse:
+        return await deps.credential_rotate(request)
 
     register_ssh_mutation_routes(
         app,
@@ -159,6 +165,13 @@ def register_connection_mutation_routes(app: FastAPI, deps: ConnectionMutationRo
             content_type,
             guardrail_ref,
         )
+
+    @app.post("/config/connections/webhook/test")
+    async def config_webhook_connections_test(
+        request: Request,
+        connection_ref: str = Form(...),
+    ) -> RedirectResponse:
+        return await deps.webhook_test(request, connection_ref)
 
     @app.post("/config/connections/smtp/save")
     async def config_smtp_connections_save(

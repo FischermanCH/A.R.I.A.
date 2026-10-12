@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from importlib import import_module
 import json
@@ -18,6 +19,7 @@ from aria.modules.configuration_foundations.config import LLMConfig
 from aria.modules.model_gateway_clients.native_tools import field, first_choice, parse_tool_calls
 from aria.modules.model_gateway_clients.parameter_compat import call_with_model_parameter_compat
 from aria.modules.native_agent.pending_store import NativePendingStore
+from aria.modules.native_agent.trace_store import NativeTraceStore
 from aria.modules.platform_primitives.actionable_sequence import LAST_ACTIONABLE_SEQUENCE_STORE
 from aria.modules.platform_primitives.actionable_sequence import (
     CROSS_HOST_RECIPE_SUGGESTIONS,
@@ -30,6 +32,7 @@ from aria.modules.platform_primitives.actionable_sequence import (
     primary_action_recurrence_key,
 )
 from aria.modules.platform_primitives.i18n import I18NStore
+from aria.modules.platform_primitives.connection_refs import resolve_native_connection_arguments
 from aria.modules.platform_primitives.observed_claims import claim_recurrence_text
 from aria.modules.platform_primitives.text_utils import extract_json_object
 from aria.modules.sdk import NativeToolBinding, NativeToolContext
@@ -47,6 +50,7 @@ MEMORY_ALREADY_STORED_TOP_K = 4
 NATIVE_PROVIDER_MAX_ATTEMPTS = 3
 NATIVE_PROVIDER_RETRY_BACKOFF_SECONDS = (0.1, 0.2)
 NATIVE_AGENT_SUMMARY_WARNING = "native_agent_summary_unavailable"
+_TRACE_DETAIL_LEVEL: ContextVar[str] = ContextVar("native_trace_detail_level", default="minimal")
 
 
 class NativeAgentStepCancelled(RuntimeError):
@@ -159,10 +163,18 @@ def _tool_result_failed(result: Any) -> bool:
     if not isinstance(payload, Mapping):
         return False
     status = str(payload.get("status") or "").strip().lower()
-    return status in {
+    return status.endswith("_failed") or status in {
         "error", "failed", "failure", "blocked", "denied", "invalid_arguments",
-        "not_stored", "policy_denied", "forbidden_admin_only",
+        "not_stored", "policy_denied", "forbidden_admin_only", "connection_not_found",
+        "unknown_target", "requires_ssh_command",
     }
+
+
+def _effectful_tool_result_succeeded(result: Any) -> bool:
+    if _tool_result_failed(result):
+        return False
+    actionable_outcome = str(getattr(result, "actionable_outcome", "") or "").strip().lower()
+    return actionable_outcome != "skip"
 
 
 def _native_agent_text(language: str, key: str, default: str, **values: Any) -> str:
@@ -342,8 +354,8 @@ _UNSOURCED_ACTION_CLAIM_PATTERNS_EN = tuple(re.compile(pattern, re.IGNORECASE) f
     rf"\b[^.!?]{{1,240}}\b(?:was|were)\s+(?:successfully\s+)?{_ACTION_COMPLETION_VERBS_EN}\b",
 ))
 _ACTION_CLAIM_NEGATION = re.compile(
-    r"\b(?:nicht|kein(?:e|en|em|er|es)?|nie|weder|konnte\s+nicht|kann\s+nicht|"
-    r"not|never|cannot|could\s+not)\b|\b(?:couldn|can)['’]t\b|n['’]t\b",
+    r"\b(?:nicht|nichts|kein(?:e|en|em|er|es)?|nie|weder|konnte\s+nicht|kann\s+nicht|"
+    r"not|nothing|never|cannot|could\s+not)\b|\b(?:couldn|can)['’]t\b|n['’]t\b",
     re.IGNORECASE,
 )
 _ACTION_CLAIM_OFFER_OR_CONDITIONAL = re.compile(
@@ -363,15 +375,21 @@ _ACTION_CLAIM_EARLIER_TURN_ANCHOR = re.compile(
     r"in\s+the\s+background\s+job)\b",
     re.IGNORECASE,
 )
+_ACTION_CLAIM_EXISTING_STATE = re.compile(
+    r"\b(?:dokumente|dateien|eintr(?:ae|\N{LATIN SMALL LETTER A WITH DIAERESIS})ge|daten|"
+    r"documents|files|entries|data)\b[^.!?]{0,100}\b(?:die|welche|that|which)\b"
+    r"[^.!?]{0,100}\b(?:wurde[n]?\s+(?:gespeichert|importiert)|were\s+(?:stored|imported))\b",
+    re.IGNORECASE,
+)
 _UNSOURCED_ACTION_RETRY_INSTRUCTION = (
-    "You claimed to have performed an action, but no tool was called this turn, so nothing happened. "
+    "You claimed to have performed an action, but no action tool completed successfully this turn. "
     "If the user asked for an action, call the appropriate tool NOW and report only its real result. "
     "If a needed tool is unavailable or fails, say plainly that the action was NOT performed. "
     "If you are only recapping an action from an earlier turn, begin the recap sentence(s) with the "
     "literal word 'Vorhin' for a German answer or 'Earlier' for an English answer."
 )
 _UNSOURCED_ACTION_REFUSAL_EN = (
-    "I did NOT perform this action - no tool was called in this step. Please try again."
+    "I did NOT perform this action - no action tool completed successfully in this step. Please try again."
 )
 _NATIVE_AGENT_I18N = I18NStore(Path(__file__).resolve().parents[2] / "i18n")
 
@@ -418,6 +436,7 @@ def _looks_like_unsourced_action_claim(text: str) -> bool:
         if (
             _ACTION_CLAIM_OFFER_OR_CONDITIONAL.search(segment)
             or _ACTION_CLAIM_EARLIER_TURN_ANCHOR.search(segment)
+            or _ACTION_CLAIM_EXISTING_STATE.search(segment)
         ):
             continue
         for pattern in (*_UNSOURCED_ACTION_CLAIM_PATTERNS_DE, *_UNSOURCED_ACTION_CLAIM_PATTERNS_EN):
@@ -581,6 +600,8 @@ class NativeAgentOutcome:
     used_tool_names: tuple[str, ...] = ()
     used_intents: tuple[str, ...] = ()
     successful_tool_names: tuple[str, ...] = ()
+    journal_connection_kinds: tuple[str, ...] = ()
+    journal_connection_refs: tuple[str, ...] = ()
     confirmation_token: str = ""
     confirm_command: str = ""
     clear_confirmation_affordance: bool = False
@@ -592,6 +613,8 @@ class NativeAgentOutcome:
     recurrence_embedding_used: bool = False
     semantic_match_recipe: str = ""
     semantic_similarity: float = 0.0
+    semantic_source_connection: str = ""
+    semantic_target_connection: str = ""
     suggestion_affordance: dict[str, str] | None = None
     activity: dict[str, Any] | None = None
     memory_recurrence_signature_hash: str = ""
@@ -612,6 +635,9 @@ class NativeAgentOutcome:
     finalizer_error_detail: str = ""
     llm_param_compat_model: str = ""
     finish_reason: str = ""
+    tool_timings: tuple[tuple[str, int], ...] = ()
+    tool_detail_lines: tuple[str, ...] = ()
+    pre_loop_context_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -833,9 +859,7 @@ async def _record_usage(
 
 
 def _write_trace(root: Path, turn_id: str, row: dict[str, Any]) -> None:
-    root.mkdir(parents=True, exist_ok=True)
-    with (root / f"{turn_id}.jsonl").open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(row, ensure_ascii=True, sort_keys=True) + "\n")
+    NativeTraceStore(root, detail_level=_TRACE_DETAIL_LEVEL.get()).write(turn_id=turn_id, row=row)
 
 
 def _bounded_tool_result(content: str) -> str:
@@ -850,7 +874,7 @@ def _bounded_tool_result(content: str) -> str:
             "status": "truncated",
             "truncation": {
                 "truncated": True,
-                "notice": f"gekuerzt: zeige {shown} von {original_characters} Zeichen",
+                "notice": f"gekürzt: zeige {shown} von {original_characters} Zeichen",
                 "shown_characters": shown,
                 "original_characters": original_characters,
             },
@@ -984,6 +1008,9 @@ def _native_resume_snapshot(
     mcp_vision_replaced_images: int = 0,
     truncation_retry_used: bool = False,
     finish_reason: str = "",
+    successful_effectful_tool_names: Sequence[str] = (),
+    tool_timings: Sequence[tuple[str, int]] = (),
+    tool_detail_lines: Sequence[str] = (),
 ) -> dict[str, Any] | None:
     snapshot = {
         "version": 1,
@@ -1001,6 +1028,12 @@ def _native_resume_snapshot(
             [str(name), _bounded_tool_result(result)]
             for name, result in successful_effectful_observations
         ],
+        "successful_effectful_tool_names": [str(name) for name in successful_effectful_tool_names],
+        "tool_timings": [
+            [str(name), max(0, int(duration_ms))]
+            for name, duration_ms in tool_timings[-128:]
+        ],
+        "tool_detail_lines": [str(line)[:600] for line in tool_detail_lines[:24]],
         "tool_step_error": bool(tool_step_error),
         "unsourced_resource_retry_used": bool(unsourced_resource_retry_used),
         "action_claim_retry_used": bool(action_claim_retry_used),
@@ -1340,9 +1373,15 @@ async def run_native_agent_turn(
     mcp_vision_enabled: bool = True,
     mcp_vision_max_live_images: int = MCP_VISION_MAX_IMAGES_PER_TURN,
     mcp_vision_max_lifetime_images: int = MCP_VISION_MAX_IMAGES_PER_JOB,
+    connection_settings: Any = None,
+    trace_detail_level: str = "full",
 ) -> NativeAgentOutcome:
     resolved_completion = completion or getattr(import_module("litellm"), "acompletion")
-    loop_task = asyncio.create_task(_run_native_agent_loop(
+    trace_token = _TRACE_DETAIL_LEVEL.set(
+        "full" if str(trace_detail_level).lower() == "full" else "minimal"
+    )
+    try:
+        loop_task = asyncio.create_task(_run_native_agent_loop(
         message=message,
         user_id=user_id,
         turn_id=turn_id,
@@ -1377,7 +1416,10 @@ async def run_native_agent_turn(
         mcp_vision_enabled=mcp_vision_enabled,
         mcp_vision_max_live_images=mcp_vision_max_live_images,
         mcp_vision_max_lifetime_images=mcp_vision_max_lifetime_images,
-    ))
+            connection_settings=connection_settings,
+        ))
+    finally:
+        _TRACE_DETAIL_LEVEL.reset(trace_token)
     if resume_state is not None or not memory_learning_enabled or not _memory_learning_prefilter(
         message,
         confirmation_token=confirmation_token,
@@ -1456,6 +1498,7 @@ async def _run_native_agent_loop(
     mcp_vision_enabled: bool = True,
     mcp_vision_max_live_images: int = MCP_VISION_MAX_IMAGES_PER_TURN,
     mcp_vision_max_lifetime_images: int = MCP_VISION_MAX_IMAGES_PER_JOB,
+    connection_settings: Any = None,
 ) -> NativeAgentOutcome:
     restored_state = dict(resume_state or {})
     max_steps = max(max_steps, int(restored_state.get("budget_max_steps") or 0))
@@ -1464,6 +1507,21 @@ async def _run_native_agent_loop(
     successful_tool_names = [
         str(name) for name in restored_state.get("successful_tool_names", ())
     ]
+    journal_connection_kinds: set[str] = set()
+    journal_connection_refs: set[str] = set()
+    successful_effectful_tool_names = [
+        str(name) for name in restored_state.get("successful_effectful_tool_names", ())
+    ]
+    tool_timings = [
+        (str(row[0]), max(0, int(row[1])))
+        for row in restored_state.get("tool_timings", ())
+        if isinstance(row, (list, tuple)) and len(row) == 2
+    ]
+    tool_detail_lines = [
+        str(line)[:600]
+        for line in restored_state.get("tool_detail_lines", ())
+        if str(line).startswith("Routing Debug:")
+    ][:24]
     llm_calls = _restored_llm_calls(restored_state.get("llm_calls"))
     recurrence_record: ObservedSequenceRecord | None = None
     recurrence_embedding_used = False
@@ -1476,6 +1534,7 @@ async def _run_native_agent_loop(
     mcp_vision_degraded = bool(restored_state.get("mcp_vision_degraded", False))
     mcp_vision_replaced_images = max(0, int(restored_state.get("mcp_vision_replaced_images") or 0))
     mcp_vision_live_images = 0 if restored_state else max(0, int(restored_state.get("mcp_vision_live_images") or 0))
+    pre_loop_context_ms = 0
     truncation_retry_used = bool(restored_state.get("truncation_retry_used", False))
     last_finish_reason = str(restored_state.get("finish_reason") or "")
     llm_param_compat_model = str(restored_state.get("llm_param_compat_model") or "").strip()
@@ -1501,6 +1560,21 @@ async def _run_native_agent_loop(
         except Exception:
             # Job telemetry is observational and must never alter agent execution.
             return
+
+    async def invoke_tool(binding: NativeToolBinding, arguments: Mapping[str, Any]) -> Any:
+        started_at = time.perf_counter()
+        try:
+            return await binding.handler(
+                NativeToolContext(user_id=user_id, auth_role=auth_role, request_id=turn_id), arguments,
+            )
+        finally:
+            tool_timings.append((
+                binding.contract.name,
+                max(0, int((time.perf_counter() - started_at) * 1000)),
+            ))
+
+    def binding_is_effectful(binding: NativeToolBinding) -> bool:
+        return binding.contract.effect == "mutating" or bool(binding.contract.effectful)
 
     def freeze_suggestion_affordance() -> dict[str, str] | None:
         nonlocal suggestion_affordance
@@ -1580,6 +1654,8 @@ async def _run_native_agent_loop(
         kwargs.setdefault("recurrence_embedding_used", recurrence_embedding_used)
         kwargs.setdefault("semantic_match_recipe", semantic_suggestion.recipe_name if semantic_suggestion else "")
         kwargs.setdefault("semantic_similarity", semantic_suggestion.similarity if semantic_suggestion else 0.0)
+        kwargs.setdefault("semantic_source_connection", semantic_suggestion.source_host if semantic_suggestion else "")
+        kwargs.setdefault("semantic_target_connection", semantic_suggestion.new_host if semantic_suggestion else "")
         if args and args[0] == "final_answer":
             kwargs.setdefault("suggestion_affordance", freeze_suggestion_affordance())
         kwargs.setdefault("activity", dict(activity) if activity else None)
@@ -1592,6 +1668,11 @@ async def _run_native_agent_loop(
         kwargs.setdefault("finish_reason", last_finish_reason)
         kwargs.setdefault("resumed", bool(restored_state))
         kwargs.setdefault("successful_tool_names", tuple(successful_tool_names))
+        kwargs.setdefault("journal_connection_kinds", tuple(sorted(journal_connection_kinds)))
+        kwargs.setdefault("journal_connection_refs", tuple(sorted(journal_connection_refs)))
+        kwargs.setdefault("tool_timings", tuple(tool_timings))
+        kwargs.setdefault("tool_detail_lines", tuple(tool_detail_lines))
+        kwargs.setdefault("pre_loop_context_ms", pre_loop_context_ms)
         kwargs.setdefault("accumulated_usage", {
             key: max(0, int(dict(restored_state.get("usage") or {}).get(key, 0) or 0))
             for key in ("prompt_tokens", "completion_tokens", "total_tokens")
@@ -1732,13 +1813,17 @@ async def _run_native_agent_loop(
                 "native_confirmation_claim_refused", clear_confirmation_affordance=True,
             )
         try:
-            result = await binding.handler(
-                NativeToolContext(user_id=user_id, auth_role=auth_role, request_id=turn_id), pending.frozen_arguments,
-            )
+            result = await invoke_tool(binding, pending.frozen_arguments)
             activity = dict(result.activity) if result.activity else None
             result_failed = _tool_result_failed(result)
+            tool_detail_lines.extend(
+                str(line)[:600] for line in getattr(result, "detail_lines", ())
+                if str(line).startswith("Routing Debug:")
+            )
             if not result_failed:
                 successful_tool_names.append(pending.tool_name)
+                if binding_is_effectful(binding) and _effectful_tool_result_succeeded(result):
+                    successful_effectful_tool_names.append(pending.tool_name)
             _remember_actionable(
                 actionable_sequence_store, user_id=user_id, turn_id=turn_id,
                 intent=pending.request_message, tool_name=pending.tool_name,
@@ -1781,6 +1866,7 @@ async def _run_native_agent_loop(
             (pending.tool_name,), (result.intent,),
             clear_confirmation_affordance=True,
         )
+    context_started_at = time.perf_counter()
     history_messages = _normalize_recent_history_messages(
         recent_history, current_message=message,
     )
@@ -1841,6 +1927,7 @@ async def _run_native_agent_loop(
             return _outcome("fail_closed", "", 0, "native_agent_resume_state_invalid")
         messages = [messages[0], *(_resume_safe_value(dict(row)) for row in resumed_messages)]
         mcp_vision_live_images = _live_image_count(messages)
+    pre_loop_context_ms = max(0, int((time.perf_counter() - context_started_at) * 1000))
     provider_calls = max(0, int(restored_state.get("provider_calls") or 0))
     used_tool_names = [str(name) for name in restored_state.get("used_tool_names", ())]
     used_intents = [str(intent) for intent in restored_state.get("used_intents", ())]
@@ -1949,6 +2036,9 @@ async def _run_native_agent_loop(
                 budget_max_steps=max_steps,
                 budget_max_provider_calls=max_provider_calls,
                 llm_param_compat_model=llm_param_compat_model,
+                successful_effectful_tool_names=successful_effectful_tool_names,
+                tool_timings=tool_timings,
+                tool_detail_lines=tool_detail_lines,
             )
             if snapshot is not None:
                 raise NativeAgentPaused(snapshot)
@@ -2047,7 +2137,7 @@ async def _run_native_agent_loop(
                     "final_answer", refusal, provider_calls, reason,
                     tuple(used_tool_names), tuple(used_intents),
                 )
-            if text and not used_tool_names and _looks_like_unsourced_action_claim(text):
+            if text and not successful_effectful_tool_names and _looks_like_unsourced_action_claim(text):
                 if not action_claim_retry_used and provider_calls < max_provider_calls:
                     action_claim_retry_used = True
                     messages.append({"role": "system", "content": _UNSOURCED_ACTION_RETRY_INSTRUCTION})
@@ -2119,6 +2209,23 @@ async def _run_native_agent_loop(
                 })
                 return _outcome("fail_closed", "", provider_calls, reason, tuple(used_tool_names), tuple(used_intents))
             binding = bindings_by_name[call.name]
+            resolution = resolve_native_connection_arguments(
+                binding.contract, call.arguments, connection_settings,
+            ) if connection_settings is not None else None
+            if resolution is not None and resolution.error is not None:
+                tool_result = json.dumps(resolution.error.payload(), ensure_ascii=True, sort_keys=True)
+                tool_timings.append((call.name, 0))
+                messages.append({"role": "tool", "tool_call_id": call.call_id, "content": tool_result})
+                _write_trace(trace_root, turn_id, {
+                    "turn_id": turn_id, "step_index": step_index, "goal": message,
+                    "offered_tools": offered_tools, "chosen_tool": call.name,
+                    "tool_arguments": {}, "tool_result": tool_result,
+                    "final_outcome": "continue", "reason": resolution.error.status,
+                })
+                await checkpoint(step_index, (call.name,), tool_result)
+                continue
+            if resolution is not None:
+                call = replace(call, arguments=dict(resolution.arguments))
             if binding.contract.effect == "mutating" and binding.contract.confirmation_required:
                 if not _valid_arguments(binding.contract.input_schema, call.arguments):
                     tool_result = json.dumps({
@@ -2179,6 +2286,7 @@ async def _run_native_agent_loop(
                     "offered_tools": offered_tools, "chosen_tool": call.name,
                     "tool_arguments": call.arguments, "tool_result": "",
                     "final_outcome": "pending_confirmation", "confirmation_token": token,
+                    "effect": binding.contract.effect,
                 })
                 if detached_check is not None:
                     try:
@@ -2210,6 +2318,9 @@ async def _run_native_agent_loop(
                             auth_role=auth_role,
                             turn_id=turn_id,
                             llm_param_compat_model=llm_param_compat_model,
+                            successful_effectful_tool_names=successful_effectful_tool_names,
+                            tool_timings=tool_timings,
+                            tool_detail_lines=tool_detail_lines,
                         )
                         if snapshot is not None:
                             snapshot.update({
@@ -2229,17 +2340,39 @@ async def _run_native_agent_loop(
                     confirmation_token=token, confirm_command=command,
                 )
             try:
-                result = await binding.handler(
-                    NativeToolContext(user_id=user_id, auth_role=auth_role, request_id=turn_id), call.arguments,
+                result = await invoke_tool(binding, call.arguments)
+                journal_connection_kinds.update(
+                    str(kind).strip()
+                    for kind in binding.contract.required_connection_kinds
+                    if str(kind).strip()
                 )
+                explicit_connection_kind = str(call.arguments.get("connection_kind") or "").strip()
+                if explicit_connection_kind:
+                    journal_connection_kinds.add(explicit_connection_kind)
+                explicit_connection_ref = str(call.arguments.get("connection_ref") or "").strip()
+                if explicit_connection_ref:
+                    journal_connection_refs.add(explicit_connection_ref)
+                targets = call.arguments.get("targets")
+                if isinstance(targets, list):
+                    journal_connection_refs.update(
+                        str(value).strip()
+                        for value in targets
+                        if isinstance(value, str) and str(value).strip()
+                    )
                 activity = dict(result.activity) if result.activity else activity
                 tool_result = _bounded_tool_result(result.content)
                 used_tool_names.append(call.name)
                 used_intents.append(result.intent)
                 result_failed = _tool_result_failed(result)
+                tool_detail_lines.extend(
+                    str(line)[:600] for line in getattr(result, "detail_lines", ())
+                    if str(line).startswith("Routing Debug:")
+                )
                 tool_step_error = tool_step_error or result_failed
                 if not result_failed:
                     successful_tool_names.append(call.name)
+                    if binding_is_effectful(binding) and _effectful_tool_result_succeeded(result):
+                        successful_effectful_tool_names.append(call.name)
                 if not result_failed:
                     successful_effectful_observations.append((call.name, tool_result))
                 _remember_actionable(
@@ -2308,6 +2441,7 @@ async def _run_native_agent_loop(
                 "tool_arguments": call.arguments, "tool_result": tool_result,
                 "finish_reason": finish_reason,
                 "final_outcome": "terminal_final_answer" if sole_terminal_call else "continue",
+                "effect": binding.contract.effect,
             })
             if sole_terminal_call:
                 recurrence_record = await record_recurrence()
@@ -2339,6 +2473,9 @@ async def _run_native_agent_loop(
                 auth_role=auth_role, turn_id=turn_id,
                 budget_max_steps=max_steps, budget_max_provider_calls=max_provider_calls,
                 llm_param_compat_model=llm_param_compat_model,
+                successful_effectful_tool_names=successful_effectful_tool_names,
+                tool_timings=tool_timings,
+                tool_detail_lines=tool_detail_lines,
             )
             if snapshot is not None:
                 snapshot["pause_reason"] = "budget_reached"
@@ -2404,6 +2541,19 @@ async def _run_native_agent_loop(
                 "infra_error", message_text, provider_calls, reason,
                 tuple(used_tool_names), tuple(used_intents),
                 finalizer_error_detail=detail,
+            )
+        if text and not successful_effectful_tool_names and _looks_like_unsourced_action_claim(text):
+            reason = "native_agent_action_claim_blocked"
+            refusal = _unsourced_action_refusal(text)
+            _write_trace(trace_root, turn_id, {
+                "turn_id": turn_id, "step_index": max_steps + 1, "goal": message,
+                "offered_tools": offered_tools, "chosen_tool": "", "tool_arguments": {},
+                "tool_result": "", "finish_reason": finish_reason,
+                "final_outcome": "final_answer", "reason": reason,
+            })
+            return _outcome(
+                "final_answer", refusal, provider_calls, reason,
+                tuple(used_tool_names), tuple(used_intents),
             )
         reason = "native_agent_budget_best_effort"
         _write_trace(trace_root, turn_id, {

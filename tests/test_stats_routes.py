@@ -852,7 +852,7 @@ def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updat
     assert [row["key"] for row in meta["rows"]] == list(OPERATOR_GUARDRAIL_ROW_KEYS)
     assert meta["rows"][0]["fallback"] == "Release metadata"
     assert meta["rows"][1]["fallback"] == "Module Registry"
-    assert meta["rows"][1]["detail"] == "106 modules · 416 internal dependencies · 62 external boundaries · 0 migration candidates"
+    assert meta["rows"][1]["detail"] == "106 modules · 422 internal dependencies · 62 external boundaries · 0 migration candidates"
     assert meta["rows"][1]["url"] == "/config/admin/modules"
     assert meta["rows"][3]["summary"] == "42 model tokens are still unpriced."
     assert meta["rows"][4]["fallback"] == "Cost tracking"
@@ -1686,7 +1686,7 @@ def test_stats_pricing_admin_htmx_saves_alias_and_manual_price(monkeypatch, tmp_
     assert settings.pricing.chat_models["company/private-chat"].input_per_million == 1.25
 
 
-def test_stats_page_renders_model_gateway_audit(monkeypatch, tmp_path) -> None:
+def test_stats_page_renders_passive_owner_overview_without_live_probes(monkeypatch, tmp_path) -> None:
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
     templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
@@ -1774,24 +1774,23 @@ def test_stats_page_renders_model_gateway_audit(monkeypatch, tmp_path) -> None:
         memory_skill=SimpleNamespace(embedding_client=embedding_client),
     )
 
+    forbidden_calls: list[str] = []
+
     async def fake_health(*_args, **_kwargs) -> dict[str, object]:
-        return {"services": [], "overall_status": "ok", "ok_count": 0, "warn_count": 0, "error_count": 0}
+        forbidden_calls.append("health")
+        raise AssertionError("stats GET must not perform live health checks")
 
     async def fake_qdrant(*_args, **_kwargs) -> dict[str, object]:
-        return {"available": False, "size_human": "-", "path": ""}
+        forbidden_calls.append("qdrant")
+        raise AssertionError("stats GET must not query qdrant")
 
     async def fake_routing_index(_settings) -> dict[str, object]:
-        return {"status": "warn", "summary": "", "collection": "", "fingerprint": "", "point_count": 0}
+        forbidden_calls.append("routing")
+        raise AssertionError("stats GET must not query routing")
 
     async def fake_experience_memory(_settings) -> dict[str, object]:
-        return {
-            "status": "ok",
-            "enabled": True,
-            "collection_count": 1,
-            "point_count": 3,
-            "collections": [{"name": "aria_recipe_experience_neo", "points": 3}],
-            "error": "",
-        }
+        forbidden_calls.append("recipe-experience")
+        raise AssertionError("stats GET must not query recipe experience")
 
     monkeypatch.setattr(stats_routes, "_build_health_meta", fake_health)
     monkeypatch.setattr(stats_routes, "_build_qdrant_storage_meta", fake_qdrant)
@@ -1809,21 +1808,36 @@ def test_stats_page_renders_model_gateway_audit(monkeypatch, tmp_path) -> None:
         get_runtime_preflight=lambda: {},
     )
 
-    response = TestClient(app).get("/stats")
+    client = TestClient(app)
+    response = client.get("/stats")
 
     assert response.status_code == 200
-    assert "Model Gateway Audit" in response.text
-    assert "Modul-Registry" in response.text
-    assert "106 Module · 416 interne Abhaengigkeiten · 62 externe Grenzen · 0 Migrationskandidaten" in response.text
+    assert 'data-stats-owner-sections="4"' in response.text
+    assert response.text.count('data-stats-section=') == 4
+    assert "Gesundheit, Kosten, Aktivitäten und Speicherbedarf auf einen Blick." in response.text
+    assert "Modell-Gateway" in response.text
     assert "Learning Worker" not in response.text
-    assert "Recipe Experience Memory" in response.text
-    assert "aria_recipe_experience_neo" in response.text
     assert "anthropic/claude-sonnet-4-5" in response.text
     assert "openai/text-embedding-3-small" in response.text
+    assert forbidden_calls == []
+    assert 'data-stats-check-tile' not in response.text
+    assert 'data-stats-block-url="/stats/blocks/startup"' in response.text
+    startup_fragment = client.get("/stats/blocks/startup")
+    assert startup_fragment.status_code == 200
+    assert 'data-stats-check-key="prompts"' in startup_fragment.text
+    assert forbidden_calls == []
+    runtime_fragment = client.get("/stats/blocks/runtime")
+    assert runtime_fragment.status_code == 200
+    assert 'data-stats-check-key="connections"' in runtime_fragment.text
+    assert 'href="/connections/status"' in runtime_fragment.text
+    assert forbidden_calls == []
+    operations_fragment = client.get("/stats/blocks/operations")
+    assert operations_fragment.status_code == 200
+    assert 'data-stats-check-key="routing_index"' in operations_fragment.text
+    assert 'data-stats-check-key="recipe_memory"' in operations_fragment.text
+    assert set(forbidden_calls) == {"routing", "recipe-experience"}
     assert ("stats_ui", "stats.html") in calls
-    assert 'href="/stats" data-busy-immediate="true"' in response.text
     assert 'href="/config/routing"' not in response.text
-    assert 'href="/config/admin/modules"' in response.text
     assert ("config_ui", "/config/routing") not in module_route_calls
     assert ("memory_admin_ui", "/memories/learning-worker/job/{job_id}") not in module_route_calls
     assert ("stats_ui", "/stats/reset") in module_route_calls

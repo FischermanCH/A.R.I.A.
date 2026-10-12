@@ -98,7 +98,7 @@ def test_unsourced_resource_claim_retries_once_then_uses_real_read(tmp_path) -> 
         (
             "Was steht in /host.conf?",
             "Der Inhalt der Datei /host.conf ist fabricated=true.",
-            "Ich kann den Inhalt gerade nicht ueber ein Werkzeug abrufen und gebe keine erfundenen Daten aus - bitte versuch es erneut.",
+            "Ich kann den Inhalt gerade nicht über ein Werkzeug abrufen und gebe keine erfundenen Daten aus - bitte versuch es erneut.",
         ),
         (
             "What is in /host.conf?",

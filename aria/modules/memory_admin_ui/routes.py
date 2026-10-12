@@ -431,7 +431,8 @@ async def _build_memory_map_snapshot(
         filter_type="all",
         query="",
         parse_collection_day_suffix=parse_collection_day_suffix,
-        compress_after_days=int(settings.memory.collections.sessions.compress_after_days or 7),
+        # Keep the existing browser diagnostic stable while the legacy writer is frozen.
+        compress_after_days=7,
         qdrant_reachable=bool(overview.get("reachable")),
     )
     memory_graph = _build_memory_graph(
@@ -1079,6 +1080,19 @@ def _build_rollup_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
     items.sort(key=lambda item: (str(item.get("period_end", "")), str(item.get("timestamp", ""))), reverse=True)
     return items
+
+
+async def _count_legacy_context_rollups(memory_skill: Any | None, user_id: str) -> int:
+    """Count existing rollups without modifying or re-embedding them."""
+
+    list_global = getattr(memory_skill, "list_memories_global", None)
+    if not callable(list_global):
+        return 0
+    try:
+        rows = await list_global(user_id=user_id, type_filter="knowledge", limit=10_000)
+    except Exception:  # noqa: BLE001 - this read-only status must not break maintenance.
+        return 0
+    return len(_build_rollup_entries(list(rows or [])))
 
 
 def _build_rollup_groups(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1916,15 +1930,12 @@ def _memories_config_redirect(
     *,
     saved: bool = False,
     error: str = "",
-    compress_result: str = "",
     anchor: str = "",
 ) -> RedirectResponse:
     url = _memory_admin_route("/memories/config")
     params: list[str] = []
     if saved:
         params.append("saved=1")
-    if compress_result:
-        params.append(f"compress_result={quote_plus(compress_result)}")
     if error:
         params.append(f"error={quote_plus(error)}")
     if params:
@@ -2129,65 +2140,6 @@ def _resolve_document_target_collection(
         return active_collection
 
     return _default_document_collection_for_user(username)
-
-
-def _build_compression_result_message(stats: dict[str, Any], compress_after_days: int, *, lang: str = "de") -> str:
-    moved = list(stats.get("compressed_collections", []) or [])
-    removed = list(stats.get("removed_collections", []) or [])
-    skipped_recent = list(stats.get("skipped_recent", []) or [])
-    failed_delete = list(stats.get("failed_delete", []) or [])
-    moved_total = int(stats.get("compressed_week", 0) or 0) + int(stats.get("compressed_month", 0) or 0)
-
-    if moved_total <= 0:
-        if skipped_recent:
-            preview = ", ".join(skipped_recent[:3])
-            return _memory_routes_text(
-                lang,
-                "compression.no_move_recent",
-                (
-                    "Rollup finished: nothing moved. {count} daily collections are younger than "
-                    "{days} days or still active daily context. Examples: {preview}"
-                ),
-                count=len(skipped_recent),
-                days=compress_after_days,
-                preview=preview,
-            )
-        return _memory_routes_text(lang, "compression.no_move", "Rollup finished: nothing to move.")
-
-    parts = [
-        _memory_routes_text(
-            lang,
-            "compression.summary",
-            "Rollup finished: moved={moved}, removed={removed}",
-            moved=moved_total,
-            removed=int(stats.get("collections_removed", 0) or 0),
-        ),
-    ]
-    if moved:
-        parts.append(_memory_routes_text(lang, "compression.moved", "Moved: {items}", items=", ".join(moved[:3])))
-    if skipped_recent:
-        parts.append(
-            _memory_routes_text(
-                lang,
-                "compression.skipped_recent",
-                "Unchanged ({count}): younger than {days} days or current daily context",
-                count=len(skipped_recent),
-                days=compress_after_days,
-            )
-        )
-    if failed_delete:
-        parts.append(
-            _memory_routes_text(
-                lang,
-                "compression.failed_delete",
-                "Not deleted ({count}): {items}",
-                count=len(failed_delete),
-                items=", ".join(failed_delete[:3]),
-            )
-        )
-    if removed and len(removed) != len(moved):
-        parts.append(_memory_routes_text(lang, "compression.removed", "Removed: {items}", items=", ".join(removed[:3])))
-    return " | ".join(parts)
 
 
 def register_memories_routes(
@@ -3117,6 +3069,11 @@ def register_memories_routes(
         settings = get_settings()
         username = get_username_from_request(request) or "web"
         inventory_index_status: dict[str, Any] = {}
+        pipeline = get_pipeline()
+        legacy_rollup_count = await _count_legacy_context_rollups(
+            getattr(pipeline, "memory_skill", None),
+            username,
+        )
         if bool(getattr(request.state, "can_access_advanced_config", False)):
             inventory_index_status = await inventory_index_status_builder(settings)
         return templates.TemplateResponse(
@@ -3130,83 +3087,22 @@ def register_memories_routes(
                 "error_message": error,
                 "focus": str(focus or "").strip().lower(),
                 "inventory_index_status": inventory_index_status,
+                "legacy_rollup_count": legacy_rollup_count,
             },
         )
 
     @app.post("/memories/maintenance")
     async def memories_maintenance_run(
         request: Request,
-        source_view: str = Form(""),
-        type: str = Form("all"),
-        q: str = Form(""),
-        collection_filter: str = Form(""),
-        document_id: str = Form(""),
-        document_name: str = Form(""),
-        limit: int = Form(50),
-        sort: str = Form("updated_desc"),
     ) -> RedirectResponse:
-        settings = get_settings()
-        pipeline = get_pipeline()
-        username = get_username_from_request(request) or "web"
-        if not pipeline.memory_skill:
-            if str(source_view or "").strip().lower() == "maintenance":
-                return _memories_maintenance_redirect(error="Memory nicht aktiv", focus="rollup")
-            return _memories_overview_redirect(error="Memory nicht aktiv")
-        try:
-            session_cfg = settings.memory.collections.sessions
-            result = await pipeline.memory_skill.execute(
-                query="",
-                params={
-                    "action": "compress_sessions",
-                    "user_id": username,
-                    "compress_after_days": int(getattr(session_cfg, "compress_after_days", 7)),
-                    "monthly_after_days": int(getattr(session_cfg, "monthly_after_days", 30)),
-                },
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        return _memories_maintenance_redirect(
+            info=_memory_routes_text(
+                lang,
+                "info.context_rollup_retired",
+                "Legacy context rollups are read-only; no data was changed.",
             )
-            if result.success:
-                if str(source_view or "").strip().lower() == "maintenance":
-                    return _memories_maintenance_redirect(info=result.content, focus="rollup")
-                return _memories_redirect(
-                    filter_type=type,
-                    query=q,
-                    collection_filter=collection_filter,
-                    document_id=document_id,
-                    document_name=document_name,
-                    page=1,
-                    limit=limit,
-                    sort=sort,
-                    info=result.content,
-                )
-            message = result.error or _memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.compression_failed", "Compression failed")
-            if str(source_view or "").strip().lower() == "maintenance":
-                return _memories_maintenance_redirect(error=message, focus="rollup")
-            return _memories_redirect(
-                filter_type=type,
-                query=q,
-                collection_filter=collection_filter,
-                document_id=document_id,
-                document_name=document_name,
-                page=1,
-                limit=limit,
-                sort=sort,
-                error=message,
-            )
-        except Exception as exc:  # noqa: BLE001
-            lang = str(getattr(request.state, "lang", "de") or "de")
-            error = _friendly_memory_error(lang, exc, "Komprimierung konnte nicht gestartet werden.", "Could not start compression.")
-            if str(source_view or "").strip().lower() == "maintenance":
-                return _memories_maintenance_redirect(error=error, focus="rollup")
-            return _memories_redirect(
-                filter_type=type,
-                query=q,
-                collection_filter=collection_filter,
-                document_id=document_id,
-                document_name=document_name,
-                page=1,
-                limit=limit,
-                sort=sort,
-                error=error,
-            )
+        )
 
     @app.post("/memories/maintenance/reset-learning-suggestions", response_model=None)
     async def memories_reset_learning_suggestions(
@@ -3295,7 +3191,6 @@ def register_memories_routes(
         request: Request,
         saved: int = 0,
         error: str = "",
-        compress_result: str = "",
     ) -> HTMLResponse:
         settings = get_settings()
         if not _is_admin_request(request, get_auth_session_from_request, sanitize_role):
@@ -3320,7 +3215,6 @@ def register_memories_routes(
                 "has_qdrant_api_key": bool(getattr(settings.memory, "qdrant_api_key", "")),
                 "qdrant_api_key_value": str(getattr(settings.memory, "qdrant_api_key", "") or ""),
                 "qdrant_dashboard_url": qdrant_dashboard_url(request),
-                "compress_result": compress_result,
             },
         )
 
@@ -3697,92 +3591,15 @@ def register_memories_routes(
     @app.post("/memories/config/compress")
     @app.post("/config/memory/compress")
     async def config_memory_compress(request: Request) -> RedirectResponse:
-        settings = get_settings()
-        pipeline = get_pipeline()
         if not _is_admin_request(request, get_auth_session_from_request, sanitize_role):
             return _memories_overview_redirect(error="no_admin")
-        username = get_username_from_request(request)
-        if not username:
-            return _memories_config_redirect(error="Bitte zuerst Benutzernamen setzen", anchor="rollup")
-        if not pipeline.memory_skill:
-            return _memories_config_redirect(error="Memory nicht aktiv", anchor="rollup")
-        try:
-            session_cfg = settings.memory.collections.sessions
-            compress_after_days = int(session_cfg.compress_after_days or 7)
-            monthly_after_days = int(session_cfg.monthly_after_days or 30)
-            stats = await pipeline.memory_skill.compress_old_sessions(
-                user_id=username,
-                compress_after_days=compress_after_days,
-                monthly_after_days=monthly_after_days,
-            )
-            await pipeline.token_tracker.log(
-                request_id=str(uuid4()),
-                user_id=username,
-                intents=["memory_compress"],
-                router_level=0,
-                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                chat_model=settings.llm.model,
-                embedding_model=settings.embeddings.model,
-                embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-                chat_cost_usd=None,
-                embedding_cost_usd=None,
-                total_cost_usd=None,
-                duration_ms=0,
-                source="system",
-                skill_errors=[],
-                extraction_model="compression",
-                extraction_usage={
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0,
-                    "calls": int(stats.get("compressed_week", 0)) + int(stats.get("compressed_month", 0)),
-                },
-            )
-            message = _build_compression_result_message(stats, compress_after_days, lang=str(getattr(request.state, "lang", "de") or "de"))
-            return _memories_config_redirect(compress_result=message, anchor="rollup")
-        except Exception as exc:  # noqa: BLE001
-            lang = str(getattr(request.state, "lang", "de") or "de")
-            error = _friendly_memory_error(lang, exc, _memory_routes_text(lang, "error.memory_compression_failed", "Memory compression failed."), "Memory compression failed.")
-            return _memories_config_redirect(error=error, anchor="rollup")
+        return _memories_config_redirect()
 
     @app.post("/memories/config/compression-save")
     @app.post("/config/memory/compression-save")
     async def config_memory_compression_save(
         request: Request,
-        compression_summary_prompt: str = Form(""),
-        compress_after_days: int = Form(...),
-        monthly_after_days: int = Form(...),
     ) -> RedirectResponse:
         if not _is_admin_request(request, get_auth_session_from_request, sanitize_role):
             return _memories_overview_redirect(error="no_admin")
-        try:
-            if compress_after_days < 1:
-                raise ValueError("compress_after_days muss >= 1 sein.")
-            if monthly_after_days < compress_after_days:
-                raise ValueError("monthly_after_days muss >= compress_after_days sein.")
-
-            raw = read_raw_config()
-            raw.setdefault("memory", {})
-            if not isinstance(raw["memory"], dict):
-                raw["memory"] = {}
-            clean_path = str(compression_summary_prompt).strip().replace("\\", "/")
-            if clean_path:
-                target = resolve_prompt_file(clean_path)
-                if not target.exists():
-                    raise ValueError("Prompt-Datei existiert nicht.")
-                raw["memory"]["compression_summary_prompt"] = clean_path
-            raw["memory"].setdefault("collections", {})
-            if not isinstance(raw["memory"]["collections"], dict):
-                raw["memory"]["collections"] = {}
-            raw["memory"]["collections"].setdefault("sessions", {})
-            if not isinstance(raw["memory"]["collections"]["sessions"], dict):
-                raw["memory"]["collections"]["sessions"] = {}
-            raw["memory"]["collections"]["sessions"]["compress_after_days"] = int(compress_after_days)
-            raw["memory"]["collections"]["sessions"]["monthly_after_days"] = int(monthly_after_days)
-            write_raw_config(raw)
-            reload_runtime()
-            return _memories_config_redirect(saved=True, anchor="rollup")
-        except (OSError, ValueError) as exc:
-            lang = str(getattr(request.state, "lang", "de") or "de")
-            error = _friendly_memory_error(lang, exc, "Komprimierungs-Einstellungen konnten nicht gespeichert werden.", "Could not save compression settings.")
-            return _memories_config_redirect(error=error, anchor="rollup")
+        return _memories_config_redirect()

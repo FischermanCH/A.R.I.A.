@@ -1,4 +1,4 @@
-"""Declarative metadata for the standalone native Tool-Calling selftest."""
+"""Declarative metadata for the LLM-settings Tool-Calling selftest action."""
 
 MODULE_MANIFEST = {
     "id": "native_toolcall_selftest",
@@ -7,11 +7,11 @@ MODULE_MANIFEST = {
     "lifecycle": "bootstrap_static",
     "risk": "medium_needs_proof",
     "parent": "model_gateway_clients",
-    "description": "Owns one inert admin-triggered two-hop native Tool-Calling diagnostic with a deterministic add_numbers dummy tool.",
-    "routes_prefixes": ["/config/native-toolcall-selftest"],
-    "routes": ["/config/native-toolcall-selftest"],
+    "description": "Owns one explicit admin-triggered two-hop native Tool-Calling diagnostic with a deterministic add_numbers dummy tool.",
+    "routes_prefixes": ["/config/native-toolcall-selftest", "/config/llm/toolcall-selftest"],
+    "routes": ["/config/native-toolcall-selftest", "/config/llm/toolcall-selftest"],
     "python": ["aria/modules/native_toolcall_selftest/roundtrip.py", "aria/modules/native_toolcall_selftest/routes.py"],
-    "templates": ["native_toolcall_selftest.html"],
+    "templates": [],
     "tests": ["tests/test_native_toolcall_selftest.py"],
     "depends_on": ["configuration_foundations", "model_gateway_clients"],
     "external_boundaries": [{"id": "litellm.native_tool_call", "category": "library_service", "disposition": "durable"}],

@@ -10,8 +10,7 @@ from aria.modules.connections_profiles.admin import (
     update_connection_profile,
 )
 import aria.modules.chat_admin_composition.actions as chat_admin_actions
-import aria.modules.chat_surface.catalog as chat_catalog
-from aria.modules.chat_surface.catalog import build_chat_command_catalog
+from aria.modules.chat_surface.actions import build_chat_quick_actions
 from aria.modules.config_ui.routes import _normalize_rss_feed_url_for_dedupe
 
 
@@ -1062,133 +1061,16 @@ def test_connection_delete_pending_expires_after_max_age(monkeypatch) -> None:
     )
 
 
-def test_build_chat_command_catalog_includes_admin_entries_for_admins() -> None:
-    entries, group_titles, toolbox_groups = build_chat_command_catalog(
-        lang="de",
-        auth_role="admin",
-        advanced_mode=True,
-        recall_templates=["erinnerst du dich an"],
-        store_templates=["merk dir"],
-        recipe_trigger_hints=["server update"],
-        connection_catalog={"ssh": ["mgmt-ssh"], "sftp": ["mgmt-sftp"], "smb": ["nas-share"], "rss": ["heise-news"], "discord": ["alerts-bot"], "mqtt": ["event-bus"], "email": ["alerts-mail"], "imap": ["ops-inbox"]},
-    )
-    assert any(entry["group"] == "commands" and entry["insert"] == "suche im internet nach " for entry in entries)
-    assert any(entry["group"] == "admin" and entry["insert"] == "starte update " for entry in entries)
-    assert any(entry["group"] == "admin" and entry["insert"] == "exportiere config backup " for entry in entries)
-    assert any(entry["group"] == "admin" and "erstelle ssh mgmt-ssh" in entry["insert"] for entry in entries)
-    assert any(entry["group"] == "admin" and "erstelle sftp mgmt-sftp" in entry["insert"] for entry in entries)
-    assert any(entry["group"] == "admin" and "erstelle smb nas-share" in entry["insert"] for entry in entries)
-    assert any(entry["group"] == "admin" and "erstelle rss heise-news" in entry["insert"] for entry in entries)
-    assert any(entry["group"] == "admin" and "aktualisiere discord alerts-bot" in entry["insert"] for entry in entries)
-    assert any(entry["group"] == "admin" and "erstelle mqtt event-bus" in entry["insert"] for entry in entries)
-    assert any(entry["group"] == "admin" and "erstelle smtp alerts-mail" in entry["insert"] for entry in entries)
-    assert any(entry["group"] == "admin" and "erstelle imap ops-inbox" in entry["insert"] for entry in entries)
-    assert group_titles["admin"]
-    assert any(group["key"] == "admin" for group in toolbox_groups)
+def test_chat_quick_actions_keep_only_ui_capabilities() -> None:
+    rows = build_chat_quick_actions("de")
+    assert [row["key"] for row in rows] == [
+        "new_chat", "import_document", "save_chat_note", "open_notes",
+    ]
+    assert not any("connection" in str(row).lower() for row in rows)
 
 
-def test_build_chat_command_catalog_document_import_uses_memory_admin_readpoint(monkeypatch) -> None:
-    calls: list[tuple[str, str]] = []
-
-    def tracking_module_route_path(module_id: str, route_path: str) -> str | None:
-        calls.append((module_id, route_path))
-        if module_id == "memory_admin_ui" and route_path == "/memories/import":
-            return route_path
-        return None
-
-    monkeypatch.setattr(chat_catalog, "module_route_path", tracking_module_route_path)
-
-    entries, _group_titles, _toolbox_groups = build_chat_command_catalog(
-        lang="de",
-        auth_role="user",
-        advanced_mode=False,
-        recall_templates=[],
-        store_templates=[],
-        recipe_trigger_hints=[],
-    )
-
-    document_entry = next(entry for entry in entries if entry.get("group") == "documents")
-    assert document_entry["href"] == "/memories/import#document-import"
-    assert ("memory_admin_ui", "/memories/import") in calls
-
-
-def test_build_chat_command_catalog_does_not_rank_tools_from_recent_words() -> None:
-    _entries, group_titles, toolbox_groups = build_chat_command_catalog(
-        lang="de",
-        auth_role="admin",
-        advanced_mode=True,
-        recall_templates=["erinnerst du dich an"],
-        store_templates=["merk dir"],
-        recipe_trigger_hints=["server update"],
-        connection_catalog={"discord": ["alerts-bot"], "rss": ["heise-news"]},
-        recent_messages=["schicke bitte eine test nachricht nach discord an alerts bot"],
-    )
-    assert "suggested" not in group_titles
-    assert not any(group["key"] == "suggested" for group in toolbox_groups)
-
-
-def test_build_chat_command_catalog_omits_suggested_group_without_recent_context() -> None:
-    _entries, _group_titles, toolbox_groups = build_chat_command_catalog(
-        lang="de",
-        auth_role="admin",
-        advanced_mode=True,
-        recall_templates=["erinnerst du dich an"],
-        store_templates=["merk dir"],
-        recipe_trigger_hints=["server update"],
-        connection_catalog={"discord": ["alerts-bot"], "rss": ["heise-news"]},
-        recent_messages=[],
-    )
-    assert not any(group["key"] == "suggested" for group in toolbox_groups)
-
-
-def test_build_chat_command_catalog_hides_admin_entries_for_users() -> None:
-    entries, _group_titles, toolbox_groups = build_chat_command_catalog(
-        lang="de",
-        auth_role="user",
-        advanced_mode=False,
-        recall_templates=["erinnerst du dich an"],
-        store_templates=["merk dir"],
-        recipe_trigger_hints=["server update"],
-        connection_catalog={"rss": ["heise-news"], "discord": ["alerts-bot"]},
-    )
-    assert any(entry["group"] == "commands" and entry["insert"] == "suche im internet nach " for entry in entries)
-    assert not any(entry["group"] == "admin" for entry in entries)
-    assert not any(group["key"] == "admin" for group in toolbox_groups)
-
-
-def test_build_chat_command_catalog_omits_retired_chat_learn_mode_controls() -> None:
-    entries, group_titles, toolbox_groups = build_chat_command_catalog(
-        lang="de",
-        auth_role="user",
-        advanced_mode=False,
-        recall_templates=[],
-        store_templates=[],
-        recipe_trigger_hints=[],
-    )
-
-    assert "learning" not in group_titles
-    assert not any(entry.get("group") == "learning" for entry in entries)
-    assert not any(group.get("key") == "learning" for group in toolbox_groups)
-
-
-def test_build_chat_command_catalog_localizes_visible_inserts_for_english() -> None:
-    entries, _group_titles, _toolbox_groups = build_chat_command_catalog(
-        lang="en",
-        auth_role="admin",
-        advanced_mode=True,
-        recall_templates=["erinnerst du dich an"],
-        store_templates=["merk dir"],
-        recipe_trigger_hints=["server update"],
-        connection_catalog={"ssh": ["mgmt-ssh"], "discord": ["alerts-bot"]},
-    )
-    assert any(entry["group"] == "read" and entry["insert"] == "what do you know about " for entry in entries)
-    assert any(entry["group"] == "store" and entry["insert"] == "remember this: " for entry in entries)
-    assert any(entry["group"] == "commands" and entry["insert"] == "search the web for " for entry in entries)
-    assert any(entry["group"] == "commands" and entry["insert"] == "show stats " for entry in entries)
-    assert any(entry["group"] == "commands" and entry["insert"] == "show activities " for entry in entries)
-    assert any(entry["group"] == "admin" and entry["insert"] == "start update " for entry in entries)
-    assert any(entry["group"] == "admin" and entry["insert"] == "show update status " for entry in entries)
-    assert any(entry["group"] == "admin" and entry["insert"] == "export config backup " for entry in entries)
-    assert any(entry["group"] == "admin" and entry["insert"] == "import config backup " for entry in entries)
-    assert any(entry["group"] == "admin" and "create ssh mgmt-ssh" in entry["insert"] for entry in entries)
-    assert any(entry["group"] == "admin" and "update discord alerts-bot" in entry["insert"] for entry in entries)
+def test_chat_quick_actions_are_localized_in_english() -> None:
+    rows = build_chat_quick_actions("en")
+    assert [row["label"] for row in rows] == [
+        "New chat", "Import document", "Save chat as note", "Open notes",
+    ]

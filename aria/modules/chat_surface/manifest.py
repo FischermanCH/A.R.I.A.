@@ -11,9 +11,9 @@ MODULE_MANIFEST: dict[str, Any] = {
     "status": "import_boundary_active",
     "lifecycle": "bootstrap_static",
     "risk": "medium",
-    "description": "Owns the passive GET home/chat page and command catalog without changing chat dispatch.",
+    "description": "Owns the passive GET home/chat page and compact UI-only action menu without changing chat dispatch.",
     "python": [
-        "aria/modules/chat_surface/catalog.py",
+        "aria/modules/chat_surface/actions.py",
         "aria/modules/chat_surface/routes.py",
     ],
     "templates": [

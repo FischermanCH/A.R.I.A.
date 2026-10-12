@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "path": "/",
+      "rule": "R2",
+      "reason": "Der Chat ist eine immersive Arbeitsfläche; die globale A.R.I.A.-Kopfleiste ist der Titel und R3 verbietet dort bewusst eine zusätzliche Seitenhilfe."
+    }
+  ]
+}

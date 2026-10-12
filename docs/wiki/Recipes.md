@@ -34,45 +34,11 @@ Recipes are explicit, reviewable workflows. Agentic Action Flow is the runtime a
 
 Recipes can therefore stay controlled while still benefiting from LLM understanding.
 
-## Learned recipes and Experience Memory
+## Recurring workflows
 
-Successful safe runs can become learned recipe candidates or Experience Memory. They are planner context and review material, not uncontrolled self-modifying automation.
+Repeated comparable actions can be offered as an inactive recipe draft. A user can also explicitly preserve a workflow through `recipe_remember`. Neither path bypasses review: a recipe is stored only after a deliberate user action and remains subject to the existing guardrails and confirmations.
 
-### Chat Recipe Learn Mode
-
-The chat toolbox includes an explicit learn mode for patterns that are easier to teach by example than by editing routing rules.
-
-Flow:
-
-1. Open the chat toolbox and start learn mode with `/lernen start` or `/learn start`.
-2. Run the chat steps that show the behavior ARIA should understand later.
-3. Finish with `/lernen stop` or `/learn stop`.
-4. Review the generated candidate under `/recipes/learned`.
-
-Important boundaries:
-
-- Learn mode is opt-in for the current chat session.
-- The captured run creates a **review-only** Learned Recipe candidate.
-- Nothing is activated automatically.
-- Guardrails, runtime policy, confirmation prompts, and deterministic execution checks stay in front of every real action.
-- `/lernen abbrechen` or `/learn cancel` discards the current learn run without creating a candidate.
-
-This is useful for phrasing and routing patterns, for example teaching ARIA which configured targets belong to a personal role such as `dev server`, while keeping the actual promotion step explicit.
-
-### Learned Recipe review states
-
-Learned recipes move through review states based on successful evidence. They do **not** become active automatically.
-
-States:
-
-- `observed`: ARIA has seen at least one successful, policy-allowed pattern, but it is still only observation material.
-- `review_ready`: the pattern has enough evidence for an admin review.
-- `eligible`: the pattern is strong enough that promotion is due, but still needs an explicit admin decision.
-- `promoted`: an admin deliberately promoted the candidate into a stored recipe.
-
-Default thresholds:
-
-- `review_ready`: at least `3` learning-evidence points.
+The former start/stop chat learning mode has been removed. Those command-like messages are now handled as ordinary chat messages.
 - `eligible`: at least `5` learning-evidence points.
 - Side-effect actions: at least `5` learning-evidence points for `review_ready`; they still remain review-only and must not bypass confirmation or policy.
 - Multi-target observations: stay context-only. Create an explicit reviewed recipe for the target set instead of promoting the observation directly.

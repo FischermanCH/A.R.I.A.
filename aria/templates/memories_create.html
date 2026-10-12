@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "page_types/create_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% block page_body %}
 <main class="config-layout memory-import-layout memory-domain-shell">
   {% include "_memories_nav.html" %}
   {% if error_message %}
@@ -16,7 +16,7 @@
 
   <section class="floating-card config-domain-section">
     <div class="page-title-row"><span>{{ icon('plus', 'page-title-icon') }}</span><h2>{{ tr(request, 'memories.create_title', 'Eigene Memory erfassen') }}</h2></div>
-    <p>{{ tr(request, 'memories.create_subtitle', 'Lege einen strukturierten Fakt oder eine Präferenz für dein persönliches Modell an.') }}</p>
+    <p class="ui-page-purpose">{{ tr(request, 'memories.create_subtitle', 'Lege einen strukturierten Fakt oder eine Präferenz für dein persönliches Modell an.') }}</p>
   </section>
 
   {% set memory_create_source_view = 'create' %}

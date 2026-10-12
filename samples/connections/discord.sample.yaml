@@ -1,8 +1,11 @@
+display:
+  description_de: "Neutrales Beispiel für Discord-Benachrichtigungen"
+  description_en: "Neutral example for Discord notifications"
 connections:
   discord:
     alerts-main:
       title: "Discord Alerts"
-      description: "Neutrales Beispiel für Discord-Benachrichtigungen"
+      description: "Discord notification example"
       webhook_url: "https://discord.com/api/webhooks/REPLACE/ME"
       timeout_seconds: 10
       send_test_messages: true

@@ -318,7 +318,7 @@ def test_config_hub_is_single_role_gated_topic_tree() -> None:
     assert "/config/intelligence" in admin_hrefs
     assert "/config/admin/modules" in admin_hrefs
     assert "/config/admin/ui-audit" in admin_hrefs
-    assert "/config/native-toolcall-selftest" in admin_hrefs
+    assert "/config/native-toolcall-selftest" not in admin_hrefs
     assert "/memories" in user_hrefs
     assert "/licenses" in user_hrefs
     assert not any(href in admin_hrefs for href in {"/config/admin", "/config/admin/config", "/config/admin/recipes", "/config/admin/operations"})
@@ -375,10 +375,10 @@ def test_config_hub_groups_are_nonempty_and_expose_real_subpages() -> None:
     assert {item["href"] for item in groups["security_access"]["items"]} == {
         "/config/users",
         "/config/security",
+        "/config/backup",
         "/config/admin-mode",
     }
     assert {item["href"].split("?", 1)[0] for item in groups["operations"]["items"]} == {
-        "/config/backup",
         "/config/logs",
         "/updates",
         "/activities",
@@ -764,6 +764,7 @@ def _build_profile_config_app(
     register_config_routes(app, deps)
     app.state.test_pipeline = pipeline
     app.state.test_settings = settings
+    app.state.test_secure_store = secure_store
     return TestClient(app)
 
 
@@ -845,7 +846,7 @@ def test_mcp_server_admin_page_adds_config_masks_secrets_and_renders_live_status
     )
 
     assert response.status_code == 303
-    assert response.headers["location"].startswith("/config/connections/mcp?saved=1")
+    assert response.headers["location"].startswith("/config/connections/mcp/blender?saved=1")
     raw = yaml.safe_load((tmp_path / "config" / "config.yaml").read_text(encoding="utf-8"))
     assert raw["mcp_servers"]["blender"] == {
         "transport": "sse",
@@ -864,8 +865,8 @@ def test_mcp_server_admin_page_adds_config_masks_secrets_and_renders_live_status
     assert page.status_code == 200
     assert "blender" in page.text
     assert "Blender MCP" in page.text
-    assert "connected" in page.text.lower()
-    assert ">3<" in page.text
+    assert 'class="status-chip status-ok"' in page.text
+    assert ": 3" in page.text
     assert "Authorization" in page.text
     assert "header-secret" not in page.text
     assert "url-secret" not in page.text
@@ -1022,7 +1023,7 @@ def test_mcp_server_admin_reconnect_is_admin_csrf_protected_and_reports_outcome(
     page = client.get("/config/connections/mcp")
     assert 'action="/config/connections/mcp/reconnect"' in page.text
     assert 'name="server_name" value="blender"' in page.text
-    assert "Reconnect" in page.text
+    assert "Neu verbinden" in page.text
 
     response = client.post(
         "/config/connections/mcp/reconnect",
@@ -1031,7 +1032,7 @@ def test_mcp_server_admin_reconnect_is_admin_csrf_protected_and_reports_outcome(
     )
     assert response.status_code == 303
     assert response.headers["location"].startswith(
-        "/config/connections/mcp?info=reconnected&server=blender&tool_count=7"
+        "/config/connections/mcp/blender?info=reconnected&tool_count=7"
     )
     assert manager.reconnect_calls == ["blender"]
     refreshed = client.get(response.headers["location"])
@@ -1688,6 +1689,28 @@ def test_config_appearance_save_preserves_return_to(tmp_path: Path) -> None:
     assert 'return_to=%2Fconfig' in response.headers['location']
 
 
+def test_config_language_saves_valid_display_timezone_and_rejects_invalid(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+    config_path = tmp_path / "config" / "config.yaml"
+
+    saved = client.post(
+        "/config/language/save",
+        data={"default_language": "de", "display_timezone": "Europe/Zurich"},
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    assert yaml.safe_load(config_path.read_text(encoding="utf-8"))["ui"]["display_timezone"] == "Europe/Zurich"
+
+    rejected = client.post(
+        "/config/language/save",
+        data={"default_language": "de", "display_timezone": "Mars/Olympus"},
+        follow_redirects=False,
+    )
+    assert rejected.status_code == 303
+    assert "error=" in rejected.headers["location"]
+    assert yaml.safe_load(config_path.read_text(encoding="utf-8"))["ui"]["display_timezone"] == "Europe/Zurich"
+
+
 def test_config_persona_redirect_fallbacks_use_registry_route_readpoints(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2228,7 +2251,14 @@ def test_cyberpunk_config_accordions_use_shared_house_style_without_magenta_bars
     for path in ("/config/security", "/config/connections/ssh", "/config/connections/discord"):
         response = client.get(path)
         assert response.status_code == 200
-        assert 'class="config-section-summary"' in response.text
+        if path == "/config/connections/ssh":
+            assert (
+                'data-ui-pattern="settings"' in response.text
+                or 'data-ui-pattern="info"' in response.text
+                or 'data-ui-connection-inventory="visible"' in response.text
+            )
+        else:
+            assert 'class="config-section-summary"' in response.text
 
 
 def test_every_discovered_background_has_a_canonical_css_asset_mapping() -> None:
@@ -2246,7 +2276,7 @@ def test_every_discovered_background_has_a_canonical_css_asset_mapping() -> None
         selector = f'body[data-background="{row["value"]}"]'
         match = re.search(rf"{re.escape(selector)}\s*\{{([^}}]+)\}}", stylesheet)
         assert match is not None, selector
-        assert f'url("{row["asset_url"]}")' in match.group(1), selector
+        assert f'url("{row["asset_url"]}?v=0.1.0-alpha1007")' in match.group(1), selector
 
     body_before = re.search(r"body::before\s*\{([^}]+)\}", stylesheet)
     assert body_before is not None
@@ -2373,18 +2403,19 @@ def test_ssh_page_profile_cards_link_to_edit_mode_and_expose_guardrail_select(tm
     }
     _write_profile_yaml(config_path, raw)
 
+    overview = client.get("/config/connections/ssh")
     response = client.get("/config/connections/ssh?ref=dns-node-01&return_to=%2Fconnections%2Ftypes")
 
     assert response.status_code == 200
-    assert "connection-profile-card" in response.text
-    assert "/config/connections/ssh?ref=dns-node-01#manage-existing" in response.text
-    assert "Editieren" in response.text
-    assert "Bestehendes Profil bearbeiten" in response.text
+    assert "connection-profile-card" in overview.text
+    assert "/config/connections/ssh/dns-node-01" in overview.text
+    assert "connection-profile-edit-link" in overview.text
+    assert 'id="manage-existing"' in response.text
     assert 'id="guardrail_ref_edit"' in response.text
     assert 'value="no-sudo" selected' in response.text
     assert "/config/connections/ssh?ref=dns-node-01&amp;return_to=%2Fconnections%2Ftypes&amp;mode=create#create-new" not in response.text
     assert "/config/connections/ssh?ref=dns-node-01&amp;return_to=%2Fconnections%2Ftypes&amp;mode=edit#manage-existing" not in response.text
-    assert "/config/connections/ssh?return_to=%2Fconnections%2Ftypes&amp;mode=create#create-new" in response.text
+    assert "/config/connections/ssh/new" in overview.text
 
 
 @pytest.mark.parametrize(
@@ -2512,7 +2543,7 @@ def test_file_guardrail_selector_filters_connection_kind_scope(tmp_path: Path) -
 
 
 @pytest.mark.parametrize(
-    ("kind", "selected_query", "profiles", "visible_refs", "edit_fragment"),
+        ("kind", "selected_query", "profiles", "visible_refs", "edit_fragment"),
     [
         (
             "ssh",
@@ -2528,7 +2559,7 @@ def test_file_guardrail_selector_filters_connection_kind_scope(tmp_path: Path) -
                 for idx in range(1, 7)
             },
             ("srv-1", "srv-6"),
-            "/config/connections/ssh?ref=srv-1#manage-existing",
+            "/config/connections/ssh/srv-1",
         ),
         (
             "sftp",
@@ -2545,7 +2576,7 @@ def test_file_guardrail_selector_filters_connection_kind_scope(tmp_path: Path) -
                 for idx in range(1, 7)
             },
             ("files-1", "files-6"),
-            "/config/connections/sftp?sftp_ref=files-1#manage-existing",
+            "/config/connections/sftp/files-1",
         ),
         (
             "smb",
@@ -2562,7 +2593,7 @@ def test_file_guardrail_selector_filters_connection_kind_scope(tmp_path: Path) -
                 for idx in range(1, 7)
             },
             ("share-1", "share-6"),
-            "/config/connections/smb?smb_ref=share-1#manage-existing",
+            "/config/connections/smb/share-1",
         ),
     ],
 )
@@ -2580,31 +2611,39 @@ def test_connection_page_renders_existing_profiles_directly(
     raw['connections'][kind] = profiles
     _write_profile_yaml(tmp_path / 'config' / 'config.yaml', raw)
 
+    overview = client.get(f'/config/connections/{kind}')
     response = client.get(f'/config/connections/{kind}?{selected_query}&return_to=%2Fconfig')
 
+    assert overview.status_code == 200
     assert response.status_code == 200
-    assert 'connection-status-grid' in response.text
-    assert 'connection-status-collapsed' not in response.text
-    assert 'connection-status-summary' not in response.text
-    assert visible_refs[0] in response.text
-    assert visible_refs[1] in response.text
-    assert "connection-profile-card" in response.text
-    assert "Editieren" in response.text
-    assert edit_fragment in response.text
+    assert 'connection-status-grid' in overview.text
+    assert 'connection-status-collapsed' not in overview.text
+    assert 'connection-status-summary' not in overview.text
+    assert visible_refs[0] in overview.text
+    assert visible_refs[1] in overview.text
+    assert "connection-profile-card" in overview.text
+    if kind == "ssh":
+        assert "connection-profile-edit-link" in overview.text
+    else:
+        assert "Editieren" in overview.text
+    assert edit_fragment in overview.text
+    assert 'id="manage-existing"' in response.text
+    assert 'connection-status-grid' not in response.text
 
 
-def test_connection_page_without_profiles_opens_create_mode_from_type_link(tmp_path: Path) -> None:
+def test_connection_page_without_profiles_stays_overview_and_links_to_create(tmp_path: Path) -> None:
     client = _build_profile_config_app(tmp_path)
 
     response = client.get('/config/connections/discord?return_to=/connections/types')
 
     assert response.status_code == 200
-    assert 'id="create-new"' in response.text
-    assert 'connection-mode-create" hidden' not in response.text
-    assert 'id="discord_new_connection_ref"' in response.text
-    assert 'name="connection_ref"' in response.text
-    assert 'id="discord_new_webhook_url"' in response.text
-    assert 'name="webhook_url"' in response.text
+    assert 'id="create-new"' not in response.text
+    assert '/config/connections/discord/new' in response.text
+    create = client.get('/config/connections/discord/new')
+    assert 'id="discord_new_connection_ref"' in create.text
+    assert 'name="connection_ref"' in create.text
+    assert 'id="discord_new_webhook_url"' in create.text
+    assert 'name="webhook_url"' in create.text
 
 
 def test_sftp_page_exposes_service_url_helper(tmp_path: Path) -> None:
@@ -2982,7 +3021,13 @@ def test_ssh_tool_action_urls_use_registry_route_readpoints(tmp_path: Path) -> N
     module_route_calls: list[tuple[str, str]] = []
     client = _build_profile_config_app(tmp_path, module_route_calls=module_route_calls)
 
-    response = client.get("/config/connections/ssh?mode=create")
+    config_path = tmp_path / "config" / "config.yaml"
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    raw.setdefault("connections", {})["ssh"] = {
+        "node": {"host": "node.invalid", "user": "aria", "port": 22}
+    }
+    _write_profile_yaml(config_path, raw)
+    response = client.get("/config/connections/ssh/node")
 
     assert response.status_code == 200
     assert 'action="/config/connections/key-exchange"' in response.text
@@ -3028,14 +3073,20 @@ def test_rss_config_visible_urls_use_registry_route_readpoints(monkeypatch, tmp_
     _write_profile_yaml(config_path, raw)
 
     list_response = client.get("/config/connections/rss")
+    allowed_parent_response = client.get("/config/connections/rss?return_to=/connections/types")
+    self_parent_response = client.get("/config/connections/rss?return_to=/config/connections/rss")
     selected_response = client.get("/config/connections/rss?mode=edit&rss_ref=security-feed")
 
     assert list_response.status_code == 200
     assert selected_response.status_code == 200
+    assert 'data-ui-back-link="true" href="/connections/types"' in allowed_parent_response.text
+    assert 'data-ui-back-link="true" href="/connections"' in self_parent_response.text
     assert 'action="/config/connections/rss/poll-interval/save"' in list_response.text
     assert 'href="/config/connections/rss/export-opml"' in list_response.text
     assert 'action="/config/connections/rss/import-opml"' in list_response.text
-    assert 'action="/config/connections/rss"' in list_response.text
+    assert 'data-rss-group-card' in list_response.text
+    assert 'data-rss-feed-card' in list_response.text
+    assert 'data-connection-inventory-item="true"' in list_response.text
     assert 'action="/config/connections/rss/ping-now"' in selected_response.text
     assert 'action="/config/connections/rss/save"' in selected_response.text
     assert 'data-connection-meta-endpoint="/config/connections/rss/suggest-metadata"' in selected_response.text
@@ -3046,7 +3097,8 @@ def test_rss_config_visible_urls_use_registry_route_readpoints(monkeypatch, tmp_
     assert ("rss_ui", "/config/connections/rss/ping-now") in module_route_calls
     assert ("rss_ui", "/config/connections/rss/save") in module_route_calls
     assert ("rss_ui", "/config/connections/rss/suggest-metadata") in module_route_calls
-    assert ("rss_ui", "/config/connections/rss") in helper_route_calls
+    assert ("rss_ui", "/config/connections/rss") not in helper_route_calls
+    assert 'data-ui-back-link="true" href="/connections"' in list_response.text
 
 
 def test_rss_config_template_action_readpoints_fail_closed_without_owner(tmp_path: Path) -> None:
@@ -3569,7 +3621,7 @@ def test_config_route_readpoint_helpers_fail_closed_without_route_owner(monkeypa
             connection_template_name=lambda kind: f"connections/{kind}.html",
         )
     )
-    with pytest.raises(RuntimeError, match="config_ui route is not registered: /config"):
+    with pytest.raises(RuntimeError, match="connections_ui_readonly route is not registered: /connections"):
         helpers.base_connections_page_context(request, 0, "", "")
 
 
@@ -3632,7 +3684,7 @@ def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Pat
     assert 'href="/config/persona"' in types_nav
     assert 'class="memory-subnav-item active" href="/connections"' in types_nav
     assert 'href="/connections/types"' not in types_nav
-    assert 'allgemeine Websuche wird von ARIA verwaltet' in types_response.text or 'general web search is managed by ARIA' in types_response.text
+    assert 'allgemeine websuche wird von aria verwaltet' in types_response.text.lower() or 'general web search is managed by aria' in types_response.text.lower()
     assert 'Beobachtete Webseiten' in types_response.text or 'Watched Websites' in types_response.text
     assert 'Google Calendar' in types_response.text
     assert types_response.text.index('Beobachtete Webseiten' if 'Beobachtete Webseiten' in types_response.text else 'Watched Websites') < types_response.text.index('Google Calendar')
@@ -3641,6 +3693,8 @@ def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Pat
     assert templates_response.status_code == 200
     assert 'href="/config"' in templates_response.text
     assert 'name="return_to" value="/connections/templates"' in templates_response.text
+    assert 'Neutral example for' in templates_response.text
+    assert 'Neutrales Beispiel für' not in templates_response.text
     templates_nav = _first_memory_subnav(templates_response.text)
     assert 'href="/config/persona"' in templates_nav
     assert 'class="memory-subnav-item active" href="/connections"' in templates_nav
@@ -4718,7 +4772,7 @@ def test_google_calendar_save_requires_ical_url(tmp_path: Path) -> None:
     )
 
     assert response.status_code == 303
-    assert "google_calendar_ref=primary-calendar" in response.headers["location"]
+    assert response.headers["location"].startswith("/config/connections/google-calendar/primary-calendar?error=")
     assert "error=" in response.headers["location"]
 
 
@@ -4751,8 +4805,9 @@ def test_website_connection_existing_links_jump_to_editor(tmp_path: Path) -> Non
     )
 
     assert response.status_code == 200
-    assert '#create-new' in response.text
-    assert 'website_ref=aria-docs#manage-existing' in response.text
+    overview = client.get('/config/connections/websites')
+    assert '/config/connections/websites/new' in overview.text
+    assert '/config/connections/websites/aria-docs' in overview.text
 
 
 def test_website_config_page_uses_registry_template_readpoint(monkeypatch, tmp_path: Path) -> None:
@@ -4802,7 +4857,7 @@ def test_website_config_visible_urls_use_registry_route_readpoints(monkeypatch, 
         ("website_ui", "/config/connections/websites/suggest-metadata"),
     }.issubset(set(module_route_calls))
     assert ("website_ui", "/config/connections/websites") in helper_route_calls
-    assert ("config_ui", "/config") in helper_route_calls
+    assert ("connections_ui_readonly", "/connections") in helper_route_calls
 
 
 def test_website_config_template_action_readpoints_fail_closed_without_owner(tmp_path: Path) -> None:
@@ -4943,6 +4998,264 @@ def test_critical_connection_config_visible_urls_use_existing_registry_route_rea
             assert (module_id, route_path) in module_route_calls
 
 
+def test_alpha988_connection_forms_keep_routes_hidden_fields_and_confirmation(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+    config_path = tmp_path / "config" / "config.yaml"
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    raw.setdefault("connections", {})
+    raw["connections"]["ssh"] = {
+        "office": {"host": "ssh.invalid", "user": "aria", "port": 22, "timeout_seconds": 5}
+    }
+    raw["connections"]["webhook"] = {
+        "alerts": {"method": "POST", "content_type": "application/json", "timeout_seconds": 5}
+    }
+    _write_profile_yaml(config_path, raw)
+
+    ssh = client.get("/config/connections/ssh?ref=office")
+    webhook = client.get("/config/connections/webhook?webhook_ref=alerts")
+    assert ssh.status_code == 200 and webhook.status_code == 200
+    assert 'action="/config/connections/save"' in ssh.text
+    assert 'action="/config/connections/test"' in ssh.text
+    assert 'name="original_ref" value="office"' in ssh.text
+    assert 'action="/config/connections/webhook/save"' in webhook.text
+    assert 'action="/config/connections/webhook/test"' in webhook.text
+    assert 'name="original_ref" value="alerts"' in webhook.text
+    for page in (ssh.text, webhook.text):
+        assert 'action="/config/connections/delete"' in page
+        assert "onsubmit=\"return confirm(" in page
+
+    missing = client.post(
+        "/config/connections/webhook/test",
+        data={"connection_ref": "missing"},
+        follow_redirects=False,
+    )
+    assert missing.status_code == 303
+    assert missing.headers["location"].startswith("/config/connections/webhook/missing?error=")
+
+
+@pytest.mark.parametrize(
+    ("kind", "segment", "secret_field", "secret_key", "profile"),
+    [
+        ("discord", "discord", "webhook_url", "connections.discord.safe.webhook_url", {"timeout_seconds": 5}),
+        ("smb", "smb", "password", "connections.smb.safe.password", {"host": "nas.invalid", "share": "docs", "user": "aria"}),
+        ("webhook", "webhook", "url", "connections.webhook.safe.url", {"method": "POST", "content_type": "application/json"}),
+        ("email", "smtp", "password", "connections.email.safe.password", {"smtp_host": "smtp.invalid", "user": "aria"}),
+        ("imap", "imap", "password", "connections.imap.safe.password", {"host": "imap.invalid", "user": "aria"}),
+        ("http_api", "http-api", "auth_token", "connections.http_api.safe.auth_token", {"base_url": "https://api.invalid"}),
+        ("google_calendar", "google-calendar", "ical_url", "connections.google_calendar.safe.ical_url", {"timeout_seconds": 5}),
+        ("mqtt", "mqtt", "password", "connections.mqtt.safe.password", {"host": "mqtt.invalid", "user": "aria"}),
+    ],
+)
+def test_alpha989_connection_detail_never_renders_stored_secret(
+    tmp_path: Path,
+    kind: str,
+    segment: str,
+    secret_field: str,
+    secret_key: str,
+    profile: dict[str, object],
+) -> None:
+    client = _build_profile_config_app(tmp_path)
+    marker = f"alpha989-{kind}-secret"
+    raw = yaml.safe_load((tmp_path / "config" / "config.yaml").read_text(encoding="utf-8"))
+    raw.setdefault("connections", {})[kind] = {"safe": profile}
+    _write_profile_yaml(tmp_path / "config" / "config.yaml", raw)
+    client.app.state.test_secure_store.set_secret(secret_key, marker)
+
+    response = client.get(f"/config/connections/{segment}/safe")
+
+    assert response.status_code == 200
+    assert marker not in response.text
+    assert f'name="{secret_field}" value="{marker}"' not in response.text
+    assert 'data-ui-page-type="detail"' in response.text
+
+
+@pytest.mark.parametrize(
+    ("kind", "field", "secret_key", "profile"),
+    [
+        ("discord", "webhook_url", "connections.discord.safe.webhook_url", {"timeout_seconds": 5}),
+        ("sftp", "password", "connections.sftp.safe.password", {"host": "sftp.invalid", "root_path": "/"}),
+        ("smb", "password", "connections.smb.safe.password", {"host": "nas.invalid", "share": "docs"}),
+        ("webhook", "url", "connections.webhook.safe.url", {"method": "POST"}),
+        ("email", "password", "connections.email.safe.password", {"smtp_host": "smtp.invalid"}),
+        ("imap", "password", "connections.imap.safe.password", {"host": "imap.invalid"}),
+        ("http_api", "auth_token", "connections.http_api.safe.auth_token", {"base_url": "https://api.invalid"}),
+        ("google_calendar", "ical_url", "connections.google_calendar.safe.ical_url", {"timeout_seconds": 5}),
+        ("mqtt", "password", "connections.mqtt.safe.password", {"host": "mqtt.invalid"}),
+    ],
+)
+def test_alpha989_each_moved_credential_form_preserves_profile_and_rotates_only_secret(
+    tmp_path: Path,
+    kind: str,
+    field: str,
+    secret_key: str,
+    profile: dict[str, object],
+) -> None:
+    client = _build_profile_config_app(tmp_path)
+    config_path = tmp_path / "config" / "config.yaml"
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    raw.setdefault("connections", {})[kind] = {"safe": profile}
+    _write_profile_yaml(config_path, raw)
+    store = client.app.state.test_secure_store
+    store.set_secret(secret_key, "old-secret")
+
+    response = client.post(
+        "/config/connections/credential-rotate",
+        data={
+            "csrf_token": "test-csrf",
+            "kind": kind,
+            "connection_ref": "safe",
+            field: "new-secret",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert f"/config/connections/" in response.headers["location"]
+    assert "/safe?" in response.headers["location"]
+    assert yaml.safe_load(config_path.read_text(encoding="utf-8"))["connections"][kind]["safe"] == profile
+    assert store.get_secret(secret_key) == "new-secret"
+
+
+def test_alpha989_mcp_credential_action_preserves_settings_and_never_posts_secrets_with_settings(
+    tmp_path: Path,
+) -> None:
+    client = _build_profile_config_app(tmp_path)
+    client.post(
+        "/config/connections/mcp/save",
+        data={
+            "server_name": "blender",
+            "url": "https://old.invalid/sse",
+            "transport": "sse",
+            "enabled": "1",
+            "title": "Blender",
+            "header_name": "Authorization",
+            "header_value": "Bearer old",
+            "csrf_token": "test-csrf",
+        },
+        follow_redirects=False,
+    )
+    detail = client.get("/config/connections/mcp/blender")
+    settings_form = re.search(
+        r'<form method="post" action="/config/connections/mcp/save".*?</form>',
+        detail.text,
+        flags=re.DOTALL,
+    )
+    assert settings_form is not None
+    assert 'name="url"' not in settings_form.group(0)
+    assert 'name="header_value"' not in settings_form.group(0)
+    assert 'action="/config/connections/mcp/credentials"' in detail.text
+
+    changed = client.post(
+        "/config/connections/mcp/credentials",
+        data={
+            "server_name": "blender",
+            "url": "https://new.invalid/sse",
+            "header_name": "Authorization",
+            "header_value": "Bearer new",
+            "csrf_token": "test-csrf",
+        },
+        follow_redirects=False,
+    )
+    assert changed.status_code == 303
+    raw = yaml.safe_load((tmp_path / "config" / "config.yaml").read_text(encoding="utf-8"))
+    assert raw["mcp_servers"]["blender"] == {
+        "transport": "sse",
+        "url": "https://new.invalid/sse",
+        "headers": {"Authorization": "Bearer new"},
+        "enabled": True,
+        "trusted": False,
+        "title": "Blender",
+        "call_timeout_seconds": 30.0,
+    }
+
+
+@pytest.mark.parametrize(
+    ("segment", "parameter"),
+    [
+        ("ssh", "ref"), ("sftp", "sftp_ref"), ("smb", "smb_ref"),
+        ("discord", "discord_ref"), ("webhook", "webhook_ref"),
+        ("http-api", "http_api_ref"), ("google-calendar", "google_calendar_ref"),
+        ("mqtt", "mqtt_ref"), ("smtp", "email_ref"), ("imap", "imap_ref"),
+        ("rss", "rss_ref"), ("websites", "website_ref"),
+    ],
+)
+def test_alpha989_each_legacy_connection_url_redirects_to_canonical_detail(
+    tmp_path: Path,
+    segment: str,
+    parameter: str,
+) -> None:
+    client = _build_profile_config_app(tmp_path)
+    response = client.get(
+        f"/config/connections/{segment}?{parameter}=legacy-ref&info=kept#manage-existing",
+        follow_redirects=False,
+    )
+    assert response.status_code == 307
+    assert response.headers["location"] == f"/config/connections/{segment}/legacy-ref?info=kept"
+
+
+def test_alpha989_each_legacy_create_url_redirects_to_canonical_new(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+    for segment in (
+        "ssh", "sftp", "smb", "discord", "webhook", "http-api",
+        "google-calendar", "mqtt", "smtp", "imap", "rss", "websites",
+    ):
+        response = client.get(
+            f"/config/connections/{segment}?mode=create&info=kept",
+            follow_redirects=False,
+        )
+        assert response.status_code == 307
+        assert response.headers["location"] == f"/config/connections/{segment}/new?info=kept"
+
+
+def test_alpha989_edit_without_credential_change_preserves_ssh_and_sftp_keys_and_password(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        config_routes,
+        "build_connection_status_row",
+        lambda *_args, **_kwargs: {"status": "ok", "message": "ok"},
+    )
+    client = _build_profile_config_app(tmp_path)
+    config_path = tmp_path / "config" / "config.yaml"
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    raw.setdefault("connections", {})["ssh"] = {
+        "node": {"host": "node.invalid", "user": "aria", "port": 22, "key_path": "data/keys/original-ssh"}
+    }
+    raw["connections"]["sftp"] = {
+        "files": {"host": "files.invalid", "user": "aria", "port": 22, "root_path": "/", "key_path": "data/keys/original-sftp"}
+    }
+    _write_profile_yaml(config_path, raw)
+    store = client.app.state.test_secure_store
+    store.set_secret("connections.sftp.files.password", "preserved-password")
+
+    ssh = client.post(
+        "/config/connections/save",
+        data={
+            "connection_ref": "node", "original_ref": "node", "host": "node.invalid",
+            "user": "aria", "port": "22", "timeout_seconds": "10",
+            "strict_host_key_checking": "accept-new", "key_path": "",
+        },
+        follow_redirects=False,
+    )
+    sftp = client.post(
+        "/config/connections/sftp/save",
+        data={
+            "connection_ref": "files", "original_ref": "files", "host": "files.invalid",
+            "user": "aria", "port": "22", "root_path": "/", "timeout_seconds": "10",
+            "password": "", "key_path": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert ssh.status_code == 303 and "/config/connections/ssh/node?" in ssh.headers["location"]
+    assert sftp.status_code == 303 and "/config/connections/sftp/files?" in sftp.headers["location"]
+    saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert saved["connections"]["ssh"]["node"]["key_path"] == "data/keys/original-ssh"
+    assert saved["connections"]["sftp"]["files"]["key_path"] == "data/keys/original-sftp"
+    assert store.get_secret("connections.sftp.files.password") == "preserved-password"
+
+
 def test_critical_connection_config_action_readpoints_fail_closed_without_owner(tmp_path: Path) -> None:
     client = _build_profile_config_app(tmp_path)
 
@@ -4999,8 +5312,7 @@ def test_website_save_autofills_metadata_and_group(monkeypatch, tmp_path: Path) 
     )
 
     assert response.status_code == 303
-    assert '/config/connections/websites?saved=1' in response.headers['location']
-    assert 'website_ref=aria-docs' in response.headers['location']
+    assert '/config/connections/websites/aria-docs?saved=1' in response.headers['location']
     assert 'website_test_status=ok' in response.headers['location']
 
     saved = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))

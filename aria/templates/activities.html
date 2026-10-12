@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/overview_page.html" %}
+{% block page_body %}
 {% set stats_ui_activities_path = module_route_path('stats_ui', '/activities') %}
 <main class="stats-layout">
   {% set admin_current_nav_id = 'admin.activities' %}

@@ -147,3 +147,14 @@ class NativePendingStore:
             connection.execute("DELETE FROM native_pending_actions WHERE created_at < ?", (current - self.ttl_seconds,))
             row = connection.execute("SELECT COUNT(*) AS count FROM native_pending_actions").fetchone()
         return int(row["count"] if row is not None else 0)
+
+    def prune_expired(self, *, now: float | None = None) -> int:
+        """Physically remove expired pending actions without consuming valid ones."""
+
+        current = float(time.time() if now is None else now)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM native_pending_actions WHERE created_at < ?",
+                (current - self.ttl_seconds,),
+            )
+        return max(0, int(cursor.rowcount or 0))

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
@@ -48,6 +49,23 @@ class SystemUpdateRouteDeps:
 
 
 def register_system_update_routes(app: FastAPI, deps: SystemUpdateRouteDeps) -> None:
+    def _display_local_time(value: object, language: str) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone()
+        except ValueError:
+            return ""
+        if str(language or "de").lower().startswith("de"):
+            return parsed.strftime("%d.%m.%Y, %H:%M")
+        return parsed.strftime("%Y-%m-%d, %H:%M")
+
+    def _display_update_status(payload: dict[str, Any], language: str) -> dict[str, Any]:
+        rendered = dict(payload)
+        rendered["checked_at_display"] = _display_local_time(rendered.get("checked_at"), language)
+        return rendered
+
     def _release_update_template(template_name: str) -> str:
         resolved = module_template_name("release_update", template_name)
         if resolved is None:
@@ -147,7 +165,10 @@ def register_system_update_routes(app: FastAPI, deps: SystemUpdateRouteDeps) -> 
         username = deps.get_username_from_request(request)
         settings = deps.get_settings()
         release_payload = dict(release_meta or getattr(request.state, "release_meta", {}) or deps.read_release_meta(deps.base_dir))
-        update_payload = dict(update_status or deps.get_update_status(str(release_payload.get("label", "") or "")))
+        update_payload = _display_update_status(
+            dict(update_status or deps.get_update_status(str(release_payload.get("label", "") or ""))),
+            str(getattr(request.state, "lang", "") or settings.ui.language or "de"),
+        )
         control_payload = dict(update_control or _build_update_control_payload(request))
         return deps.templates.TemplateResponse(
             request=request,
@@ -181,7 +202,10 @@ def register_system_update_routes(app: FastAPI, deps: SystemUpdateRouteDeps) -> 
         settings = deps.get_settings()
         username = deps.get_username_from_request(request)
         release_meta = dict(getattr(request.state, "release_meta", {}) or deps.read_release_meta(deps.base_dir))
-        update_status = deps.get_update_status(str(release_meta.get("label", "") or ""))
+        update_status = _display_update_status(
+            deps.get_update_status(str(release_meta.get("label", "") or "")),
+            str(getattr(request.state, "lang", "") or settings.ui.language or "de"),
+        )
         update_notice = str(request.query_params.get("notice", "") or "").strip().lower()
         update_error = str(request.query_params.get("error", "") or "").strip().lower()
         update_control = _build_update_control_payload(request)

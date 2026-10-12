@@ -308,24 +308,33 @@ NAV_NODES: dict[str, NavNode] = {
         route_owner="config_ui",
         route_path="/config/llm/debug",
     ),
-    "admin.native_toolcall_selftest": NavNode(
-        "admin.native_toolcall_selftest",
-        "/config/native-toolcall-selftest",
-        "tools",
-        "config.native_toolcall_selftest_title",
-        "Native tool-call self-test",
-        visibility="advanced",
-        desc_key="config.native_toolcall_selftest_desc",
-        desc_fallback="Run the explicit native provider tool-call diagnostic.",
-        route_owner="native_toolcall_selftest",
-        route_path="/config/native-toolcall-selftest",
+    "help.overview": NavNode(
+        "help.overview",
+        "/help",
+        "help",
+        "base.nav_help",
+        "Help",
+        route_owner="static_help_docs",
+        route_path="/help",
     ),
-    "about.licenses": NavNode(
-        "about.licenses",
+    "help.qdrant": NavNode(
+        "help.qdrant",
+        "/help?doc=qdrant",
+        "memories",
+        "help.doc_qdrant",
+        "Qdrant",
+        parent="help.overview",
+        route_owner="static_help_docs",
+        route_path="/help",
+        route_query=(("doc", "qdrant"),),
+    ),
+    "help.licenses": NavNode(
+        "help.licenses",
         "/licenses",
         "document",
         "base.nav_licenses",
         "License agreements",
+        parent="help.overview",
         desc_key="config.licenses_desc",
         desc_fallback="Read ARIA and third-party license agreements.",
         route_owner="static_help_docs",
@@ -386,6 +395,18 @@ NAV_NODES: dict[str, NavNode] = {
         route_owner="memory_admin_ui",
         route_path="/memories/auto-memory",
     ),
+    "memory.activity_journal": NavNode(
+        "memory.activity_journal",
+        "/memories/activity-journal",
+        "activities",
+        "activity_journal.title",
+        "Activity journal",
+        parent="memory.overview",
+        desc_key="activity_journal.purpose",
+        desc_fallback="A compact private record of completed ARIA activities.",
+        route_owner="activity_journal",
+        route_path="/memories/activity-journal",
+    ),
     "admin.memory.maintenance": NavNode(
         "admin.memory.maintenance",
         "/memories/maintenance",
@@ -414,7 +435,7 @@ NAV_NODES: dict[str, NavNode] = {
     ),
     "admin.backup": NavNode(
         "admin.backup", "/config/backup", "download", "config.hub_backup_title", "Backup",
-        parent="admin.operations", visibility="advanced",
+        parent="admin.access", visibility="advanced",
         desc_key="config.hub_backup_desc",
         desc_fallback="Export or restore ARIA configuration safely.",
         route_owner="config_backup", route_path="/config/backup",
@@ -442,6 +463,55 @@ NAV_NODES: dict[str, NavNode] = {
 }
 
 
+# One canonical parent section per registered navigation page. A node may be
+# linked from additional menus (for example the Settings hub), but those links
+# are shortcuts and never change the section header rendered by the target.
+CANONICAL_PARENT_SECTION_BY_NAV_ID: dict[str, str] = {
+    "settings.overview": "settings",
+    "settings.persona": "settings",
+    "persona.prompts": "settings",
+    "persona.appearance": "settings",
+    "persona.language": "settings",
+    "settings.updates": "settings",
+    "connections.overview": "settings",
+    "connections.status": "settings",
+    "connections.types": "settings",
+    "connections.templates": "settings",
+    "recipes.overview": "settings",
+    "recipes.mine": "settings",
+    "recipes.start": "settings",
+    "admin.intelligence": "settings",
+    "admin.llm_profiles": "settings",
+    "admin.embeddings": "settings",
+    "admin.access": "settings",
+    "admin.users": "settings",
+    "admin.guardrails": "settings",
+    "admin.modules": "settings",
+    "admin.ui_audit": "settings",
+    "admin.mode": "settings",
+    "admin.files": "settings",
+    "admin.error_interpreter": "settings",
+    "admin.llm_debug": "settings",
+    "admin.recipes.system": "settings",
+    "admin.operations": "settings",
+    "admin.backup": "settings",
+    "admin.logs": "settings",
+    "admin.activities": "settings",
+    "memory.overview": "memory",
+    "memory.import": "memory",
+    "memory.create": "memory",
+    "memory.auto": "memory",
+    "memory.activity_journal": "memory",
+    "admin.memory.maintenance": "memory",
+    "help.overview": "help",
+    "help.qdrant": "help",
+    "help.licenses": "help",
+}
+
+if set(CANONICAL_PARENT_SECTION_BY_NAV_ID) != set(NAV_NODES):
+    raise RuntimeError("navigation_canonical_parent_registry_incomplete")
+
+
 SECTION_ITEMS: dict[str, tuple[str, ...]] = {
     "settings": (
         "settings.overview",
@@ -455,6 +525,7 @@ SECTION_ITEMS: dict[str, tuple[str, ...]] = {
         "memory.import",
         "memory.create",
         "memory.auto",
+        "memory.activity_journal",
         "admin.memory.maintenance",
     ),
     "recipes": ("settings.overview", "recipes.overview", "recipes.mine", "recipes.start"),
@@ -466,6 +537,7 @@ SECTION_ITEMS: dict[str, tuple[str, ...]] = {
         "connections.types",
         "connections.templates",
     ),
+    "help": ("help.overview", "help.qdrant", "help.licenses"),
 }
 
 ADMIN_SECTION_ITEMS: tuple[str, ...] = ("settings.overview",)
@@ -477,6 +549,7 @@ SECTION_NAV_LABELS: dict[str, tuple[str, str]] = {
     "recipes": ("recipes.nav_label", "Recipes navigation"),
     "persona": ("config.persona_nav_label", "Persoenlichkeit & Stil Navigation"),
     "connections": ("connections_overview.nav_label", "Connections navigation"),
+    "help": ("help.toc_label", "Help navigation"),
     "admin": ("config.nav_label", "Settings navigation"),
 }
 
@@ -484,6 +557,7 @@ SECTION_ROOT_IDS: dict[str, str] = {
     "settings": "settings.overview",
     "memory": "memory.overview",
     "admin": "settings.overview",
+    "help": "help.overview",
 }
 
 
@@ -509,7 +583,7 @@ CONFIG_HUB_GROUPS: tuple[NavGroup, ...] = (
     NavGroup(
         "knowledge_memory", "config.hub_group_memory", "Knowledge & memory", "config.hub_group_memory_desc",
         "Browse, add, import, and maintain remembered knowledge.",
-        ("memory.overview", "memory.create", "memory.import", "memory.auto", "admin.memory.maintenance"),
+        ("memory.overview", "memory.create", "memory.import", "memory.auto", "memory.activity_journal", "admin.memory.maintenance"),
         landing_item_id="memory.overview",
     ),
     NavGroup(
@@ -520,30 +594,31 @@ CONFIG_HUB_GROUPS: tuple[NavGroup, ...] = (
     ),
     NavGroup(
         "security_access", "config.hub_group_security", "Security & access", "config.hub_group_security_desc",
-        "Users, roles, guardrails, and administration access.",
-        ("admin.access", "admin.users", "admin.guardrails", "admin.mode"),
+        "Users, roles, guardrails, backups, and administration access.",
+        ("admin.access", "admin.users", "admin.guardrails", "admin.backup", "admin.mode"),
         landing_item_id="admin.access",
     ),
     NavGroup(
         "operations", "config.hub_group_operations", "Operations", "config.hub_group_operations_desc",
-        "Logs, backups, activities, updates, and service maintenance.",
-        ("admin.operations", "admin.backup", "admin.logs", "settings.updates", "admin.activities"),
+        "Logs, activities, updates, and service maintenance.",
+        ("admin.operations", "admin.logs", "settings.updates", "admin.activities"),
         landing_item_id="admin.operations",
     ),
     NavGroup(
         "system_development", "config.hub_group_system", "System & development", "config.hub_group_system_desc",
         "Advanced diagnostics, files, modules, and developer tools.",
-        ("admin.files", "admin.error_interpreter", "admin.llm_debug", "admin.native_toolcall_selftest", "admin.modules", "admin.ui_audit"),
+        ("admin.files", "admin.error_interpreter", "admin.llm_debug", "admin.modules", "admin.ui_audit"),
     ),
     NavGroup(
         "about", "config.hub_group_about", "About", "config.hub_group_about_desc",
-        "Version information and legal information.", ("about.licenses",),
+        "Version information and legal information.", ("help.licenses",),
     ),
 )
 
 ADMIN_GROUPS: tuple[NavGroup, ...] = ()
 
 PATH_NODE_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("/config/connections", "connections.types"),
     ("/config/llm/debug", "admin.llm_debug"),
     ("/config/llm", "admin.llm_profiles"),
     ("/config/embeddings", "admin.embeddings"),
@@ -575,11 +650,14 @@ PATH_NODE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/recipes", "recipes.overview"),
     ("/memories/create", "memory.create"),
     ("/memories/import", "memory.import"),
+    ("/memories/activity-journal", "memory.activity_journal"),
     ("/memories/maintenance", "admin.memory.maintenance"),
     ("/memories/auto-memory", "memory.auto"),
     ("/memories/config", "admin.memory.maintenance"),
     ("/memories", "memory.overview"),
     ("/activities", "admin.activities"),
+    ("/licenses", "help.licenses"),
+    ("/help", "help.overview"),
 )
 
 
@@ -601,6 +679,7 @@ LEGACY_NAV_IDS = {
         "overview": "memory.overview",
         "import": "memory.import",
         "create": "memory.create",
+        "activity_journal": "memory.activity_journal",
         "maintenance": "admin.memory.maintenance",
     },
     "recipes": {
@@ -695,10 +774,50 @@ def resolve_nav_id(request: Any, nav_id: str = "", legacy_section: str = "", leg
     if legacy:
         return legacy
     path = _request_path(request)
+    if path == "/help":
+        try:
+            if str(request.query_params.get("doc") or "").strip() == "qdrant":
+                return "help.qdrant"
+        except Exception:
+            pass
+        return "help.overview"
     for prefix, node_id in PATH_NODE_PREFIXES:
         if path == prefix or path.startswith(prefix + "/"):
             return node_id
     return ""
+
+
+def canonical_parent_section(request: Any, nav_id: str = "") -> str:
+    """Return the single canonical section for the current registered page."""
+
+    # The configuration hub links to Memory setup as a shortcut. Both route
+    # spellings render the same Memory page and therefore share one parent.
+    if _request_path(request) in {"/config/memory", "/memories/config"}:
+        return "memory"
+    resolved = resolve_nav_id(request, nav_id)
+    if resolved:
+        return CANONICAL_PARENT_SECTION_BY_NAV_ID.get(resolved, "")
+    path = _request_path(request)
+    if path.startswith("/product-info"):
+        return "help"
+    if path == "/":
+        return "chat"
+    if path.startswith("/notes"):
+        return "notes"
+    if path.startswith("/jobs"):
+        return "jobs"
+    if path.startswith("/stats"):
+        return "stats"
+    return ""
+
+
+def canonical_parent_href(request: Any, nav_id: str = "") -> str:
+    """Return the registered hierarchical parent URL for a rendered page."""
+
+    resolved = resolve_nav_id(request, nav_id)
+    node = NAV_NODES.get(resolved)
+    parent = NAV_NODES.get(node.parent) if node and node.parent else None
+    return _node_href(parent) if parent else ""
 
 
 def _ancestor_ids(node_id: str) -> set[str]:
@@ -739,6 +858,8 @@ def _context_section_for(current_id: str, legacy_section: str = "") -> str:
         return "settings"
     if current_id.startswith("memory."):
         return "memory"
+    if current_id.startswith("help."):
+        return "help"
     clean_legacy = str(legacy_section or "").strip()
     if clean_legacy in SECTION_ITEMS or clean_legacy == "admin":
         return clean_legacy

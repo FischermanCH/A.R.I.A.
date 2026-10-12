@@ -1,8 +1,11 @@
+display:
+  description_de: "Neutrales Beispiel für eine SMB-Verbindung"
+  description_en: "Neutral example for an SMB connection"
 connections:
   smb:
     smb-main:
       title: "Team Share"
-      description: "Neutrales Beispiel für eine SMB-Verbindung"
+      description: "SMB connection example"
       host: "10.0.0.30"
       port: 445
       share: "documents"

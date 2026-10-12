@@ -6,11 +6,11 @@ import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from aria.modules.platform_primitives.i18n import I18NStore
 
 _RSS_GROUPING_I18N = I18NStore(Path(__file__).resolve().parents[2] / "i18n")
+_DEFAULT_GROUP_ID = "__rss_ungrouped__"
 
 
 def _rss_grouping_text(key: str, default: str = "", **values: object) -> str:
@@ -51,37 +51,27 @@ def _normalize_group_name(name: str) -> str:
     return clean
 
 
-def _fallback_group_name(ref: str, feed_url: str) -> str:
-    parsed = urlparse(feed_url)
-    host = str(parsed.netloc or "").lower()
-    if host.startswith("www."):
-        host = host[4:]
-    if host:
-        head = host.split(".")[0].replace("-", " ").strip()
-        if head:
-            return head.title()
-    return _normalize_group_name(ref) if str(ref or "").strip() else "Weitere Feeds"
-
-
 def _build_group_rows(status_rows: list[dict[str, Any]], group_map: dict[str, str]) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in status_rows:
         ref = str(row.get("ref", "")).strip()
-        grouped[group_map.get(ref) or "Weitere Feeds"].append(row)
+        grouped[group_map.get(ref) or _DEFAULT_GROUP_ID].append(row)
 
     result: list[dict[str, Any]] = []
     for group_name, rows in grouped.items():
+        is_default = group_name == _DEFAULT_GROUP_ID
         sorted_rows = sorted(rows, key=lambda item: (item.get("status") != "error", item.get("ref", "")))
         result.append(
             {
-                "name": _normalize_group_name(group_name),
+                "name": "Other feeds" if is_default else _normalize_group_name(group_name),
+                "is_default": is_default,
                 "rows": sorted_rows,
                 "total": len(sorted_rows),
                 "healthy": sum(1 for item in sorted_rows if item.get("status") == "ok"),
                 "issues": sum(1 for item in sorted_rows if item.get("status") == "error"),
             }
         )
-    result.sort(key=lambda item: item["name"].lower())
+    result.sort(key=lambda item: (bool(item.get("is_default")), item["name"].lower()))
     return result
 
 
@@ -90,7 +80,11 @@ def _group_map_from_cached_groups(groups: list[dict[str, Any]]) -> dict[str, str
     for group in groups:
         if not isinstance(group, dict):
             continue
-        group_name = _normalize_group_name(str(group.get("name", "")).strip())
+        group_name = (
+            _DEFAULT_GROUP_ID
+            if bool(group.get("is_default"))
+            else _normalize_group_name(str(group.get("name", "")).strip())
+        )
         rows = group.get("rows", [])
         if not isinstance(rows, list):
             continue
@@ -109,13 +103,10 @@ async def build_rss_status_groups(status_rows: list[dict[str, Any]], llm_client:
         return []
 
     fallback_map = {
-        str(row.get("ref", "")).strip(): _normalize_group_name(
-            str(row.get("group_name", "")).strip()
-        )
-        if str(row.get("group_name", "")).strip()
-        else _fallback_group_name(
-            str(row.get("ref", "")).strip(),
-            str(row.get("target", "")).strip(),
+        str(row.get("ref", "")).strip(): (
+            _normalize_group_name(str(row.get("group_name", "")).strip())
+            if str(row.get("group_name", "")).strip()
+            else _DEFAULT_GROUP_ID
         )
         for row in rows
     }

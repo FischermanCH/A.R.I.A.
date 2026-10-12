@@ -8,6 +8,7 @@ config/secrets.env
 .claude/
 .cache/
 test-results/
+demo/generated/
 
 __pycache__/
 *.py[cod]

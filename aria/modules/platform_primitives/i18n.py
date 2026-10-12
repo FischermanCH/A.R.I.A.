@@ -59,6 +59,34 @@ class I18NStore:
                 return fallback
         return default or key
 
+    def translate_exact(self, lang: str, value: str, *, key_prefix: str = "") -> str:
+        """Translate a persisted localized value when it exactly matches a catalog row.
+
+        Operational caches created by older ARIA versions may contain the
+        already-rendered text rather than its i18n key.  Exact matching keeps
+        those rows language-safe without guessing about user content or doing
+        semantic text classification.
+        """
+
+        text = str(value or "").strip()
+        target_lang = (lang or "de").strip().lower() or "de"
+        if not text:
+            return ""
+        target = self._load(target_lang)
+        for source_lang in self.available_languages():
+            if source_lang == target_lang:
+                continue
+            source = self._load(source_lang)
+            for key, source_value in source.items():
+                if key_prefix and not str(key).startswith(key_prefix):
+                    continue
+                if not isinstance(source_value, (str, int, float, bool)) or str(source_value).strip() != text:
+                    continue
+                translated = target.get(key)
+                if isinstance(translated, (str, int, float, bool)) and str(translated).strip():
+                    return str(translated).strip()
+        return text
+
     def resolve_lang(self, requested: str | None, default_lang: str = "de") -> str:
         supported = set(self.available_languages())
         lang = (requested or "").strip().lower()

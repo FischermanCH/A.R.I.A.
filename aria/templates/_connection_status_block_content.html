@@ -1,0 +1,17 @@
+{% if connection_status_block.rows %}
+<div class="connection-status-grid">
+  {% for item in connection_status_block.rows %}
+  {% if connection_overview_test_path|default('') %}<article class="connection-test-card connection-profile-card status-{{ item.status }}{% if item.selected %} current-profile{% endif %}">{% elif item.edit_url %}<a href="{{ item.edit_url }}" class="connection-test-card connection-test-card-link connection-profile-card status-{{ item.status }}{% if item.selected %} current-profile{% endif %}">{% else %}<article class="connection-test-card status-{{ item.status }}{% if item.selected %} current-profile{% endif %}">{% endif %}
+    <div class="connection-test-head"><span class="health-lamp status-{{ item.status }}"></span><strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}<span class="status-chip status-{{ item.status }}">{% if item.status == 'ok' %}{{ tr(request, 'config_conn.status_reachable', 'Erreichbar') }}{% elif item.status == 'error' %}{{ tr(request, 'config_conn.status_problem', 'Problem') }}{% elif item.status == 'disabled' %}{{ tr(request, 'config_conn.status_disabled', 'Deaktiviert') }}{% else %}{{ tr(request, 'config_conn.status_not_checked', 'Nicht geprüft') }}{% endif %}</span>{% if item.selected %}<span class="connection-current-badge">{{ tr(request, 'config_conn.current', 'Aktuell') }}</span>{% endif %}</div>
+    <small class="connection-status-target">{{ item.target }}</small>
+    {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
+    {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request, 'config_conn.last_success', 'Letzter Erfolg') }}: {{ item.last_success_at|replace('T', ' ') }}</small>{% endif %}
+    <small>{{ item.message }}</small>
+    {% if connection_overview_test_path|default('') %}<div class="connection-profile-actions">
+      {% if item.edit_url %}<a class="connection-profile-edit-link" href="{{ item.edit_url }}">{{ tr(request, 'config_conn.open_profile', 'Öffnen') }}</a>{% endif %}
+      <form method="post" action="{{ connection_overview_test_path }}"><input type="hidden" name="connection_ref" value="{{ item.ref }}"><button type="submit" class="ui-secondary-action">{{ tr(request, 'config_conn.test_profile', 'Testen') }}</button></form>
+    </div>{% elif item.edit_url %}<span class="connection-profile-edit-link">{{ tr(request, 'config_conn.open_profile', 'Öffnen') }}</span>{% endif %}
+  {% if connection_overview_test_path|default('') %}</article>{% elif item.edit_url %}</a>{% else %}</article>{% endif %}
+  {% endfor %}
+</div>
+{% else %}<p class="hint-text">{{ tr(request, connection_status_block.empty_key, connection_status_block.empty_text) }}</p>{% endif %}

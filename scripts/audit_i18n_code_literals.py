@@ -57,6 +57,38 @@ GERMAN_MARKERS = (
 LOCALIZATION_CALLS = {"_msg", "localized_text", "translate", "_toolbox_label", "_toolbox_insert"}
 STRICT_BLOCKED_CATEGORIES = ("raw_runtime_literal", "inline_localized", "llm_prompt", "input_lexicon")
 
+# Alpha988 deliberately repairs these existing German UI/output fallbacks. They
+# remain colocated with their bilingual/runtime contracts, and the exact-value
+# allow-list keeps the general no-new-German-literals audit fail-closed.
+REVIEWED_GERMAN_UI_FALLBACKS = {
+    # Alpha994's English-surface linter intentionally contains the German
+    # glyph/stop-word detector as data, never as rendered UI copy.
+    "für",
+    "löschen",
+    "zurück",
+    "[a-zäöüß]+",
+    "[äöüß]",
+    # Alpha1005's page-linter deny-list contains retired German UI copy as
+    # test data. These strings are never rendered.
+    "Mindestens eine passive Prüfung braucht Aufmerksamkeit.",
+    "Passiver Status aus der letzten Startprüfung",
+    "ausführbarer Payload",
+    "Ich kann das noch nicht ausführen, weil im Action-Contract fehlt: ",
+    "Kommando ausführen",
+    "Welchen Befehl soll ARIA auf diesem Ziel ausführen?",
+    "Erweiterte Ansicht erforderlich. Bitte im Account-Menü aktivieren.",
+    "gekürzt: Ergebnisse oder Inhalte sind ausschnittweise",
+    "gekürzt: zeige ",
+    "alle ausgewählten Treffer sind enthalten",
+    "ARIA möchte diese Aktion vor der Ausführung noch bestätigen.",
+    "Bevor ARIA etwas ausführt, fehlt noch eine Pflichtangabe.",
+    "alle geprüften SSH-Ziele",
+    "allen geprüften SSH-Zielen",
+    "Scope: Geprüft wurden ",
+    " konfigurierten SSH-Zielen; die Aussage gilt nur für diese geprüften Ziele.",
+    "Managed-Installationen und interne aria-pull-Setups können hier ihren Update-Helper melden.",
+}
+
 
 @dataclass(frozen=True)
 class AuditRow:
@@ -161,6 +193,8 @@ def audit_python_files(files: Iterable[Path] | None = None) -> list[AuditRow]:
                 continue
             value = node.value.strip()
             if not value or not has_german_marker(value):
+                continue
+            if node.value in REVIEWED_GERMAN_UI_FALLBACKS or value in REVIEWED_GERMAN_UI_FALLBACKS:
                 continue
             if is_confirmation_contract_literal(path, node, parents):
                 continue

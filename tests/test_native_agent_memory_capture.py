@@ -278,4 +278,6 @@ def test_memory_capture_reuses_write_memory_flag_and_registry_stays_below_thresh
     assert rollout_defaults.pop("native_agent_budget_max_total") == 160
     assert rollout_defaults.pop("agent_job_retention_days") == 14
     assert rollout_defaults.pop("agent_job_stale_paused_days") == 7
+    assert rollout_defaults.pop("activity_journal_enabled") is True
+    assert rollout_defaults.pop("activity_journal_retention_days") == 90
     assert all(value is True for value in rollout_defaults.values())

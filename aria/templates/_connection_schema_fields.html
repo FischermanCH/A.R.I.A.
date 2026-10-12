@@ -3,8 +3,21 @@
   {% for field in schema_fields.grid_fields %}
   <div>
     <label for="{{ field.id }}">{% if field.label_key %}{{ tr(request, field.label_key, field.label) }}{% else %}{{ field.label }}{% endif %}</label>
-    {% if field.type == 'select' %}
-    <select id="{{ field.id }}" name="{{ field.name }}" {% if field.required %}required{% endif %}>
+    {% if field.name == 'connection_ref' and connection_page_type|default('') == 'detail' %}
+    <div class="connection-ref-field">
+      <div class="connection-ref-display">
+        <code data-connection-ref-text="true">{{ field.value or '' }}</code>
+        <button type="button" class="ui-secondary-action ui-compact-action" data-enable-connection-rename>{{ tr(request, 'config_conn.rename_profile', 'Umbenennen') }}</button>
+      </div>
+      <input type="hidden" name="{{ field.name }}" value="{{ field.value or '' }}" {% if schema_form_id %}form="{{ schema_form_id }}"{% endif %} data-connection-ref-submit>
+      <div class="connection-ref-rename-editor" data-connection-ref-rename-editor hidden>
+        <label for="{{ field.id }}_rename">{{ tr(request, 'config_conn.rename_profile_new_ref', 'Neue Referenz') }}</label>
+        <input id="{{ field.id }}_rename" type="text" value="{{ field.value or '' }}" maxlength="48" autocomplete="off" data-connection-ref-rename-input>
+        <p class="hint-text">{{ tr(request, 'config_conn.rename_recipe_warning', 'Wenn ein Rezept diese Referenz verwendet, wird das Umbenennen sicher blockiert. Passe das Rezept zuerst an.') }}</p>
+      </div>
+    </div>
+    {% elif field.type == 'select' %}
+    <select id="{{ field.id }}" name="{{ field.name }}" {% if schema_form_id %}form="{{ schema_form_id }}"{% endif %} {% if field.required %}required{% endif %}>
       {% for option in field.options %}
       <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ option }}</option>
       {% endfor %}
@@ -13,6 +26,7 @@
     <textarea
       id="{{ field.id }}"
       name="{{ field.name }}"
+      {% if schema_form_id %}form="{{ schema_form_id }}"{% endif %}
       rows="{{ field.rows or 4 }}"
       {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}
       autocomplete="off"
@@ -22,6 +36,7 @@
     <input
       id="{{ field.id }}"
       name="{{ field.name }}"
+      {% if schema_form_id %}form="{{ schema_form_id }}"{% endif %}
       type="{{ field.type }}"
       {% if field.type == 'number' and field.min is not none %}min="{{ field.min }}"{% endif %}
       {% if field.datalist_id %}list="{{ field.datalist_id }}"{% endif %}
@@ -48,7 +63,7 @@
 <div class="inline-actions">
   {% for field in schema_fields.inline_fields %}
   <label class="inline-check" for="{{ field.id }}">
-    <input id="{{ field.id }}" type="checkbox" name="{{ field.name }}" value="1" {% if field.checked %}checked{% endif %}>
+    <input id="{{ field.id }}" type="checkbox" name="{{ field.name }}" value="1" {% if schema_form_id %}form="{{ schema_form_id }}"{% endif %} {% if field.checked %}checked{% endif %}>
     {% if field.label_key %}{{ tr(request, field.label_key, field.label) }}{% else %}{{ field.label }}{% endif %}
   </label>
   {% endfor %}
@@ -60,6 +75,7 @@
 <input
   id="{{ field.id }}"
   name="{{ field.name }}"
+  {% if schema_form_id %}form="{{ schema_form_id }}"{% endif %}
   type="password"
   {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}
   autocomplete="off"
@@ -67,3 +83,19 @@
 >
 {% if field.hint %}<small class="hint-text">{% if field.hint_key %}{{ tr(request, field.hint_key, field.hint) }}{% else %}{{ field.hint }}{% endif %}</small>{% endif %}
 {% endfor %}
+<script>
+document.querySelectorAll('[data-enable-connection-rename]').forEach(function (button) {
+  button.addEventListener('click', function () {
+    const wrapper = button.closest('.connection-ref-field');
+    const editor = wrapper && wrapper.querySelector('[data-connection-ref-rename-editor]');
+    const input = wrapper && wrapper.querySelector('[data-connection-ref-rename-input]');
+    const submit = wrapper && wrapper.querySelector('[data-connection-ref-submit]');
+    if (!editor || !input || !submit) return;
+    editor.hidden = false;
+    input.addEventListener('input', function () { submit.value = input.value; });
+    input.focus();
+    input.select();
+    button.disabled = true;
+  });
+});
+</script>

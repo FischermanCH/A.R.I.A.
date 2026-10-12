@@ -1,0 +1,59 @@
+{% from "_icons.html" import icon %}
+{% from "_ui_clarity.html" import ui_info_panel, ui_action_card, ui_settings_section, ui_danger_zone %}
+
+{% macro connection_primary_action(purpose, create_url) -%}
+<p class="ui-page-purpose connection-page-purpose">{{ purpose }}</p>
+{% call ui_action_card(
+  tr(request, 'config_conn.create_action_title', 'Neue Verbindung anlegen'),
+  tr(request, 'config_conn.create_action_desc', 'Öffnet ein leeres Formular für ein neues Verbindungsprofil.'),
+  'connection-create-action',
+  true
+) %}
+  <a class="button-like ui-primary-action ui-action-link" href="{{ create_url }}">{{ icon('plus', 'ui-action-icon') }}{{ tr(request, 'config_conn.create_action_button', 'Neue Verbindung anlegen') }}</a>
+{% endcall %}
+{%- endmacro %}
+
+{% macro connection_inventory(title, summary, visible=false) -%}
+{% set content = caller() %}
+{% if visible %}
+<section class="config-card connection-overview-inventory" data-ui-connection-inventory="visible">
+  <header class="ui-pattern-heading">
+    <h2>{{ title }}</h2>
+    {% if summary %}<p>{{ summary }}</p>{% endif %}
+  </header>
+  <div class="connection-overview-inventory__body">{{ content }}</div>
+</section>
+{% else %}
+{% call ui_info_panel(title, summary) %}
+  {{ content }}
+{% endcall %}
+{% endif %}
+{%- endmacro %}
+
+{% macro connection_settings(title, description, section_id) -%}
+{% set content = caller() %}
+{% call ui_settings_section(title, '', section_id, description, false) %}
+  {{ content }}
+{% endcall %}
+{%- endmacro %}
+
+{% macro connection_test_action(action_path, connection_ref, description, field_name='connection_ref') -%}
+{% call ui_action_card(
+  tr(request, 'config_conn.test_action_title', 'Verbindung testen'),
+  description,
+  'connection-test-action'
+) %}
+  <form method="post" action="{{ action_path }}" class="config-form-grid connection-test-form">
+    <input type="hidden" name="{{ field_name }}" value="{{ connection_ref }}">
+    <button type="submit" class="ui-secondary-action">{{ tr(request, 'config_conn.test_action_button', 'Verbindung testen') }}</button>
+  </form>
+{% endcall %}
+{%- endmacro %}
+
+{% macro connection_danger_zone(title, description) -%}
+{% set content = caller() %}
+{% call ui_danger_zone(title, description, 'connection-danger-zone') %}
+  <ul class="ui-danger-consequences"><li>{{ tr(request, 'config_conn.delete_profile_consequence', 'Das Profil steht danach für Chat, Rezepte und Werkzeuge nicht mehr zur Verfügung.') }}</li></ul>
+  {{ content }}
+{% endcall %}
+{%- endmacro %}

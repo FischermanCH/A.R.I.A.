@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import quote_plus
-
 from aria.modules.connections_catalog.catalog import (
-    connection_edit_page,
     connection_field_specs,
     connection_menu_meta,
     connection_overview_meta,
-    connection_ref_query_param,
     connection_status_meta,
     connection_ui_sections,
     normalize_connection_kind,
 )
+from aria.modules.connections_ui_readonly.ia_routes import connection_canonical_url
 
 def build_schema_form_fields(
     *,
@@ -213,15 +210,19 @@ def build_schema_toggle_sections(*, kind: str, values: dict[str, Any], prefix: s
 
 def build_connection_intro(*, kind: str, summary_cards: list[dict[str, Any]]) -> dict[str, Any]:
     meta = connection_menu_meta(kind)
+    label = str(meta.get("label") or kind).strip()
     return {
         "title_key": str(meta.get("title_key") or "").strip(),
-        "title": str(meta.get("label") or kind).strip(),
+        "title": label,
         "subtitle_key": str(meta.get("desc_key") or "").strip(),
         "subtitle": "",
         "back_url": "/config",
         "back_label_key": "config_conn.back_to_hub",
         "back_label": "Back to connection overview",
         "summary_cards": summary_cards,
+        "kind": normalize_connection_kind(kind),
+        "create_label_key": f"config_conn.new_{normalize_connection_kind(kind)}_connection",
+        "create_label": f"New {label} connection",
     }
 
 
@@ -243,16 +244,11 @@ def build_connection_status_block(*, kind: str, rows: list[dict[str, Any]]) -> d
 
 
 def connection_edit_url(kind: str, ref: str) -> str:
-    route = connection_edit_page(kind)
-    param = connection_ref_query_param(kind)
     clean_ref = str(ref or "").strip()
-    if normalize_connection_kind(kind) == "rss" and clean_ref == "RSS":
-        return f"{route}#manage-existing"
-    if not route:
-        return ""
-    if not clean_ref or not param:
-        return f"{route}#manage-existing"
-    return f"{route}?{param}={quote_plus(clean_ref)}#manage-existing"
+    clean_kind = normalize_connection_kind(kind)
+    if not clean_ref:
+        return connection_canonical_url(clean_kind, "overview")
+    return connection_canonical_url(clean_kind, "detail", connection_ref=clean_ref)
 
 
 def attach_connection_edit_urls(kind: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -270,16 +266,10 @@ def attach_mixed_connection_edit_urls(rows: list[dict[str, Any]]) -> list[dict[s
         payload = dict(row)
         kind = normalize_connection_kind(str(payload.get("kind_key", "") or payload.get("kind", "")).strip().replace(" ", "_"))
         ref = str(payload.get("ref", "")).strip()
-        route = connection_edit_page(kind)
-        param = connection_ref_query_param(kind)
-        if kind == "rss" and ref == "RSS":
-            payload["edit_url"] = f"{route}#manage-existing"
-        elif not route:
+        if not kind:
             payload["edit_url"] = ""
-        elif not ref or not param:
-            payload["edit_url"] = f"{route}#manage-existing"
         else:
-            payload["edit_url"] = f"{route}?{param}={quote_plus(ref)}#manage-existing"
+            payload["edit_url"] = connection_edit_url(kind, ref)
         enriched.append(payload)
     return enriched
 

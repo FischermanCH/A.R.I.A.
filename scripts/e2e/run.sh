@@ -17,6 +17,18 @@ if ! docker image inspect qdrant/qdrant:latest >/dev/null 2>&1; then
 fi
 
 E2E_PYTHON="${ARIA_E2E_PYTHON:-${ROOT_DIR}/.venv/bin/python}"
+WEBKIT_IMAGE="${ARIA_E2E_WEBKIT_IMAGE:-mcr.microsoft.com/playwright/python:v1.55.0-noble}"
+WEBKIT_WHEEL_DIR="${ARIA_E2E_WEBKIT_WHEEL_DIR:-${ROOT_DIR}/.cache/e2e-wheels}"
+if ! docker image inspect "${WEBKIT_IMAGE}" >/dev/null 2>&1; then
+  echo "E2E WebKit image not found: ${WEBKIT_IMAGE}" >&2
+  echo "Pull this development-only image before running the full browser gate." >&2
+  exit 2
+fi
+if [[ ! -f "${WEBKIT_WHEEL_DIR}/playwright-1.55.0-py3-none-manylinux1_x86_64.whl" ]]; then
+  echo "E2E WebKit wheel cache missing: ${WEBKIT_WHEEL_DIR}" >&2
+  echo "Run: ./.venv/bin/pip download --dest .cache/e2e-wheels playwright==1.55.0" >&2
+  exit 2
+fi
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${ROOT_DIR}/.cache/ms-playwright}"
 if [[ ! -x "${E2E_PYTHON}" ]]; then
   echo "E2E Python not found: ${E2E_PYTHON}" >&2
@@ -36,7 +48,8 @@ QDRANT_NAME="${PREFIX}-qdrant"
 ARIA_NAME="${PREFIX}-aria"
 STACK_DIR="$(mktemp -d "/tmp/${PREFIX}.XXXXXX")"
 ARTIFACT_DIR="${ARIA_E2E_ARTIFACT_DIR:-${ROOT_DIR}/test-results/e2e/${RUN_ID}}"
-mkdir -p "${ARTIFACT_DIR}" "${STACK_DIR}/config" "${STACK_DIR}/data" "${STACK_DIR}/qdrant"
+mkdir -p "${ARTIFACT_DIR}" "${STACK_DIR}/config" "${STACK_DIR}/data" "${STACK_DIR}/prompts" "${STACK_DIR}/qdrant"
+cp -a "${ROOT_DIR}/prompts/." "${STACK_DIR}/prompts/"
 
 E2E_USERNAME="e2e-admin"
 E2E_PASSWORD="e2e-only-password-975"
@@ -90,6 +103,14 @@ cleanup() {
   if [[ "${NETWORK_NAME}" == aria-e2e-* ]] && docker network inspect "${NETWORK_NAME}" >/dev/null 2>&1; then
     docker network rm "${NETWORK_NAME}" >/dev/null 2>&1 || true
   fi
+  # Qdrant can create one final root-owned atomic-write directory after the
+  # pre-stop chmod. Normalize this disposable mount only after every writer
+  # has stopped, using a predictably named one-shot container.
+  if [[ "${PREFIX}" == aria-e2e-* ]] && [[ -d "${STACK_DIR}" ]]; then
+    docker run --rm --name "${PREFIX}-cleanup" \
+      -v "${STACK_DIR}:/cleanup:rw" --entrypoint chmod "${IMAGE_TAG}" \
+      -R a+rwX /cleanup >/dev/null 2>&1 || true
+  fi
   chmod -R u+rwX "${STACK_DIR}" >/dev/null 2>&1 || true
   rm -rf -- "${STACK_DIR}"
 }
@@ -142,6 +163,11 @@ memory:
   backend: "qdrant"
   qdrant_url: "http://${QDRANT_NAME}:6333"
   qdrant_api_key: ""
+  collections:
+    knowledge:
+      prefix: "aria_knowledge"
+      weight: 0.7
+      top_k: 1
 inventory_index:
   enabled: false
   run_on_startup: false
@@ -151,12 +177,12 @@ agentic_loop:
   enabled: true
   native_agent_memory_enabled: true
   native_agent_memory_learn_enabled: false
-  native_agent_connections_enabled: false
+  native_agent_connections_enabled: true
   native_agent_admin_enabled: false
   native_agent_admin_write_enabled: false
   native_agent_write_notes_enabled: false
   native_agent_write_memory_enabled: false
-  native_agent_ssh_enabled: false
+  native_agent_ssh_enabled: true
   native_agent_messaging_enabled: false
   native_agent_infra_write_enabled: false
   native_agent_recipe_execute_enabled: false
@@ -167,6 +193,8 @@ agentic_loop:
   native_agent_max_steps: 32
   native_agent_max_provider_calls: 36
   async_agent_job_sync_budget_seconds: 3
+  activity_journal_enabled: true
+  activity_journal_retention_days: 90
 mcp_servers:
   blender:
     transport: "sse"
@@ -196,8 +224,104 @@ pricing:
   enabled: false
 token_tracking:
   enabled: false
-connections: {}
+connections:
+  ssh:
+    srv-dev02:
+      title: "Development server"
+      host: "debdev-srv02"
+      user: "e2e"
+      timeout_seconds: 1
+    srv-duplicate-a:
+      title: "Duplicate host"
+      host: "duplicate-a.invalid"
+      user: "e2e"
+      timeout_seconds: 1
+    srv-duplicate-b:
+      title: "Duplicate host"
+      host: "duplicate-b.invalid"
+      user: "e2e"
+      timeout_seconds: 1
+    seed-04: {title: "Seed host 04", host: "seed-04.invalid", user: "e2e", timeout_seconds: 1}
+    seed-05: {title: "Seed host 05", host: "seed-05.invalid", user: "e2e", timeout_seconds: 1}
+    seed-06: {title: "Seed host 06", host: "seed-06.invalid", user: "e2e", timeout_seconds: 1}
+    seed-07: {title: "Seed host 07", host: "seed-07.invalid", user: "e2e", timeout_seconds: 1}
+    seed-08: {title: "Seed host 08", host: "seed-08.invalid", user: "e2e", timeout_seconds: 1}
+    seed-09: {title: "Seed host 09", host: "seed-09.invalid", user: "e2e", timeout_seconds: 1}
+    seed-10: {title: "Seed host 10", host: "seed-10.invalid", user: "e2e", timeout_seconds: 1}
+    seed-11: {title: "Seed host 11", host: "seed-11.invalid", user: "e2e", timeout_seconds: 1}
+    seed-12: {title: "Seed host 12", host: "seed-12.invalid", user: "e2e", timeout_seconds: 1}
+    seed-13: {title: "Seed host 13", host: "seed-13.invalid", user: "e2e", timeout_seconds: 1}
+    seed-14: {title: "Seed host 14", host: "seed-14.invalid", user: "e2e", timeout_seconds: 1}
+  webhook:
+    e2e-webhook:
+      title: "E2E webhook"
+      url: "http://${ANTHROPIC_NAME}:9000/e2e-webhook"
+      method: "POST"
+      timeout_seconds: 1
+  email:
+    e2e-mail:
+      title: "E2E mail"
+      smtp_host: "mail.invalid"
+      from_email: "sender@example.invalid"
+      to_email: "receiver@example.invalid"
+      timeout_seconds: 1
+  imap:
+    e2e-inbox:
+      title: "E2E inbox"
+      host: "mail.invalid"
+      user: "e2e"
+      mailbox: "INBOX"
+      timeout_seconds: 1
+  sftp:
+    e2e-sftp: {title: "E2E SFTP", host: "sftp.invalid", user: "e2e", root_path: "/data", timeout_seconds: 1}
+  smb:
+    e2e-smb: {title: "E2E SMB", host: "smb.invalid", share: "documents", user: "e2e", root_path: "/", timeout_seconds: 1}
+  discord:
+    e2e-discord: {title: "E2E Discord", webhook_url: "https://discord.invalid/webhook", timeout_seconds: 1}
+  http_api:
+    e2e-api: {title: "E2E API", base_url: "https://api.invalid/v1", health_path: "/health", method: "GET", timeout_seconds: 1}
+  mqtt:
+    e2e-mqtt: {title: "E2E MQTT", host: "mqtt.invalid", port: 1883, topic: "aria/e2e", timeout_seconds: 1}
+  google_calendar:
+    e2e-calendar: {title: "E2E Calendar", ical_url: "https://calendar.invalid/e2e.ics", timeout_seconds: 1}
+  website:
+    e2e-website: {title: "E2E Website", url: "https://website.invalid", group_name: "Research", timeout_seconds: 1}
 YAML
+
+# Scale fixture for the grouped RSS overview and statistics latency gate:
+# 32 feeds plus 89 SSH profiles yield 131 configured connections in total.
+# This disposable config is the only file modified by this block.
+"${E2E_PYTHON}" - "${STACK_DIR}/config/config.yaml" <<'PY'
+from pathlib import Path
+import sys
+import yaml
+
+path = Path(sys.argv[1])
+payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+rss = {}
+groups = ("Engineering", "Security", "Research")
+for index in range(1, 33):
+    group = groups[(index - 1) % len(groups)] if index <= 27 else ""
+    row = {
+        "title": f"E2E Feed {index:02d}",
+        "feed_url": f"https://feed-{index:02d}.invalid/rss.xml",
+        "timeout_seconds": 1,
+    }
+    if group:
+        row["group_name"] = group
+    rss[f"e2e-feed-{index:02d}"] = row
+payload.setdefault("connections", {})["rss"] = rss
+ssh = payload.setdefault("connections", {}).setdefault("ssh", {})
+for index in range(1, 76):
+    ssh[f"latency-{index:03d}"] = {
+        "title": f"Latency fixture {index:03d}",
+        "host": f"latency-{index:03d}.invalid",
+        "user": "e2e",
+        "timeout_seconds": 1,
+    }
+assert sum(len(rows) for rows in payload["connections"].values()) == 131
+path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+PY
 
 docker network create --internal "${NETWORK_NAME}" >/dev/null
 
@@ -227,9 +351,10 @@ docker run -d --name "${MCP_NAME}" --network "${NETWORK_NAME}" \
 docker run -d --name "${ARIA_NAME}" --network "${NETWORK_NAME}" \
   --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
   -v "${STACK_DIR}/data:/app/data:rw" \
+  -v "${STACK_DIR}/qdrant:/qdrant/storage:ro" \
   -e ARIA_ARIA_HOST=0.0.0.0 -e ARIA_ARIA_PORT=8800 \
   -v "${STACK_DIR}/config:/app/config:rw" \
-  -v "${ROOT_DIR}/prompts:/app/prompts:ro" \
+  -v "${STACK_DIR}/prompts:/app/prompts:rw" \
   --entrypoint python "${IMAGE_TAG}" -m uvicorn aria.main:app --host 0.0.0.0 --port 8800 >/dev/null
 
 container_ip() {
@@ -269,6 +394,7 @@ wait_url "${ANTHROPIC_CONTROL_URL}/health"
 wait_url "${MCP_CONTROL_URL}/health"
 wait_url "http://${QDRANT_IP}:6333/healthz"
 wait_url "${ARIA_BASE_URL}/health"
+
 # The production image runs as root and preserves the repository's restrictive
 # source permissions. Keep that production execution shape, but make this
 # disposable stack's isolated data mount writable for host-side SQLite E2E
@@ -278,16 +404,34 @@ docker exec "${ARIA_NAME}" chmod -R a+rwX /app/data
 export ARIA_E2E_BASE_URL="${ARIA_BASE_URL}"
 export ARIA_E2E_ANTHROPIC_CONTROL_URL="${ANTHROPIC_CONTROL_URL}"
 export ARIA_E2E_MCP_CONTROL_URL="${MCP_CONTROL_URL}"
+export ARIA_E2E_QDRANT_URL="http://${QDRANT_IP}:6333"
+export ARIA_E2E_CONTAINER_NAME="${ARIA_NAME}"
 export ARIA_E2E_ARTIFACT_DIR="${ARTIFACT_DIR}"
 export ARIA_E2E_USERNAME="${E2E_USERNAME}"
 export ARIA_E2E_PASSWORD="${E2E_PASSWORD}"
 export ARIA_E2E_DATA_DIR="${STACK_DIR}/data"
 
 set +e
-"${E2E_PYTHON}" -m pytest -o addopts= -q tests/e2e/scenarios.py \
-  --junitxml="${ARTIFACT_DIR}/junit.xml"
+PYTEST_ARGS=(-o addopts= -q tests/e2e/scenarios.py --junitxml="${ARTIFACT_DIR}/junit.xml")
+if [[ -n "${ARIA_E2E_TEST_EXPR:-}" ]]; then
+  PYTEST_ARGS+=(-k "${ARIA_E2E_TEST_EXPR}")
+fi
+"${E2E_PYTHON}" -m pytest "${PYTEST_ARGS[@]}"
 PYTEST_STATUS=$?
 set -e
+if [[ "${PYTEST_STATUS}" -eq 0 ]]; then
+  set +e
+  docker run --rm --name "${PREFIX}-webkit" --network "${NETWORK_NAME}" \
+    -v "${ROOT_DIR}/tests/e2e:/e2e:ro" \
+    -v "${WEBKIT_WHEEL_DIR}:/wheels:ro" \
+    -e E2E_WEBKIT_URL="http://${ARIA_NAME}:8800" \
+    -e E2E_WEBKIT_USERNAME="${E2E_USERNAME}" \
+    -e E2E_WEBKIT_PASSWORD="${E2E_PASSWORD}" \
+    --entrypoint sh "${WEBKIT_IMAGE}" -c \
+    'python -m pip install --quiet --disable-pip-version-check --no-index --find-links=/wheels playwright==1.55.0 && exec python /e2e/webkit_journal.py --url "$E2E_WEBKIT_URL" --username "$E2E_WEBKIT_USERNAME" --password "$E2E_WEBKIT_PASSWORD"'
+  PYTEST_STATUS=$?
+  set -e
+fi
 "${E2E_PYTHON}" scripts/e2e/report.py "${ARTIFACT_DIR}/junit.xml"
 echo "Artifacts: ${ARTIFACT_DIR}"
 exit "${PYTEST_STATUS}"

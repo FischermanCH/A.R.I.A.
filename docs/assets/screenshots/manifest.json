@@ -1,0 +1,365 @@
+{
+  "schema": 1,
+  "screenshots": [
+    {
+      "language": "de",
+      "theme": "matrix",
+      "view": "chat-tool-table",
+      "path": "docs/assets/screenshots/de/matrix-chat-tool-table.webp",
+      "bytes": 45840,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "matrix",
+      "view": "chat-job-completion",
+      "path": "docs/assets/screenshots/de/matrix-chat-job-completion.webp",
+      "bytes": 43282,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "matrix",
+      "view": "chat-confirmation",
+      "path": "docs/assets/screenshots/de/matrix-chat-confirmation.webp",
+      "bytes": 45884,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "matrix",
+      "view": "statistics",
+      "path": "docs/assets/screenshots/de/matrix-statistics.webp",
+      "bytes": 79974,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "matrix",
+      "view": "connections",
+      "path": "docs/assets/screenshots/de/matrix-connections.webp",
+      "bytes": 61454,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "matrix",
+      "view": "rss-categories",
+      "path": "docs/assets/screenshots/de/matrix-rss-categories.webp",
+      "bytes": 64922,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "matrix",
+      "view": "activity-journal",
+      "path": "docs/assets/screenshots/de/matrix-activity-journal.webp",
+      "bytes": 53894,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "matrix",
+      "view": "agent-jobs",
+      "path": "docs/assets/screenshots/de/matrix-agent-jobs.webp",
+      "bytes": 59392,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "matrix",
+      "view": "personal-model",
+      "path": "docs/assets/screenshots/de/matrix-personal-model.webp",
+      "bytes": 71192,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "matrix",
+      "view": "memory-browser",
+      "path": "docs/assets/screenshots/de/matrix-memory-browser.webp",
+      "bytes": 33886,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "paper",
+      "view": "chat-tool-table",
+      "path": "docs/assets/screenshots/de/paper-chat-tool-table.webp",
+      "bytes": 45352,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "paper",
+      "view": "chat-job-completion",
+      "path": "docs/assets/screenshots/de/paper-chat-job-completion.webp",
+      "bytes": 43028,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "paper",
+      "view": "chat-confirmation",
+      "path": "docs/assets/screenshots/de/paper-chat-confirmation.webp",
+      "bytes": 46012,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "paper",
+      "view": "statistics",
+      "path": "docs/assets/screenshots/de/paper-statistics.webp",
+      "bytes": 77398,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "paper",
+      "view": "connections",
+      "path": "docs/assets/screenshots/de/paper-connections.webp",
+      "bytes": 62364,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "paper",
+      "view": "rss-categories",
+      "path": "docs/assets/screenshots/de/paper-rss-categories.webp",
+      "bytes": 63892,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "paper",
+      "view": "activity-journal",
+      "path": "docs/assets/screenshots/de/paper-activity-journal.webp",
+      "bytes": 55110,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "paper",
+      "view": "agent-jobs",
+      "path": "docs/assets/screenshots/de/paper-agent-jobs.webp",
+      "bytes": 59350,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "paper",
+      "view": "personal-model",
+      "path": "docs/assets/screenshots/de/paper-personal-model.webp",
+      "bytes": 72822,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "de",
+      "theme": "paper",
+      "view": "memory-browser",
+      "path": "docs/assets/screenshots/de/paper-memory-browser.webp",
+      "bytes": 33970,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "matrix",
+      "view": "chat-tool-table",
+      "path": "docs/assets/screenshots/en/matrix-chat-tool-table.webp",
+      "bytes": 45486,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "matrix",
+      "view": "chat-job-completion",
+      "path": "docs/assets/screenshots/en/matrix-chat-job-completion.webp",
+      "bytes": 42674,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "matrix",
+      "view": "chat-confirmation",
+      "path": "docs/assets/screenshots/en/matrix-chat-confirmation.webp",
+      "bytes": 45556,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "matrix",
+      "view": "statistics",
+      "path": "docs/assets/screenshots/en/matrix-statistics.webp",
+      "bytes": 77724,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "matrix",
+      "view": "connections",
+      "path": "docs/assets/screenshots/en/matrix-connections.webp",
+      "bytes": 59326,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "matrix",
+      "view": "rss-categories",
+      "path": "docs/assets/screenshots/en/matrix-rss-categories.webp",
+      "bytes": 62616,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "matrix",
+      "view": "activity-journal",
+      "path": "docs/assets/screenshots/en/matrix-activity-journal.webp",
+      "bytes": 52256,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "matrix",
+      "view": "agent-jobs",
+      "path": "docs/assets/screenshots/en/matrix-agent-jobs.webp",
+      "bytes": 55648,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "matrix",
+      "view": "personal-model",
+      "path": "docs/assets/screenshots/en/matrix-personal-model.webp",
+      "bytes": 65252,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "matrix",
+      "view": "memory-browser",
+      "path": "docs/assets/screenshots/en/matrix-memory-browser.webp",
+      "bytes": 32740,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "paper",
+      "view": "chat-tool-table",
+      "path": "docs/assets/screenshots/en/paper-chat-tool-table.webp",
+      "bytes": 45332,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "paper",
+      "view": "chat-job-completion",
+      "path": "docs/assets/screenshots/en/paper-chat-job-completion.webp",
+      "bytes": 42432,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "paper",
+      "view": "chat-confirmation",
+      "path": "docs/assets/screenshots/en/paper-chat-confirmation.webp",
+      "bytes": 45810,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "paper",
+      "view": "statistics",
+      "path": "docs/assets/screenshots/en/paper-statistics.webp",
+      "bytes": 75524,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "paper",
+      "view": "connections",
+      "path": "docs/assets/screenshots/en/paper-connections.webp",
+      "bytes": 60942,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "paper",
+      "view": "rss-categories",
+      "path": "docs/assets/screenshots/en/paper-rss-categories.webp",
+      "bytes": 61390,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "paper",
+      "view": "activity-journal",
+      "path": "docs/assets/screenshots/en/paper-activity-journal.webp",
+      "bytes": 53112,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "paper",
+      "view": "agent-jobs",
+      "path": "docs/assets/screenshots/en/paper-agent-jobs.webp",
+      "bytes": 56894,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "paper",
+      "view": "personal-model",
+      "path": "docs/assets/screenshots/en/paper-personal-model.webp",
+      "bytes": 67216,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    },
+    {
+      "language": "en",
+      "theme": "paper",
+      "view": "memory-browser",
+      "path": "docs/assets/screenshots/en/paper-memory-browser.webp",
+      "bytes": 32120,
+      "viewport": "1280x800",
+      "source": "aria-demo"
+    }
+  ]
+}

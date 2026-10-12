@@ -117,7 +117,7 @@ def test_p2_r5_large_file_result_is_globally_capped_with_honest_notice(tmp_path)
     tool_result = seen[1]["messages"][-1]["content"]
     assert outcome.kind == "final_answer"
     assert len(tool_result) <= MAX_TOOL_RESULT_CHARS
-    assert '"truncated": true' in tool_result and "gekuerzt" in tool_result
+    assert '"truncated": true' in tool_result and "gek\\u00fcrzt" in tool_result
 
 
 def test_p2_r5_native_roundtrip_selects_requested_tool(tmp_path) -> None:  # noqa: ANN001

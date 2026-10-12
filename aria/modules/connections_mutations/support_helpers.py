@@ -281,14 +281,20 @@ def build_sample_connection_rows() -> list[dict[str, str]]:
         profile = profiles.get(ref)
         if not isinstance(profile, dict):
             continue
+        display = payload.get("display", {})
+        display = display if isinstance(display, dict) else {}
+        menu_meta = connection_menu_meta(kind)
         rows.append(
             {
                 "file_name": path.name,
                 "kind": kind,
-                "label": str(connection_menu_meta(kind).get("label") or kind.upper()).strip(),
+                "label": str(menu_meta.get("label") or kind.upper()).strip(),
+                "label_key": str(menu_meta.get("title_key") or "").strip(),
                 "ref": ref,
                 "title": str(profile.get("title", "")).strip() or ref or path.stem,
                 "description": str(profile.get("description", "")).strip(),
+                "description_de": str(display.get("description_de", "")).strip(),
+                "description_en": str(display.get("description_en", "")).strip(),
             }
         )
     return rows

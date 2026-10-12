@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="ui-page-frame ui-page-frame--detail" data-page-type-base="detail" data-ui-section-header="{{ canonical_parent_section(request) if canonical_parent_section is defined else '' }}" data-ui-canonical-parent-href="{{ canonical_parent_href(request) if canonical_parent_href is defined else '' }}">
+  {% block page_header %}{% endblock %}
+  <div class="ui-page-selected-item" data-page-slot="selected-item">{% block page_body %}{% endblock %}</div>
+  <div class="ui-page-actions" data-page-slot="actions">{% block page_actions %}{% endblock %}</div>
+  <div class="ui-page-information" data-page-slot="information">{% block page_information %}{% endblock %}</div>
+  <div class="ui-page-danger" data-page-slot="final-danger">{% block page_danger %}{% endblock %}</div>
+</div>
+{% endblock %}

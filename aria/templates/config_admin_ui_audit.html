@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/detail_page.html" %}
+{% block page_body %}
 <main class="config-layout config-domain-layout config-domain-surface-layout ui-audit-layout">
   {% include "_admin_section_nav.html" %}
   {% include "_config_page_header.html" %}
@@ -46,11 +46,11 @@
       <div class="ui-audit-row" data-audit-row data-status="{{ row.status }}" data-route-key="{{ row.key }}"
            data-search-base="{{ row.method }} {{ row.path }} {{ row.owner_module }} {{ row.nav_parent }}">
         <input type="hidden" name="route_key" value="{{ row.key }}">
-        <div class="ui-audit-route">
+        <div class="ui-audit-route" data-ui-product-name>
           <a href="{{ row.path }}" target="_blank" rel="noopener"><code>{{ row.method }} {{ row.path }}</code></a>
           <span>{{ row.owner_module }}</span>
         </div>
-        <div class="ui-audit-meta">
+        <div class="ui-audit-meta" data-ui-product-name>
           <span>{{ tr(request, 'config_ui_audit.nav_reachable', 'In navigation') }}: {{ tr(request, 'common.yes', 'yes') if row.nav_reachable else tr(request, 'common.no', 'no') }}</span>
           <span>{{ tr(request, 'config_ui_audit.visibility', 'Visibility') }}: {{ row.visibility }}</span>
           <span>{{ tr(request, 'config_ui_audit.parent', 'Parent') }}: {{ row.nav_parent or '-' }}</span>

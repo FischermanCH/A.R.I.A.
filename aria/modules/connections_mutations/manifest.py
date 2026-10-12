@@ -19,6 +19,9 @@ MODULE_MANIFEST: dict[str, Any] = {
         "aria/modules/connections_mutations/routes.py",
         "aria/modules/connections_mutations/support_helpers.py",
     ],
+    "routes": [
+        "/config/connections/credential-rotate",
+    ],
     "tests": [
         "tests/test_config_routes.py",
         "tests/test_connection_admin.py",
@@ -43,7 +46,7 @@ MODULE_MANIFEST: dict[str, Any] = {
         "qdrant_clear_or_reindex",
         "guardrail_policy_changes",
         "runtime_reload_or_execution",
-        "route_registration_changes",
+        "unrelated_route_registration_changes",
     ],
     "acceptance": ".codex/aria_acceptance/connections-mutations-composition-ownership-rail-alpha745.json",
     "build_allowed": False,

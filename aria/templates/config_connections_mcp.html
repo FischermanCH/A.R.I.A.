@@ -1,14 +1,20 @@
-{% extends "base.html" %}
+{% extends "page_types/" ~ connection_page_type ~ "_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% block page_body %}
 {% set mcp_page_path = required_module_route_path('config_ui', '/config/connections/mcp') %}
 {% set mcp_save_path = required_module_route_path('config_ui', '/config/connections/mcp/save') %}
+{% set mcp_credentials_path = required_module_route_path('config_ui', '/config/connections/mcp/credentials') %}
 {% set mcp_master_path = required_module_route_path('config_ui', '/config/connections/mcp/master') %}
 {% set mcp_reconnect_path = required_module_route_path('config_ui', '/config/connections/mcp/reconnect') %}
 {% set mcp_delete_path = required_module_route_path('config_ui', '/config/connections/mcp/delete') %}
-<main class="config-layout connections-clean-layout connections-surface-layout">
+<main class="config-layout connections-clean-layout connections-surface-layout connection-{{ connection_page_type }}" data-ui-page-type="{{ connection_page_type }}">
   {% include "_connections_nav.html" %}
   {% include "_connections_page_header.html" %}
+  {% if connection_page_type == 'overview' %}
+  <a class="button-link subtle-link ui-action-link" data-ui-back-link="true" href="{{ page_return_to }}">← {{ tr(request, 'config_conn.back_to_hub', 'Back to connection overview') }}</a>
+  <p class="ui-page-purpose connection-page-purpose">{{ tr(request, 'mcp_admin.overview_purpose', 'Hier verwaltest du externe MCP-Server und siehst ihren Verbindungsstatus.') }}</p>
+  <a class="button-like ui-primary-action connection-overview-create" href="{{ connection_create_url }}">{{ tr(request, 'mcp_admin.add_title', 'MCP-Server hinzufügen') }}</a>
+  <span hidden data-connection-inventory-kind="mcp" data-connection-inventory-expected="{{ mcp_server_rows|length }}"></span>
 
   <section class="floating-card config-domain-section">
     <div class="page-title-row">
@@ -33,24 +39,24 @@
     {% if mcp_server_rows %}
     <div class="config-submenu">
       {% for row in mcp_server_rows %}
-      <a class="config-submenu-item" href="{{ mcp_page_path }}?server={{ row.name | urlencode }}#mcp-editor">
+      <a class="config-submenu-item connection-profile-card" data-connection-inventory-item="true" href="{{ connection_detail_urls.get(row.name, mcp_page_path) }}">
         <span class="submenu-icon-wrap">{{ icon('connections', 'submenu-icon') }}</span>
         <span class="submenu-copy">
           <span class="submenu-title-row">
             <span class="submenu-title">{{ row.title or row.name }}</span>
             <span class="status-chip status-{% if row.connected %}ok{% elif row.enabled and mcp_master_enabled %}error{% else %}warn{% endif %}">
-              {% if row.connected %}{{ tr(request, 'mcp_admin.connected', 'Connected') }}{% else %}{{ tr(request, 'mcp_admin.not_connected', 'Not connected') }}{% endif %}
+              {% if row.connected %}{{ tr(request, 'mcp_admin.connected', 'Verbunden') }}{% else %}{{ tr(request, 'mcp_admin.not_connected', 'Nicht verbunden') }}{% endif %}
             </span>
           </span>
           <span class="submenu-desc">{{ row.name }} · {{ row.transport }} · {{ row.url_masked }}</span>
           <span class="submenu-status-text">
-            {{ tr(request, 'mcp_admin.readonly_tools', 'Read-only Tools') }}: <strong>{{ row.tool_count }}</strong>
-            · {% if row.enabled %}{{ tr(request, 'mcp_admin.server_enabled', 'Enabled') }}{% else %}{{ tr(request, 'mcp_admin.server_disabled', 'Disabled') }}{% endif %}
-            · {% if row.trusted %}{{ tr(request, 'mcp_admin.server_trusted', 'Trusted') }}{% else %}{{ tr(request, 'mcp_admin.server_untrusted', 'Confirmation required for mutations') }}{% endif %}
+            {{ tr(request, 'mcp_admin.readonly_tools', 'Nur-Lese-Werkzeuge') }}: <strong>{{ row.tool_count }}</strong>
+            · {% if row.enabled %}{{ tr(request, 'mcp_admin.server_enabled', 'Aktiviert') }}{% else %}{{ tr(request, 'mcp_admin.server_disabled', 'Deaktiviert') }}{% endif %}
+            · {% if row.trusted %}{{ tr(request, 'mcp_admin.server_trusted', 'Vertrauenswürdig') }}{% else %}{{ tr(request, 'mcp_admin.server_untrusted', 'Bestätigung für Änderungen erforderlich') }}{% endif %}
             {% if row.status_error_text %} · {{ row.status_error_text }}{% endif %}
           </span>
           {% if row.header_names %}
-          <span class="submenu-status-text">{{ tr(request, 'mcp_admin.headers_present', 'Protected headers') }}: {{ row.header_names | join(', ') }} = ********</span>
+          <span class="submenu-status-text">{{ tr(request, 'mcp_admin.headers_present', 'Geschützte Header') }}: {{ row.header_names | join(', ') }} = ********</span>
           {% endif %}
         </span>
       </a>
@@ -58,7 +64,7 @@
       <form method="post" action="{{ mcp_reconnect_path }}" class="editor-form" autocomplete="off">
         <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
         <input type="hidden" name="server_name" value="{{ row.name }}">
-        <button type="submit">{{ tr(request, 'mcp_admin.reconnect_button', 'Reconnect') }}</button>
+        <button type="submit" class="ui-secondary-action ui-compact-action">{{ tr(request, 'mcp_admin.reconnect_button', 'Neu verbinden') }}</button>
       </form>
       {% endif %}
       {% endfor %}
@@ -67,16 +73,27 @@
     <div class="skill-summary"><span>{{ tr(request, 'mcp_admin.no_servers', 'Noch keine MCP-Server konfiguriert.') }}</span></div>
     {% endif %}
   </section>
+  {% endif %}
 
-  <section id="mcp-editor" class="floating-card config-domain-section">
+  {% if connection_page_type in ['create', 'detail'] %}
+  <a class="button-link subtle-link ui-action-link" data-ui-back-link="true" href="{{ connection_overview_url }}">← {{ tr(request, 'config_conn.back_to_existing_profiles', 'Zurück zu Verbindungen') }}</a>
+  <p class="ui-page-purpose connection-page-purpose">{% if connection_page_type == 'create' %}{{ tr(request, 'mcp_admin.create_purpose', 'Hier legst du einen neuen MCP-Server an und hinterlegst Zugangsdaten einmalig.') }}{% else %}{{ tr(request, 'mcp_admin.detail_purpose', 'Hier bearbeitest du diesen MCP-Server; Reconnect und Zugangsdaten sind getrennte Aktionen.') }}{% endif %}</p>
+  {% if connection_page_type == 'detail' and selected_mcp_status %}
+  <details class="floating-card ui-info-panel" data-ui-pattern="info">
+    <summary><strong>{{ tr(request, 'mcp_admin.status_title', 'Verbindungsstatus') }}</strong><span class="status-chip status-{% if selected_mcp_status.connected %}ok{% elif selected_mcp_status.enabled and mcp_master_enabled %}error{% else %}warn{% endif %}">{% if selected_mcp_status.connected %}{{ tr(request, 'mcp_admin.connected', 'Verbunden') }}{% else %}{{ tr(request, 'mcp_admin.not_connected', 'Nicht verbunden') }}{% endif %}</span></summary>
+    <p>{{ selected_mcp_status.url_masked }} · {{ tr(request, 'mcp_admin.readonly_tools', 'Nur-Lese-Werkzeuge') }}: {{ selected_mcp_status.tool_count }}</p>
+    {% if selected_mcp_status.status_error_text %}<p>{{ selected_mcp_status.status_error_text }}</p>{% endif %}
+  </details>
+  {% endif %}
+  <section id="mcp-editor" class="floating-card config-domain-section ui-settings-section" data-ui-pattern="settings">
     <h3>{% if selected_mcp_name %}{{ tr(request, 'mcp_admin.edit_title', 'MCP-Server bearbeiten') }}{% else %}{{ tr(request, 'mcp_admin.add_title', 'MCP-Server hinzufügen') }}{% endif %}</h3>
     <form method="post" action="{{ mcp_save_path }}" class="editor-form" autocomplete="off">
       <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
       <input type="hidden" name="original_name" value="{{ selected_mcp_name }}">
-      <label>
+      {% if connection_page_type == 'create' %}<label>
         {{ tr(request, 'mcp_admin.name_label', 'Name') }}
         <input name="server_name" value="{{ selected_mcp_name }}" maxlength="64" required placeholder="blender">
-      </label>
+      </label>{% else %}<input type="hidden" name="server_name" value="{{ selected_mcp_name }}"><p><strong>{{ tr(request, 'mcp_admin.name_label', 'Name') }}:</strong> {{ selected_mcp_name }}</p>{% endif %}
       <label>
         {{ tr(request, 'mcp_admin.title_label', 'Titel (optional)') }}
         <input name="title" value="{{ selected_mcp.title }}" maxlength="160" placeholder="Blender MCP">
@@ -88,18 +105,15 @@
           <option value="http" {% if selected_mcp.transport == 'http' %}selected{% endif %}>HTTP v1</option>
         </select>
       </label>
-      <label>
+      {% if connection_page_type == 'create' %}<label>
         {{ tr(request, 'mcp_admin.url_label', 'Endpoint-URL') }}
-        <input name="url" value="" maxlength="2048" {% if not selected_mcp_name %}required{% endif %} placeholder="{% if selected_mcp.url_masked %}{{ selected_mcp.url_masked }}{% else %}https://example.invalid/sse{% endif %}">
-      </label>
+        <input name="url" value="" maxlength="2048" required placeholder="https://example.invalid/sse">
+      </label>{% endif %}
       <label>
         {{ tr(request, 'mcp_admin.call_timeout_label', 'Tool-Aufruf-Timeout (Sekunden)') }}
         <input type="number" name="call_timeout_seconds" min="5" max="900" step="1" value="{{ selected_mcp.call_timeout_seconds }}" required>
       </label>
       <small class="hint-text">{{ tr(request, 'mcp_admin.call_timeout_hint', 'Wie lange ARIA auf einen einzelnen MCP-Tool-Aufruf wartet (5–900 Sekunden). Die Discovery bleibt separat begrenzt.') }}</small>
-      {% if selected_mcp_name %}
-      <small class="hint-text">{{ tr(request, 'mcp_admin.url_preserve_hint', 'Leer lassen, um die vorhandene URL unverändert zu behalten.') }}</small>
-      {% endif %}
       <input type="hidden" name="enabled" value="0">
       <label class="toggle-line">
         <input type="checkbox" name="enabled" value="1" {% if selected_mcp.enabled %}checked{% endif %}>
@@ -112,7 +126,7 @@
       </label>
       <div class="alert err">{{ tr(request, 'mcp_admin.trusted_warning', 'Warnung: Tools eines vertrauten Servers laufen ohne Bestätigung – einschließlich mächtiger oder verändernder Tools und Code-Ausführung.') }}</div>
 
-      <fieldset>
+      {% if connection_page_type == 'create' %}<fieldset>
         <legend>{{ tr(request, 'mcp_admin.headers_title', 'Optionale HTTP-Header') }}</legend>
         <p class="hint-text">{{ tr(request, 'mcp_admin.headers_hint', 'Bis zu drei Header-Paare, zum Beispiel Authorization und Bearer-Token. Werte bleiben nach dem Speichern leer und werden nicht angezeigt.') }}</p>
         {% for index in range(3) %}
@@ -122,20 +136,45 @@
         </div>
         {% endfor %}
         {% if selected_mcp.header_names %}
-        <div class="skill-summary"><span>{{ tr(request, 'mcp_admin.headers_present', 'Protected headers') }}: {{ selected_mcp.header_names | join(', ') }} = ********</span></div>
+        <div class="skill-summary"><span>{{ tr(request, 'mcp_admin.headers_present', 'Geschützte Header') }}: {{ selected_mcp.header_names | join(', ') }} = ********</span></div>
         <label class="toggle-line"><input type="checkbox" name="clear_headers" value="1"><span>{{ tr(request, 'mcp_admin.clear_headers', 'Vorhandene Header entfernen') }}</span></label>
         {% endif %}
-      </fieldset>
+      </fieldset>{% endif %}
       <button type="submit">{{ tr(request, 'mcp_admin.save_button', 'MCP-Server speichern') }}</button>
     </form>
 
-    {% if selected_mcp_name %}
+  </section>
+  {% if connection_page_type == 'detail' and selected_mcp_name %}
+  <section class="floating-card config-domain-section ui-action-section" data-ui-pattern="action">
+    <h3>{{ tr(request, 'mcp_admin.credentials_title', 'Zugangsdaten neu setzen') }}</h3>
+    <p>{{ tr(request, 'mcp_admin.credentials_hint', 'Ersetzt die Endpoint-URL oder geschützte HTTP-Header; vorhandene Werte werden nie angezeigt.') }}</p>
+    <form method="post" action="{{ mcp_credentials_path }}" class="editor-form" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <input type="hidden" name="server_name" value="{{ selected_mcp_name }}">
+      <label>{{ tr(request, 'mcp_admin.url_label', 'Neue Endpoint-URL') }}<input type="password" name="url" value="" maxlength="2048" placeholder="{{ selected_mcp.url_masked or 'https://example.invalid/sse' }}"></label>
+      <fieldset>
+        <legend>{{ tr(request, 'mcp_admin.headers_title', 'Neue optionale HTTP-Header') }}</legend>
+        {% for index in range(3) %}<div class="form-row">
+          <label>{{ tr(request, 'mcp_admin.header_name_label', 'Header-Name') }}<input name="header_name" value="" maxlength="120" placeholder="Authorization"></label>
+          <label>{{ tr(request, 'mcp_admin.header_value_label', 'Header-Wert') }}<input type="password" name="header_value" value="" maxlength="4096" placeholder="Bearer ..."></label>
+        </div>{% endfor %}
+        {% if selected_mcp.header_names %}<p class="hint-text">{{ tr(request, 'mcp_admin.headers_present', 'Geschützte Header') }}: {{ selected_mcp.header_names | join(', ') }} = ********</p>
+        <label class="toggle-line"><input type="checkbox" name="clear_headers" value="1"><span>{{ tr(request, 'mcp_admin.clear_headers', 'Vorhandene Header entfernen') }}</span></label>{% endif %}
+      </fieldset>
+      <button type="submit">{{ tr(request, 'mcp_admin.credentials_button', 'Neue Zugangsdaten speichern') }}</button>
+    </form>
+  </section>
+  <section id="connection-danger-zone" class="floating-card config-domain-section ui-danger-zone connection_danger_zone" data-ui-pattern="danger">
+    <h3>{{ tr(request, 'mcp_admin.delete_title', 'MCP-Server löschen') }}</h3>
+    <p>{{ tr(request, 'mcp_admin.delete_hint', 'Entfernt diese Serverkonfiguration und ihre bereitgestellten Werkzeuge aus ARIA.') }}</p>
+    <ul class="ui-danger-consequences"><li>{{ tr(request, 'connections.delete_consequence', 'Rezepte oder Aktionen mit dieser Referenz können danach nicht mehr ausgeführt werden.') }}</li></ul>
     <form method="post" action="{{ mcp_delete_path }}" class="editor-form" autocomplete="off" onsubmit="return confirm('{{ tr(request, 'mcp_admin.delete_confirm', 'Diesen MCP-Server wirklich löschen?') }}');">
       <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
       <input type="hidden" name="server_name" value="{{ selected_mcp_name }}">
       <button type="submit" class="danger">{{ tr(request, 'mcp_admin.delete_button', 'MCP-Server löschen') }}</button>
     </form>
-    {% endif %}
   </section>
+  {% endif %}
+  {% endif %}
 </main>
 {% endblock %}

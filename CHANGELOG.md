@@ -1,5 +1,228 @@
 # Changelog
 
+## 0.1.0-alpha1007 - 2026-10-12
+
+- Polished owner statistics: removed duplicate meta checks, added local startup time and readable cost axes, and corrected container-backed resource accounting.
+- Made routing-index rebuilds authoritative by deleting stale entries from removed or renamed connection profiles.
+- Expanded assistant replies to the full chat width and replaced the legacy Tool-Box with a compact keyboard-accessible actions menu.
+- Terminal Agent Jobs now show only a “View job” link, live and after reload.
+
+## 0.1.0-alpha1006 - 2026-10-12
+
+- Keeps all three `/stats` check groups collapsed on initial load while retaining cached count pills and the concrete linked problem list.
+- Loads check tiles as authenticated HTML fragments only when a group is opened, with a visible loading state, retryable error state and per-page DOM cache.
+- Keeps the initial statistics request free of live update, connection, MCP and Qdrant probes; connections are summarized from stored status and link to `/connections/status`.
+- Loads routing-index and recipe-memory collection state only on demand, in parallel, without provider or embedding calls and with honest yellow timeout results after at most three seconds.
+- Refreshes the next-public-candidate material and demo statistics screenshots. The published version remains `0.1.0-alpha983` until a separate release authorization.
+
+## 0.1.0-alpha1005 - 2026-10-12
+
+- Restores the functional breadth of the public Alpha983 statistics page inside the new owner layout: every legacy check and model role is mapped or explicitly documented as intentionally removed.
+- Brings back visible green, yellow and red status lamps on every check tile and three count pills in each group header, with computed-color coverage across all eleven themes.
+- Replaces abstract health copy with concrete named problems, complete untruncated details and links to the matching settings page; a healthy system reports the exact green-check count.
+- Restores Chat, embedding and web/search model roles in Technical details, including per-role API bases, shared/split gateway state, usage meter, token log, web requests, native searches and their local cost coverage.
+- Keeps `/stats` passive: opening the page performs no provider, connection, MCP, Qdrant or external price-list call. The published version remains `0.1.0-alpha983` pending separate authorization.
+
+## 0.1.0-alpha1004 - 2026-10-12
+
+- Restores three compact, separately collapsible status groups on `/stats`: startup checks, runtime and services, and operations and release. Healthy groups stay closed; warnings and errors open their group automatically.
+- Keeps the statistics page passive by using only startup and runtime snapshots already held locally. Opening `/stats` performs no provider, connection, MCP, Qdrant, or external price-list probe.
+- Replaces the full LiteLLM catalog dump with at most 20 configured, manually priced, or actually used model rows while retaining the compact price-management actions.
+- Removes the empty rounded status bar above the chat composer; the same element appears only while it contains real progress content.
+- Refreshes the next-public-candidate documentation and affected demo screenshots. The published version remains `0.1.0-alpha983` until a separate release authorization.
+
+## 0.1.0-alpha1003 - 2026-10-12
+
+- Replaces the iPhone chat's nested fixed-height message scroller with normal document scrolling, a strictly non-wrapping one-row header and a safe-area-aware sticky composer for every viewport up to 900 px wide or 500 px high.
+- Adds an admin-only `?layout_debug=1` overlay with real viewport, element-rectangle, scroll-container, user-agent and CSS-version evidence for on-device Safari review.
+- Applies the shared display-time-zone formatter to server-rendered and dynamically inserted chat timestamps, including Agent Job notices, and lets a first browser visit correct the UTC fallback locally.
+- Adds release-version cache keys to rendered and stylesheet-owned static assets so an updated phone cannot silently retain stale chat CSS or JavaScript.
+- Extends WebKit and page-layout gates with 844×390 and 667×320 landscape checks, typing/sending, header-row geometry, overflow ancestry and versioned assets. Public remains Alpha983 pending separate publication authorization.
+
+## 0.1.0-alpha1002 - 2026-10-12
+
+- Reworks the phone chat geometry for Safari with a compact single-row header and composer, dynamic visual-viewport tracking, independently scrolling messages, and protected space for the jump-to-latest control in portrait and landscape.
+- Replaces the Activity Journal's always-visible date fields with an explicit All/Today/7 days/30 days/Custom period selector while preserving date-query deep links.
+- Adds one display-time-zone policy for the Journal, Agent Jobs, statistics, chat timestamps and `activity_journal_read`: configured UI setting, then `TZ`, browser time zone, and UTC.
+- Extends the WebKit and page-linter coverage for iPhone viewports, landscape scrolling, visible period state and local-day grouping.
+- Refreshes the next-public-candidate notes and screenshots from Alpha1001 to Alpha1002; publication remains a separate owner-authorized step and the current public pin remains Alpha983.
+
+## 0.1.0-alpha1001 - 2026-10-11
+
+- Prepares the next public release candidate with a non-blocking Native recipe snapshot: persistent manifest scans run in a provider-free startup task, while a first turn waits at most 200 ms and never performs the slow filesystem walk itself.
+- Keeps unfiltered Activity Journal dates empty across reload, history navigation and WebKit/Safari-style form restoration; query-string dates remain explicit and stable.
+- Refreshes the isolated synthetic demo for the release candidate and adds a bilingual dark/light public screenshot pipeline with rendered-page, OCR and repository hygiene gates.
+- Adds an honest public summary of the changes since Alpha983, updated README and Docker Hub copy, GitHub release notes, and a non-publishing Alpha1001 runbook.
+- The published version remains `0.1.0-alpha983` until a separate release authorization.
+
+## 0.1.0-alpha1000 - 2026-10-11
+
+- Keeps cold or unreachable MCP discovery fully outside the synchronous turn budget and makes the deterministic recipe cache warm path metadata-only.
+- Renders background-job results with the chat's safe Markdown pipeline, records detached jobs exactly once with connection context, and stores journal summaries as plain text.
+- Polishes the owner statistics view with provider-prefix model deduplication, localized cost-driver labels, a bottom-aligned responsive chart, and non-stale restart notices.
+- Proves four-digit alpha ordering across update discovery, local updater TAR selection, image tags, retention and changelog parsing.
+- The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha999 - 2026-10-11
+
+- Redesigns `/stats` around four owner questions: health, costs, activity and resources, with passive cached data, local-time/locale formatting, a server-rendered 30-day chart, one technical section and a final confirmed danger zone.
+- Aggregates the whole calendar month across active and archived usage logs, adds numeric meter usage to user-scoped journal entries, and keeps the statistics GET free of provider, connection, MCP and price-list calls.
+- Adds a durable, isolated `aria-demo` Compose stack on port 8090 with deterministic fictitious data, a documented demo login, reproducible start/stop/reset commands and a bilingual rendered-page safety scanner.
+- Restores the public alpha982/alpha983 image TARs and permanently protects public alpha604/alpha982/alpha983 TARs in local retention.
+- The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha998 - 2026-10-10
+
+- Keeps the chat composer inside the visual viewport across long histories, reloads, polling updates, mobile layouts, and all eleven themes; only the message list scrolls.
+- Renders wide assistant Markdown tables inside a bounded horizontal scroller so they cannot widen the page or displace the composer.
+- Routes persisted and polled agent-job notices through the same escaped Markdown renderer as normal assistant replies, including tables, bold text, inline and fenced code, and lists.
+- Adds page-linter rule R31 and a production-shaped browser regression covering a long polled job notice, every theme, desktop and mobile viewports, reload, focus, and send.
+- The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha997 - 2026-10-10
+
+- Made detached agent-job completion delivery durable with a SQLite outbox, retryable acknowledgement, cross-worker chat-history locking, and reconciliation on polling and chat reload.
+- Reworked the jobs panel for local and relative times, concise localized steps, collapsed technical telemetry, safe responsive Markdown results, and compact confirmed cleanup actions.
+- Cleaned legacy activity-journal re-imports into one entry per week plus unique monthly content, updating prior imports in place without deleting source rollups.
+- Improved the journal filter layout and local-time presentation, suppressed self-observation reads, and added deterministic background recipe-cache warm-up without provider or embedding calls.
+- Re-enabled symmetric bilingual page checks and added raw-value, locale-format, and form-geometry rules R28–R30; `/stats` has only the reviewed temporary alpha998 exceptions.
+- The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha996 - 2026-10-10
+
+- Adds a compact user-scoped Activity journal for completed Native Tool turns and terminal Agent Jobs, with bounded redacted fields and failure-isolated finalize hooks.
+- Adds the on-demand read-only `activity_journal_read` tool; the journal is never injected into prompts automatically. The core registry is 38 tools while the journal is enabled and 37 when disabled.
+- Adds a bilingual Memory overview page with day groups, filters, details, JSON export, keep/delete controls, configurable 7–365 day retention, and typed-confirmation range deletion.
+- Adds explicit idempotent import of legacy context rollups, including embedding-dimension variants, plus a separate user-scoped confirmed deletion action that never removes an unimported rollup.
+- Makes startup dependency diagnostics resilient to transient container startup order and refreshes stale warning/error snapshots while preserving useful redacted error evidence.
+
+> Internal build only. The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha995 - 2026-10-10
+
+- Freezes the retired daily-context rollup writer: startup and maintenance no longer compact, delete, rewrite, or re-embed legacy daily context and rollup collections.
+- Keeps existing weekly and monthly rollups readable through Memory recall, export, browser inspection, and confirmed per-item deletion, including embedding-dimension collection variants.
+- Removes the obsolete rollup controls and settings. Legacy POST URLs now redirect without changing data; Maintenance shows a read-only per-user rollup count when data exists.
+- Removes the dead session-collection chat plumbing, unused recipe skill path, synthetic current-day recall target, and retired compression module while keeping old configuration files loadable with an informational log note.
+- Ensures remaining Memory embedding calls are recorded by the embedding usage meter and adds an isolated restart regression scenario for immutable legacy data.
+
+> Internal build only. The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha994 - 2026-10-09
+
+- Restores the RSS connection inventory in the new overview page type with collapsible category groups, visible counts, an ungrouped fallback, and filtering suitable for large feed collections.
+- Extends the rendered-page gate to English with R25, blocking German interface copy while exempting proper names and user-entered content; bundled connection examples now provide localized descriptions.
+- Adds canonical real-link validation for page back actions (R26) and removes duplicate connection create actions through R27.
+- Strengthens R4 so every one of the 13 seeded connection kinds must render exactly as many inventory cards as its test data contains, including a 32-feed RSS scale fixture.
+- Keeps the graphical Memory browser, daily context, context rollup, connection runtime, and public release unchanged.
+
+> Internal build only. The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha993 - 2026-10-09
+
+- Defines primary, secondary, tertiary, danger, tab/filter, chip and form-control roles once in the central UI layer so the same action keeps the same shape and emphasis in every theme.
+- Reduces all eleven themes to colour/typography tokens and decorative backgrounds, removing theme-specific component overrides while preserving each palette and background personality.
+- Adds computed browser checks R19-R24 for role semantics, WCAG AA contrast, interaction states and cross-theme geometry, plus a two-page visual review set for every theme.
+- Keeps the graphical Memory browser byte-identical and leaves application behavior, routes and stored appearance choices unchanged.
+- Records the already-applied LICENSE correction: the copyright holder is now `Fischerman.ch`.
+
+> Internal build only. The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha992 - 2026-10-09
+
+- Gives every registered page one canonical navigation parent; Help, Qdrant guidance and Licenses now share the Help header even when linked as shortcuts elsewhere.
+- Polishes connection details with one description, a text-only profile reference plus a compact guarded rename action, and one primary save action per settings section.
+- Calms the Personal model with real filter tabs, compact secondary correction controls and compact danger-styled deletion without changing claim behavior.
+- Hardens the rendered-page linter to R1-R18 with computed presentation checks, summary/body duplication detection, immutable detail identifiers and canonical-section verification.
+- Adds permanent regression fixtures and refreshed dark/light self-review evidence while keeping the graphical Memory browser byte-identical.
+
+> Internal build only. The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha991 - 2026-10-09
+
+- Adds one inherited Jinja base for each authenticated page type (overview, detail, create, settings, and tool) so page structure has a single construction boundary.
+- Adds the rendered-page linter R1-R16, an explicit allow-list, Markdown/JSON evidence, and the isolated dark/light self-review gate.
+- Improves connection overview/detail clarity, makes connection references read-only until an explicit rename action, and blocks unsafe renames while a known recipe still references the old name.
+- Makes the personal model readable with German predicate labels, filter tabs, localized badges, and technical IDs only inside collapsed expert details.
+- Aligns Help and Licenses with the shared page structure, current routes, real links, and current product behavior.
+
+> Internal build only. The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha990 - 2026-10-09
+
+- Aligns connection overviews and model settings with the approved ARIA UI mockups, removes generic purpose filler, and adds accessible remembered collapsible settings.
+- Makes the Personal model readable and actionable while preserving the Memory browser, claim routes, maintenance behavior and data semantics.
+- Reorganizes Help into four current groups, merges the native Tool-Calling self-test into LLM settings, and refreshes operational help for jobs, MCP, privacy and backups.
+- Adds named first-turn timing stages, connection-aware recipe-match diagnostics and avoids action-claim retries for descriptions of already stored data.
+- Adds seeded dark/light browser review coverage U10-U14. Public release metadata remains pinned to 0.1.0-alpha983.
+
+## 0.1.0-alpha989
+
+### Unified administration information architecture
+
+- Applied the approved overview, create, detail, settings and tool page model across the 55 non-memory administration pages. Connection management now has stable overview, `/new` and `/<reference>` URLs, while legacy query and anchor URLs redirect without losing feedback parameters.
+- Separated connection inventory from create and edit forms for every connection kind. Detail pages expose only the selected item; one-time setup values stay in create flows, and credential replacement is a separate action that never renders an existing secret back into HTML.
+- Added consistent status badges, page-purpose and back navigation, themed form controls, readable information summaries and final consequence-labelled danger zones. Reviewed German fallback copy uses real umlauts while protocol identifiers and accepted ASCII input patterns remain unchanged.
+- Added route-level form and redirect coverage plus isolated browser scenarios U7-U9, including the dark/light 1280 × 800 screenshot index for all 55 pages. The six `/memories*` templates and their behavior remain unchanged.
+
+> Internal build only. The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha988
+
+- Rolled out the shared UI clarity pattern to SSH and Webhook connection management: a visible create action, focused settings, a separate connection test, status information, and a final delete danger zone.
+- Replaced reviewed ASCII transliterations in German UI copy with real umlauts and `ß`, backed by a catalog regression test with explicit legitimate-word exceptions.
+- Clarified backup inventory counters and restore caution styling, and renamed the logs settings section to cover both retention/statistics and native traces.
+- Added isolated browser coverage U4-U6 for SSH/Webhook lifecycle flows, pattern guards, and representative German UI rendering.
+
+## 0.1.0-alpha987
+
+### UI clarity
+
+- Added one reusable UI hierarchy for muted collapsible information, single-purpose actions, single-save settings sections and a separated typed-confirmation danger zone. The public-safe guide defines the same rules for future pages and all shipped themes use the shared semantic styles.
+- Reworked Backup & restore so the secret-free download is the first primary action, the encrypted credential bundle is an explicit option that is off by default, restore and personal-memory export are separate actions, and technical scope is a collapsible information panel.
+- Reworked Logs & retention into trace settings, one cleanup action, collapsible token-log statistics and a final red danger zone for statistics reset and factory reset. Alpha986 backup, restore, trace and cleanup behavior is unchanged.
+- Moved Backup & restore from Operations to Security & access while keeping `/config/backup` stable, and recorded a 1280 × 800 isolated-browser audit of all authenticated UI routes for a later dedicated cleanup build. Memory pages were audited only and not changed.
+
+> Internal build only. The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha986
+
+### Security and privacy
+
+- Configuration backups are secret-free by default: decrypted credentials and password hashes are excluded, sensitive config fields are cleared, and an explicit manifest states that memories, documents, notes, chats, jobs, Qdrant data and persistent volumes are not part of the backup. Administrators may explicitly add a passphrase-protected scrypt/AES-256-GCM credential bundle; wrong passphrases fail before restore writes begin, while legacy plaintext backups remain readable with a warning.
+- Native-agent traces now default to a minimal format containing bounded metadata, byte counts and SHA-256 fingerprints instead of raw arguments or Tool output. Administrators can select 7/30/90/custom-day retention, a 50-MiB default cap and an explicitly warned full-detail mode.
+- Startup and periodic retention now physically prune expired Web evidence, pending confirmations, confirmation-ledger claims, LLM audit rows, inbound events and token archives. These sweeps never target personal memories, documents, notes or recipes.
+
+### Operations
+
+- Managed-stack migration backups are mode 0600, retain two generations only after a successful health check, and shipped Compose services rotate json-file logs at 10 MiB × 3 files.
+- Terminal Agent Jobs discard resume/correction state and raw step summaries, while each user is bounded to 500 jobs with oldest terminal jobs removed first.
+- Factory reset now also covers ARIA-owned notes, native traces, token archives, pricing caches and runtime files; host paths outside the ARIA data/config mounts remain out of scope.
+
+> Internal build only. The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha985
+
+### Fixed
+
+- Document answer/search results now carry complete, bounded chunk excerpts as structured source metadata instead of reconstructing them from lines in the legacy 1,500-character recall string. Multi-line text and Unicode remain intact.
+- Document retrieval now adds the following chunk for each leading hit and, for short or heading-like hits, the preceding chunk. Neighbors are fetched only from the same owner-visible document and collection, deduplicated, and returned in reading order within a bounded Tool-result budget.
+- Repeated MCP discovery failures now use per-server exponential backoff from 30 seconds up to 10 minutes. Turns inside the backoff window remain non-blocking, explicit reconnect and successful discovery reset the schedule, and Details attribute MCP and other pre-loop latency.
+
+> Internal build only. The public release remains `0.1.0-alpha983`.
+
+## 0.1.0-alpha984
+
+### Fixed
+
+- Document inventory now uses the per-user guide catalog directly and only performs a bounded, cached chunk fallback for uncatalogued legacy document collections. Inventory Details report catalog/fallback source and build time without changing the 200-document completeness cap.
+- Stored document ownership is authoritative for inventory and content retrieval even when a collection has an unrelated name. Collection-name ownership remains only for legacy points that have no stored owner, preventing a matching username from exposing another user's document chunks.
+- Native and MCP Tool calls now contribute bounded wall-time diagnostics, including across paused or detached Agent Jobs.
+- Connection-bound Native Tools accept an exact configured reference, display name, or host/FQDN/IP and freeze the canonical reference before confirmation. Ambiguous and missing names return honest candidate lists without fuzzy execution.
+- Action-completion claims after read-only Tool observations now use the same one-shot correction/refusal guard as claims made without Tools; only a successful effectful Tool authorizes a completion claim.
+
+> Internal build only. The public release remains `0.1.0-alpha983`.
+
 ## 0.1.0-alpha983
 
 ### Fixed

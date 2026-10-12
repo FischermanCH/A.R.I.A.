@@ -890,13 +890,13 @@ async def _run_empty_collection_cleanup_global() -> None:
     }
 
     removed = await skill.cleanup_empty_collections_global()
-    assert len(removed) == 2
-    assert "aria_memory_demo_user_session_empty1" in removed
-    assert "aria_memory_demo_user_session_empty2" in removed
+    assert removed == []
+    assert "aria_memory_demo_user_session_empty1" in fake.collections
+    assert "aria_memory_demo_user_session_empty2" in fake.collections
     assert "aria_facts_demo_user" in fake.collections
 
 
-def test_cleanup_removes_empty_memory_collections() -> None:
+def test_cleanup_preserves_empty_legacy_session_collections() -> None:
     asyncio.run(_run_empty_collection_cleanup_global())
 
 
@@ -919,7 +919,7 @@ async def _run_forget_apply_removes_empty_collections() -> None:
     )
 
     assert result.success is True
-    assert "1 Eintraege entfernt" in result.content
+    assert "1 Einträge entfernt" in result.content
     assert "aria_facts_demouser" not in fake.collections
 
 

@@ -183,7 +183,7 @@ def test_http_api_guardrail_block_has_no_generic_warning_or_alert() -> None:
     assert "Guardrail-Profil `http-api-readonly-health-status` blockiert" in text
     assert "aktive Sicherheitsregel" in text
     assert "Zugriffsfehler" in text
-    assert "Guardrail pruefen/anpassen: [http-api-readonly-health-status]" in text
+    assert "Guardrail prüfen/anpassen: [http-api-readonly-health-status]" in text
     assert "(/config/security?guardrail_ref=http-api-readonly-health-status)" in text
     assert _friendly_error_text([error_code]) == ""
     assert should_alert_recipe_errors([error_code]) is False
@@ -208,8 +208,8 @@ def test_non_http_guardrail_block_has_no_generic_warning_or_alert() -> None:
     assert "Webhook-Aktion" in text
     assert "Guardrail-Profil `webhook-status-benachrichtigung` blockiert" in text
     assert "aktive Sicherheitsregel" in text
-    assert "technischer Ausfuehrungsfehler" in text
-    assert "Guardrail pruefen/anpassen: [webhook-status-benachrichtigung]" in text
+    assert "technischer Ausführungsfehler" in text
+    assert "Guardrail prüfen/anpassen: [webhook-status-benachrichtigung]" in text
     assert "(/config/security?guardrail_ref=webhook-status-benachrichtigung)" in text
     assert _friendly_error_text([error_code]) == ""
     assert should_alert_recipe_errors([error_code]) is False

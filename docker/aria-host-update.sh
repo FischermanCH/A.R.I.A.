@@ -70,7 +70,7 @@ Options:
   --dry-run          Print the resolved plan without changing anything.
 
 Optional Portainer API env:
-  PORTAINER_URL         e.g. https://portainer.example.lan:9443
+  PORTAINER_URL         e.g. https://portainer.example.test:9443
   PORTAINER_API_KEY     access token from the Portainer user account
   PORTAINER_INSECURE    true/false for self-signed TLS
 USAGE

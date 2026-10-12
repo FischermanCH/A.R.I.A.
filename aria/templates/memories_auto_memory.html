@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "page_types/overview_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% block page_body %}
 {% set memory_lang_de = request and request.state and (request.state.lang|string).lower().startswith('de') %}
 {% set static_help_path = module_route_path('static_help_docs', '/help') %}
 <main class="config-layout memory-config-layout memory-domain-shell">
@@ -8,7 +8,8 @@
   <section class="config-card auto-memory-workspace">
     <header class="auto-memory-page-head">
       <div class="page-title-row">
-        <h2>{{ tr(request, 'config_memory.auto_kicker', 'Persönliches Modell' if memory_lang_de else 'Personal model') }}</h2>
+        <h1>{{ tr(request, 'config_memory.auto_kicker', 'Persönliches Modell' if memory_lang_de else 'Personal model') }}</h1>
+        <p class="ui-page-purpose">{{ tr(request, 'config_memory.personal_model_purpose', 'Hier siehst und korrigierst du die Fakten und Vorlieben, die ARIA in Antworten persönlich berücksichtigen darf.') }}</p>
       </div>
       <div class="auto-memory-page-actions">
         <a class="context-help-link ui-action-link" href="{{ static_help_path }}?doc=memory">{{ icon('help', 'ui-action-icon') }}{{ tr(request, 'config_memory.auto_help_link', 'Memory-Hilfe' if memory_lang_de else 'Memory help') }}</a>
@@ -25,10 +26,15 @@
     <section class="learning-ledger" aria-labelledby="personal-model-title">
       <div class="learning-ledger-head">
         <div>
-          <h2 id="personal-model-title">{{ 'Persönliches Modell' if memory_lang_de else 'Personal model' }}</h2>
-          <p>{{ personal_claims|length }} {{ 'Claims · aktuelle Wahrheit und sichtbare Historie' if memory_lang_de else 'claims · current truth and visible history' }}</p>
+          <h2 id="personal-model-title">{{ tr(request, 'config_memory.personal_model_entries', 'Gespeicherte Angaben') }}</h2>
+          <p>{{ personal_claims|length }} {{ tr(request, 'config_memory.personal_model_count_label', 'Angaben · aktuell wirksame und historische Einträge') }}</p>
         </div>
       </div>
+      <nav class="personal-claim-filters" role="tablist" aria-label="{{ tr(request, 'config_memory.claim_filters', 'Statusfilter') }}">
+        <button type="button" role="tab" aria-selected="true" class="personal-claim-filter is-active" data-claim-filter="all">{{ tr(request, 'config_memory.filter_all', 'Alle') }}</button>
+        <button type="button" role="tab" aria-selected="false" class="personal-claim-filter" data-claim-filter="effective">{{ tr(request, 'config_memory.filter_active', 'Aktiv') }}</button>
+        <button type="button" role="tab" aria-selected="false" class="personal-claim-filter" data-claim-filter="historical">{{ tr(request, 'config_memory.filter_historical', 'Historisch') }}</button>
+      </nav>
       <div class="learning-ledger-summary learning-ledger-summary-primary">
         <span class="meta-badge is-active">{{ 'Wirksam' if memory_lang_de else 'Effective' }}: {{ personal_active_claim_count }}</span>
         <span class="meta-badge">{{ 'Geplant' if memory_lang_de else 'Scheduled' }}: {{ personal_scheduled_claim_count }}</span>
@@ -37,14 +43,29 @@
         <span class="meta-badge">{{ 'Suspendiert' if memory_lang_de else 'Suspended' }}: {{ personal_suspended_claim_count }}</span>
         <span class="meta-badge">{{ 'Inaktiv / historisch' if memory_lang_de else 'Inactive / historical' }}: {{ personal_claims|length - personal_active_claim_count - personal_scheduled_claim_count - personal_expired_claim_count - personal_suspended_claim_count }}</span>
       </div>
+      <p class="hint-text">{{ tr(request, 'config_memory.usage_hint', '„Angeboten“ zählt passende Antworten; „genutzt“ zählt, wie oft diese Angabe tatsächlich in den Modellkontext übernommen wurde.') }}</p>
       <div class="learning-ledger-list">
         {% for claim in personal_claims %}
           {% include "_personal_claim_item.html" %}
         {% else %}
-        <p class="learning-ledger-empty">{{ 'Noch keine strukturierten persönlichen Claims vorhanden.' if memory_lang_de else 'No structured personal claims yet.' }}</p>
+        <p class="learning-ledger-empty">{{ 'Noch keine strukturierten persönlichen Angaben vorhanden.' if memory_lang_de else 'No structured personal claims yet.' }}</p>
         {% endfor %}
       </div>
     </section>
   </section>
 </main>
+<script>
+  document.querySelectorAll('[data-claim-filter]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      const wanted = button.dataset.claimFilter;
+      document.querySelectorAll('[data-claim-filter]').forEach(function (candidate) {
+        candidate.classList.toggle('is-active', candidate === button);
+        candidate.setAttribute('aria-selected', candidate === button ? 'true' : 'false');
+      });
+      document.querySelectorAll('.learning-ledger-item').forEach(function (item) {
+        item.hidden = wanted !== 'all' && item.dataset.claimState !== wanted;
+      });
+    });
+  });
+</script>
 {% endblock %}

@@ -186,7 +186,7 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - Testposts und Rezept-Ziel-Freigabe konfigurierbar
 - Discord Rezept-Error-Alerts mit gekürzten/sanitized Fehlerdetails
 - HTTP-API- und Webhook-Connections mit eigenen Profilen
-- optionale Basis-URL über `ARIA_PUBLIC_URL` / `aria.public_url` fuer Host-/Link-Hinweise in Messages; interne LAN-URLs wie `http://aria.example.lan/` sind gueltig
+- optionale Basis-URL über `ARIA_PUBLIC_URL` / `aria.public_url` fuer Host-/Link-Hinweise in Messages; interne LAN-URLs wie `http://aria.example.test/` sind gueltig
 
 ## Websuche
 

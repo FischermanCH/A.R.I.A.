@@ -170,7 +170,7 @@ def test_summarize_ssh_result_for_chat_full_healthcheck_with_findings() -> None:
         "Server-Healthcheck für `dns-node-01`: Laufzeit 1 day. "
         "Root-Dateisystem /: 94% belegt, 1.5G frei (knapp). Verfügbarer RAM: 700Mi (knapp). "
         "Systemd: 1 fehlgeschlagene Units. "
-        "Journal: 1 ernsthafte Storage-/Dateisystem-Fehlerzeilen; Platte und Dateisystem zeitnah pruefen. "
+        "Journal: 1 ernsthafte Storage-/Dateisystem-Fehlerzeilen; Platte und Dateisystem zeitnah prüfen. "
         "Swap in Nutzung: 300Mi von 2.0Gi. Fazit: Handlungsbedarf."
     )
 
@@ -201,7 +201,7 @@ def test_summarize_ssh_result_for_chat_full_healthcheck_humanizes_auth_noise() -
     assert "pam_unix" not in summary
     assert "conversation failed" not in summary
     assert (
-        "Journal: 2 sudo-/Login-Fehlerzeilen; vermutlich kein Health-Blocker, ausser das war unerwartet."
+        "Journal: 2 sudo-/Login-Fehlerzeilen; vermutlich kein Health-Blocker, außer das war unerwartet."
         in summary
     )
     assert summary.endswith("Fazit: unauffällig.")

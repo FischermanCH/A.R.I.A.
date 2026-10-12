@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/overview_page.html" %}
+{% block page_body %}
 {% from "_icons.html" import icon %}
 {% set update_status = request.state.update_status if request and request.state and request.state.update_status is defined else None %}
 {% set config_ui_llm_path = module_route_path('config_ui', '/config/llm') %}
@@ -13,6 +13,7 @@
 {% set config_ui_admin_mode_path = module_route_path('config_ui', '/config/admin-mode') %}
 {% set config_ui_security_path = module_route_path('config_ui', '/config/security') %}
 {% set config_ui_users_path = module_route_path('config_ui', '/config/users') %}
+{% set config_backup_path = module_route_path('config_backup', '/config/backup') %}
 {% macro config_section(title, desc, count=None, open=False, section_id='') -%}
   <details class="floating-card config-section-details"{% if section_id %} id="{{ section_id }}"{% endif %}{% if open %} open{% endif %}>
     <summary class="config-section-summary">
@@ -70,7 +71,7 @@
   {% call config_section(
     tr(request, 'config.h1', 'Tune Intelligence'),
     tr(request, 'config.h1_desc', 'Configure how ARIA thinks, responds, and computes.'),
-    2,
+    3,
     False,
     'config-intelligence'
   ) %}
@@ -116,7 +117,7 @@
   {% call config_section(
     tr(request, 'config.access_title', 'Zugriff & Sicherheit'),
     tr(request, 'config.access_desc', 'Benutzer, Rollen und Guardrails für den sicheren Betrieb von ARIA.'),
-    2,
+    3,
     False,
     'config-access'
   ) %}
@@ -128,6 +129,10 @@
       <a class="config-submenu-item" href="{{ config_ui_security_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.security_title', 'Security Guardrails') }}</span><span class="submenu-desc">{{ tr(request, 'config.security_desc', 'Control bootstrap lock and login protection centrally.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="{{ config_backup_path }}?return_to=%2Fconfig">
+        <span class="submenu-icon-wrap">{{ icon('download', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.hub_backup_title', 'Backup & Wiederherstellung') }}</span><span class="submenu-desc">{{ tr(request, 'config.hub_backup_desc', 'ARIA-Konfiguration sicher exportieren oder wiederherstellen.') }}</span></span>
       </a>
     </div>
   {% endcall %}
@@ -157,11 +162,10 @@
   {% call config_section(
     tr(request, 'config.operations_title', 'Betrieb & Transfer'),
     tr(request, 'config.operations_desc', 'Logs, Cleanup und Backups an einem ruhigeren Ort für den täglichen Betrieb.'),
-    3,
+    2,
     False,
     'config-operations'
   ) %}
-    {% set config_backup_path = module_route_path('config_backup', '/config/backup') %}
     {% set config_logs_path = module_route_prefix_path('ops_config_backup', '/config/logs') %}
     {% set release_update_updates_path = module_route_path('release_update', '/updates') %}
     <div class="config-submenu">
@@ -180,10 +184,6 @@
       <a class="config-submenu-item" href="{{ config_logs_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('logs', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.logs_title', 'Logs & Cleanup') }}</span><span class="submenu-desc">{{ tr(request, 'config.logs_desc', 'Automatically clean up token/run logs and control retention.') }}</span></span>
-      </a>
-      <a class="config-submenu-item" href="{{ config_backup_path }}?return_to=%2Fconfig">
-        <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.transfer_title', 'Import / Export') }}</span><span class="submenu-desc">{{ tr(request, 'config.transfer_desc', 'Export config backups, download memory JSON, and restore ARIA from one place.') }}</span></span>
       </a>
     </div>
   {% endcall %}

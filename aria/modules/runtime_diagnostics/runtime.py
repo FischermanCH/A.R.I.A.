@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
+import re
+import time
 from typing import Any
 
 from aria.modules.configuration_foundations.config import EmbeddingsConfig, LLMConfig, MemoryConfig, PromptConfig, Settings
@@ -17,6 +20,11 @@ from aria.modules.system_diagnostics.qdrant_storage import resolve_qdrant_storag
 from aria.modules.model_usage_observability.usage_meter import UsageMeter
 
 _RUNTIME_DIAGNOSTICS_I18N = I18NStore(Path(__file__).resolve().parents[2] / "i18n")
+_DIAGNOSTIC_SECRET_PATTERNS = (
+    re.compile(r"(?i)(api[_ -]?key|authorization|bearer|token|secret|password)(\s*[:=]\s*)[^\s,;)}\]]+"),
+    re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{12,}\b"),
+    re.compile(r"(?i)(https?://)[^/@\s:]+:[^/@\s]+@"),
+)
 
 
 def _runtime_diagnostics_text(key: str, default: str = "", **values: object) -> str:
@@ -31,6 +39,22 @@ def _runtime_diagnostics_text(key: str, default: str = "", **values: object) -> 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def redact_diagnostic_detail(value: object) -> str:
+    """Keep useful failure evidence while preventing credential disclosure."""
+
+    text = " ".join(str(value or "").split())[:1000]
+    for pattern in _DIAGNOSTIC_SECRET_PATTERNS:
+        text = pattern.sub(
+            lambda match: (
+                (match.group(1) + (match.group(2) if match.lastindex and match.lastindex >= 2 else "") + "[REDACTED]")
+                if match.lastindex
+                else "[REDACTED]"
+            ),
+            text,
+        )
+    return text
 
 
 def _resolve_embedding_model(model: str) -> str:
@@ -101,7 +125,7 @@ async def probe_qdrant(memory: MemoryConfig, *, base_dir: Path | None = None) ->
                     "qdrant_storage_warning",
                     "Qdrant is reachable, but stored collections are missing from the API.",
                 ),
-                "detail": str(storage_warning.get("message", "") or str(memory.qdrant_url or "").strip() or "-"),
+                "detail": redact_diagnostic_detail(storage_warning.get("message", "") or str(memory.qdrant_url or "").strip() or "-"),
                 "collection_count": len(collections),
             }
         return {
@@ -109,7 +133,7 @@ async def probe_qdrant(memory: MemoryConfig, *, base_dir: Path | None = None) ->
             "status": "ok",
             "summary_key": "qdrant_ok",
             "summary": _runtime_diagnostics_text("qdrant_ok", "Qdrant reachable ({count} collections).", count=len(collections)),
-            "detail": str(memory.qdrant_url or "").strip() or "-",
+            "detail": redact_diagnostic_detail(str(memory.qdrant_url or "").strip() or "-"),
             "collection_count": len(collections),
         }
     except Exception as exc:  # noqa: BLE001
@@ -118,7 +142,7 @@ async def probe_qdrant(memory: MemoryConfig, *, base_dir: Path | None = None) ->
             "status": "error",
             "summary_key": "qdrant_error",
             "summary": _runtime_diagnostics_text("qdrant_error", "Qdrant is not reachable."),
-            "detail": str(exc),
+            "detail": redact_diagnostic_detail(exc),
         }
     finally:
         try:
@@ -162,7 +186,7 @@ async def probe_llm(llm: LLMConfig, usage_meter: UsageMeter | None = None) -> di
             "status": "error",
             "summary_key": "llm_error",
             "summary": _runtime_diagnostics_text("llm_error", "LLM is not reachable."),
-            "detail": str(exc),
+            "detail": redact_diagnostic_detail(exc),
         }
 
 
@@ -206,7 +230,7 @@ async def probe_embeddings(
             "status": "error",
             "summary_key": "embeddings_error",
             "summary": _runtime_diagnostics_text("embeddings_error", "Embeddings are not reachable."),
-            "detail": str(exc),
+            "detail": redact_diagnostic_detail(exc),
         }
 
 
@@ -271,3 +295,42 @@ async def build_runtime_diagnostics(
         "checked_at": _now_iso(),
         "checks": checks,
     }
+
+
+async def build_runtime_diagnostics_with_retry(
+    base_dir: Path,
+    settings: Settings,
+    usage_meter: UsageMeter | None = None,
+    *,
+    retry_window_seconds: float = 60.0,
+    sleeper: Any = asyncio.sleep,
+) -> dict[str, Any]:
+    """Retry transient startup dependency errors in the existing background task."""
+
+    result = await build_runtime_diagnostics(base_dir, settings, usage_meter=usage_meter)
+    deadline = time.monotonic() + max(0.0, float(retry_window_seconds))
+    delay = 2.0
+    dependency_ids = {"qdrant", "llm", "embeddings"}
+    while any(
+        row.get("id") in dependency_ids and row.get("status") == "error"
+        for row in result.get("checks", ())
+    ) and time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        await sleeper(min(delay, remaining))
+        refreshed = await build_runtime_diagnostics(base_dir, settings, usage_meter=usage_meter)
+        previous = {str(row.get("id")): dict(row) for row in result.get("checks", ())}
+        for row in refreshed.get("checks", ()):
+            check_id = str(row.get("id") or "")
+            if check_id in dependency_ids and previous.get(check_id, {}).get("status") == "error":
+                previous[check_id] = dict(row)
+        ordered = [previous.get(str(row.get("id") or ""), dict(row)) for row in result.get("checks", ())]
+        statuses = {str(row.get("status") or "warn") for row in ordered}
+        result = {
+            "status": "error" if "error" in statuses else "warn" if "warn" in statuses else "ok",
+            "checked_at": str(refreshed.get("checked_at") or _now_iso()),
+            "checks": ordered,
+        }
+        delay = min(15.0, delay * 2.0)
+    return result

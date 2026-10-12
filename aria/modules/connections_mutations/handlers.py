@@ -48,6 +48,8 @@ class ConnectionMutationHandlerDeps:
     write_raw_config: Any
     reload_runtime: Any
     redirect_with_return_to: Any
+    canonicalize_ui_redirect: Any
+    connection_canonical_url: Any
     sanitize_connection_name: Any
     delete_connection_profile: Any
     get_connection_delete_spec: Any
@@ -90,11 +92,13 @@ class ConnectionMutationHandlerDeps:
 class ConnectionMutationHandlers:
     rss_poll_interval_save: Any
     connection_delete: Any
+    credential_rotate: Any
     ssh_save: Any
     discord_save: Any
     sftp_save: Any
     smb_save: Any
     webhook_save: Any
+    webhook_test: Any
     smtp_save: Any
     imap_save: Any
     http_api_save: Any
@@ -115,7 +119,14 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
     _read_raw_config = deps.read_raw_config
     _write_raw_config = deps.write_raw_config
     _reload_runtime = deps.reload_runtime
-    _redirect_with_return_to = deps.redirect_with_return_to
+    _base_redirect_with_return_to = deps.redirect_with_return_to
+
+    def _redirect_with_return_to(url: str, request: Request, **kwargs: Any) -> RedirectResponse:
+        return _base_redirect_with_return_to(
+            deps.canonicalize_ui_redirect(url),
+            request,
+            **kwargs,
+        )
     _sanitize_connection_name = deps.sanitize_connection_name
     _delete_connection_profile = deps.delete_connection_profile
     _get_connection_delete_spec = deps.get_connection_delete_spec
@@ -216,6 +227,63 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         )
         store.set_secret(f"connections.google_calendar.{ref}.ical_url", clean_ical_url)
         return ref, original_ref_clean, store
+
+    async def config_connection_credential_rotate(request: Request) -> RedirectResponse:
+        form = await request.form()
+        kind = str(form.get("kind", "") or "").strip().lower()
+        ref = _sanitize_connection_name(str(form.get("connection_ref", "") or ""))
+        allowed = {
+            "discord": {"webhook_url": "webhook_url"},
+            "sftp": {"password": "password"},
+            "smb": {"password": "password"},
+            "webhook": {"url": "url"},
+            "email": {"password": "password"},
+            "imap": {"password": "password"},
+            "http_api": {"auth_token": "auth_token"},
+            "google_calendar": {"ical_url": "ical_url"},
+            "mqtt": {"password": "password"},
+        }
+        try:
+            if kind not in allowed or not ref:
+                raise ConnectionAdminError("invalid_ref")
+            raw, store, rows, _, _, _ = _prepare_connection_save(kind, ref, ref)
+            if ref not in rows or not store:
+                raise ConnectionAdminError("profile_not_found")
+            changed = False
+            for field_name, secret_name in allowed[kind].items():
+                value = str(form.get(field_name, "") or "").strip()
+                if not value:
+                    continue
+                store.set_secret(f"connections.{kind}.{ref}.{secret_name}", value[:4096])
+                changed = True
+            if kind == "sftp":
+                key_path = str(form.get("key_path", "") or "").strip()
+                if key_path:
+                    rows[ref] = {**dict(rows[ref]), "key_path": key_path[:1024]}
+                    raw.setdefault("connections", {})[kind] = rows
+                    _write_raw_config(raw)
+                    changed = True
+            if not changed:
+                raise ConnectionAdminError("secret_required")
+            _reload_runtime()
+            lang = str(getattr(request.state, "lang", "de") or "de")
+            return _base_redirect_with_return_to(
+                deps.connection_canonical_url(
+                    kind,
+                    "detail",
+                    connection_ref=ref,
+                    query={"info": _connection_mutation_text(lang, "credentials_updated")},
+                ),
+                request,
+                fallback="/config",
+            )
+        except (OSError, ValueError) as exc:
+            target = deps.connection_canonical_url(kind, "detail", connection_ref=ref) if kind in allowed and ref else "/config/connections"
+            return _base_redirect_with_return_to(
+                f"{target}?error={quote_plus(_friendly_connection_mutation_error(getattr(request.state, 'lang', 'de'), exc, kind=kind))}",
+                request,
+                fallback="/config",
+            )
 
     def _normalize_website_url(value: str) -> str:
         clean = str(value or "").strip()
@@ -645,6 +713,40 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return _redirect_with_return_to(
                 f"/config/connections/webhook?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='webhook'))}&webhook_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
+            )
+
+    async def config_webhook_connections_test(
+        request: Request,
+        connection_ref: str,
+    ) -> RedirectResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        try:
+            ref = _sanitize_connection_name(connection_ref)
+            if not ref:
+                raise ConnectionAdminError("invalid_ref")
+            row = _read_webhook_connections().get(ref)
+            if not row:
+                raise ConnectionAdminError("profile_not_found")
+            result = build_connection_status_row(
+                "webhook",
+                ref,
+                row,
+                page_probe=False,
+                base_dir=BASE_DIR,
+                lang=lang,
+            )
+            if result["status"] != "ok":
+                raise ValueError(result["message"])
+            return _redirect_with_return_to(
+                f"/config/connections/webhook?saved=1&info={quote_plus(result['message'])}&webhook_ref={quote_plus(ref)}&webhook_test_status=ok",
+                request,
+                fallback="/config",
+            )
+        except (OSError, ValueError) as exc:
+            return _redirect_with_return_to(
+                f"/config/connections/webhook?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='webhook'))}&webhook_ref={quote_plus(connection_ref)}&webhook_test_status=error",
                 request,
                 fallback="/config",
             )
@@ -1314,11 +1416,13 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
     return ConnectionMutationHandlers(
         rss_poll_interval_save=config_connections_rss_poll_interval_save,
         connection_delete=config_connections_delete,
+        credential_rotate=config_connection_credential_rotate,
         ssh_save=config_connections_save,
         discord_save=config_discord_connections_save,
         sftp_save=config_sftp_connections_save,
         smb_save=config_smb_connections_save,
         webhook_save=config_webhook_connections_save,
+        webhook_test=config_webhook_connections_test,
         smtp_save=config_smtp_connections_save,
         imap_save=config_imap_connections_save,
         http_api_save=config_http_api_connections_save,

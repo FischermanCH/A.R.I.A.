@@ -1,14 +1,47 @@
-{% extends "base.html" %}
-{% block content %}
-<main class="config-layout">
+{% extends "page_types/" ~ connection_page_type ~ "_page.html" %}
+{% block page_body %}
+<main class="config-layout connection-{{ connection_page_type }}" data-ui-page-type="{{ connection_page_type }}">
   {% set website_ui_page_path = required_module_route_path('website_ui', '/config/connections/websites') %}
   {% set website_ui_save_path = required_module_route_path('website_ui', '/config/connections/websites/save') %}
   {% set website_ui_suggest_metadata_path = required_module_route_path('website_ui', '/config/connections/websites/suggest-metadata') %}
   {% include "_connection_page_intro.html" %}
-  {% include "_connection_status_block.html" %}
+  {% if connection_page_type != 'overview' %}{% include "_connection_status_block.html" %}{% endif %}
   {% include "_connection_mode_nav.html" %}
 
-  <details id="manage-existing" class="config-card config-section-details connection-mode-card connection-mode-edit" {% if connection_mode != 'create' %}open{% endif %}>
+  {% if connection_page_type == 'overview' %}
+  <section class="config-card connection-inventory" data-connection-inventory="website">
+    <div class="connection-status-head">
+      <div>
+        <h2>{{ tr(request,'config_conn.website_groups_title','Watched sources') }}</h2>
+        <small>{{ tr(request,'config_conn.website_groups_hint','ARIA groups watched websites by category so sources on similar topics stay together.') }}</small>
+      </div>
+    </div>
+    {% if website_status_groups %}
+    <div class="rss-group-stack">
+      {% for group in website_status_groups %}
+      <details class="skill-details rss-group-card" data-website-group-card open>
+        <summary><span><strong>{{ group.name }}</strong><small>{{ group.total }} {{ tr(request,'config_conn.profiles','Profiles') }}</small></span></summary>
+        <div class="skill-details-content connection-status-grid">
+          {% for item in group.rows %}
+          <a href="{{ item.edit_url }}" class="connection-test-card connection-test-card-link connection-profile-card status-{{ item.status }}" data-connection-inventory-item="true">
+            <div class="connection-test-head"><span class="health-lamp status-{{ item.status }}"></span><strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}<span class="status-chip status-{{ item.status }}">{% if item.status == 'ok' %}{{ tr(request, 'config_conn.status_reachable', 'Reachable') }}{% elif item.status == 'error' %}{{ tr(request, 'config_conn.status_problem', 'Problem') }}{% else %}{{ tr(request, 'config_conn.status_not_checked', 'Not checked') }}{% endif %}</span></div>
+            <small class="connection-status-target">{{ item.target }}</small>
+            {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
+            <small>{{ item.message }}</small>
+            <span class="button-link subtle-link connection-profile-edit-link ui-action-link">{{ tr(request, 'config_conn.open_profile', 'Open') }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="skill-summary"><span>{{ tr(request,'config_conn.website_no_profiles_hint','No watched websites yet. Add a source and ARIA will test it automatically.') }}</span></div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if connection_page_type == 'detail' %}<details id="manage-existing" class="config-card config-section-details connection-mode-card connection-mode-edit" open>
     <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.edit_existing_title','Bestehendes Profil bearbeiten') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.edit_existing_subtitle','Profilkarte anklicken oder hier das aktuell geladene Profil bearbeiten.') }}</span></span></summary>
     <div class="config-section-content">
     {% if website_selected_explicit %}
@@ -30,7 +63,7 @@
           <span class="health-lamp status-{{ item.status }}"></span>
           <strong>{{ item.display_name }}</strong>
           {% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}
-          <span class="connection-current-badge">{{ tr(request,'config_conn.current','Current') }}</span>
+          <span class="status-chip status-{{ item.status }}">{% if item.status == 'ok' %}{{ tr(request, 'config_conn.status_reachable', 'Erreichbar') }}{% elif item.status == 'error' %}{{ tr(request, 'config_conn.status_problem', 'Problem') }}{% else %}{{ tr(request, 'config_conn.status_not_checked', 'Nicht geprüft') }}{% endif %}</span><span class="connection-current-badge">{{ tr(request,'config_conn.current','Aktuell') }}</span>
         </div>
         <small class="connection-status-target">{{ item.target }}</small>
         {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
@@ -79,10 +112,10 @@
           <div class="skill-details-content connection-status-grid">
             {% for item in group.rows %}
             <a
-              href="{{ website_ui_page_path }}?mode=edit&website_ref={{ item.ref|urlencode }}"
+              href="{{ item.edit_url }}"
               class="connection-test-card connection-test-card-link status-{{ item.status }}{% if item.selected %} current-profile{% endif %}"
             >
-              <div class="connection-test-head"><span class="health-lamp status-{{ item.status }}"></span><strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}</div>
+              <div class="connection-test-head"><span class="health-lamp status-{{ item.status }}"></span><strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}<span class="status-chip status-{{ item.status }}">{% if item.status == 'ok' %}{{ tr(request, 'config_conn.status_reachable', 'Erreichbar') }}{% elif item.status == 'error' %}{{ tr(request, 'config_conn.status_problem', 'Problem') }}{% else %}{{ tr(request, 'config_conn.status_not_checked', 'Nicht geprüft') }}{% endif %}</span></div>
               <small class="connection-status-target">{{ item.target }}</small>
               {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
               {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request,'config_conn.last_success','Last success') }}: {{ item.last_success_at|replace('T',' ') }}</small>{% endif %}
@@ -101,7 +134,8 @@
     </div>
   </details>
 
-  <details id="create-new" class="config-card config-section-details connection-mode-card connection-mode-create" {% if connection_mode == 'create' %}open{% endif %}>
+  {% endif %}
+  {% if connection_page_type == 'create' %}<details id="create-new" class="config-card config-section-details connection-mode-card connection-mode-create" open>
     <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</span></span></summary>
     <div class="config-section-content">
     <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
@@ -125,6 +159,6 @@
       <button type="submit">{{ tr(request,'config_conn.website_save_profile','Save watched website') }}</button>
     </form>
     </div>
-  </details>
+  </details>{% endif %}
 </main>
 {% endblock %}

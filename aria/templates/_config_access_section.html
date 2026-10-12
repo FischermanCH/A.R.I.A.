@@ -1,6 +1,7 @@
 {% from "_icons.html" import icon %}
 {% set config_ui_security_path = module_route_path('config_ui', '/config/security') %}
 {% set config_ui_users_path = module_route_path('config_ui', '/config/users') %}
+{% set config_backup_path = module_route_path('config_backup', '/config/backup') %}
 {% if request.state.can_access_advanced_config %}
 <section class="floating-card config-domain-section">
   <div class="config-submenu">
@@ -11,6 +12,10 @@
     <a class="config-submenu-item" href="{{ config_ui_security_path }}?return_to={{ page_return_to | urlencode }}">
       <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
       <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.security_title', 'Security Guardrails') }}</span><span class="submenu-desc">{{ tr(request, 'config.security_desc', 'Control bootstrap lock and login protection centrally.') }}</span></span>
+    </a>
+    <a class="config-submenu-item" href="{{ config_backup_path }}?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('download', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.hub_backup_title', 'Backup & restore') }}</span><span class="submenu-desc">{{ tr(request, 'config.hub_backup_desc', 'Export or restore ARIA configuration safely.') }}</span></span>
     </a>
   </div>
 </section>

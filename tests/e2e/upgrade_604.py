@@ -106,13 +106,25 @@ def seed_604(browser: Browser, base_url: str, fake_url: str, qdrant_url: str, ev
     page.wait_for_load_state("domcontentloaded")
 
     # Persist chat history using the strict fake provider.
-    _script(fake_url, "upgrade-chat-seed", [
-        {"type": "text", "text": '{"is_feedback":false,"sentiment":"mixed","summary":"","artifact_hint":"","reason":"ordinary chat"}'},
-        {"type": "text", "text": '{"needs_context":false,"context_directions":[],"context_depth":"none","intents":["chat"],"surfaces":[],"collections":[],"actions":[],"context_requests":[],"queries":[],"priority":[],"target_scope_authority":"","scope_operation":"new_scope","answer_mode":"direct_answer","risk":"none","needs_confirmation":false,"confidence":0.99,"reason":"ordinary chat"}'},
-        {"type": "text", "text": '{"intents":["chat"],"confidence":0.99,"reason":"ordinary chat"}'},
-        {"type": "text", "text": '{"action":"none","capability":"","connection_kind":"","target_scope":"","target_scope_authority":"","connection_refs":[],"target_intent":"","content":"","confidence":0.99,"reason":"no connection action"}'},
-        {"type": "text", "text": CHAT_MARKER},
-    ])
+    source_image = os.environ.get(
+        "ARIA_E2E_UPGRADE_SOURCE_IMAGE",
+        "fischermanch/aria:0.1.0-alpha.604",
+    )
+    if source_image.endswith("alpha.604"):
+        chat_steps = [
+            {"type": "text", "text": '{"is_feedback":false,"sentiment":"mixed","summary":"","artifact_hint":"","reason":"ordinary chat"}'},
+            {"type": "text", "text": '{"needs_context":false,"context_directions":[],"context_depth":"none","intents":["chat"],"surfaces":[],"collections":[],"actions":[],"context_requests":[],"queries":[],"priority":[],"target_scope_authority":"","scope_operation":"new_scope","answer_mode":"direct_answer","risk":"none","needs_confirmation":false,"confidence":0.99,"reason":"ordinary chat"}'},
+            {"type": "text", "text": '{"intents":["chat"],"confidence":0.99,"reason":"ordinary chat"}'},
+            {"type": "text", "text": '{"action":"none","capability":"","connection_kind":"","target_scope":"","target_scope_authority":"","connection_refs":[],"target_intent":"","content":"","confidence":0.99,"reason":"no connection action"}'},
+            {"type": "text", "text": CHAT_MARKER},
+        ]
+    else:
+        # Modern public sources already use the native loop, so one response is
+        # sufficient. Keeping the Alpha604 sequence above preserves its legacy
+        # routing contract while allowing the same isolated harness to test
+        # Alpha983 -> current upgrades.
+        chat_steps = [{"type": "text", "text": CHAT_MARKER}]
+    _script(fake_url, "upgrade-chat-seed", chat_steps)
     page.goto(f"{base_url}/", wait_until="domcontentloaded")
     page.locator("#message").fill("Keep this upgrade marker")
     page.locator("#send-btn").click()
@@ -123,8 +135,17 @@ def seed_604(browser: Browser, base_url: str, fake_url: str, qdrant_url: str, ev
     # Store a personal memory and preference through the Alpha604 UI.
     for memory_type, text in (("fact", FACT_TEXT), ("preference", PREFERENCE_TEXT)):
         page.goto(f"{base_url}/memories/create", wait_until="domcontentloaded")
-        page.locator('[name="memory_type"]').select_option(memory_type)
-        page.locator('[name="text"]').fill(text)
+        legacy_type = page.locator('[name="memory_type"]')
+        if legacy_type.count():
+            legacy_type.select_option(memory_type)
+            page.locator('[name="text"]').fill(text)
+        else:
+            page.locator('[name="kind"]').select_option(memory_type)
+            page.locator('[name="subject"]').fill("I")
+            page.locator('[name="predicate"]').fill(
+                "has" if memory_type == "fact" else "prefers"
+            )
+            page.locator('[name="value"]').fill(text)
         _submit(page, 'form[action="/memories/create"]')
         assert "error=" not in page.url.lower(), page.url
 
@@ -170,7 +191,12 @@ def verify_target(browser: Browser, base_url: str, fake_url: str, qdrant_url: st
 
     # Config incl. connection, chat history, personal memory and stored recipe survived.
     page.goto(f"{base_url}/config/connections/ssh", wait_until="domcontentloaded")
-    assert CONNECTION_TITLE in page.locator("body").inner_text()
+    connection_card = page.locator('.connection-profile-card[data-edit-url$="/upgrade-host"]')
+    assert connection_card.count() == 1
+    edit_url = connection_card.get_attribute("data-edit-url") or ""
+    assert edit_url
+    page.goto(f"{base_url}{edit_url}", wait_until="domcontentloaded")
+    assert page.locator('[name="connection_title"]').input_value() == CONNECTION_TITLE
     page.goto(f"{base_url}/", wait_until="domcontentloaded")
     assert CHAT_MARKER in page.locator("body").inner_text()
     page.goto(f"{base_url}/memories", wait_until="domcontentloaded")

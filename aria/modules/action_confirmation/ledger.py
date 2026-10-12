@@ -109,3 +109,21 @@ class ActionConfirmationLedger:
                 return REPLAYED
         except (OSError, sqlite3.Error, TypeError, ValueError):
             return UNAVAILABLE
+
+    def prune_expired(self, *, now: float | None = None) -> int:
+        """Physically remove expired single-use claims; valid claims remain untouched."""
+
+        if not self._available:
+            self._available = self._init_db()
+        if not self._available:
+            return 0
+        current = float(time.time() if now is None else now)
+        try:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    "DELETE FROM action_confirmation_claims WHERE consumed_at < ?",
+                    (current - self.retention_seconds,),
+                )
+            return max(0, int(cursor.rowcount or 0))
+        except (OSError, sqlite3.Error):
+            return 0

@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from aria.modules.configuration_foundations.config import UI_THEME_OPTIONS, discover_ui_background_files, normalize_ui_background, normalize_ui_theme
 from aria.modules.platform_primitives.i18n import I18NStore
+from aria.modules.platform_primitives.display_time import normalize_display_timezone
 from aria.modules.integration_support.runtime_endpoint import cookie_should_be_secure
 from aria.modules import module_route_path, module_template_name
 
@@ -272,6 +273,9 @@ def register_config_persona_routes(app: FastAPI, deps: ConfigPersonaRouteDeps) -
         if not isinstance(ui_cfg, dict):
             ui_cfg = {}
         default_language = str(ui_cfg.get("language", settings.ui.language or "de")).strip().lower() or "de"
+        display_timezone = str(
+            ui_cfg.get("display_timezone", getattr(settings.ui, "display_timezone", "")) or ""
+        ).strip()
         language_rows = [
             {"code": code, "flag": deps.lang_flag(code), "label": deps.lang_label(code)}
             for code in deps.available_languages()
@@ -299,6 +303,7 @@ def register_config_persona_routes(app: FastAPI, deps: ConfigPersonaRouteDeps) -
             {
                 "language_rows": language_rows,
                 "default_language": default_language,
+                "display_timezone": display_timezone,
                 "selected_file": selected_file,
                 "editor_content": editor_content,
             }
@@ -310,7 +315,12 @@ def register_config_persona_routes(app: FastAPI, deps: ConfigPersonaRouteDeps) -
         )
 
     @app.post("/config/language/save")
-    async def config_language_save(request: Request, default_language: str = Form(...), return_to: str = Form("")) -> RedirectResponse:
+    async def config_language_save(
+        request: Request,
+        default_language: str = Form(...),
+        display_timezone: str = Form(""),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
         try:
             settings = deps.get_settings()
             code = deps.resolve_lang(str(default_language).strip().lower(), settings.ui.language)
@@ -319,6 +329,16 @@ def register_config_persona_routes(app: FastAPI, deps: ConfigPersonaRouteDeps) -
             if not isinstance(raw["ui"], dict):
                 raw["ui"] = {}
             raw["ui"]["language"] = code
+            clean_timezone = str(display_timezone or "").strip()
+            if clean_timezone and not normalize_display_timezone(clean_timezone):
+                raise ValueError(
+                    _config_persona_text(
+                        str(getattr(request.state, "lang", "de") or "de"),
+                        "invalid_display_timezone",
+                        "Unknown display timezone.",
+                    )
+                )
+            raw["ui"]["display_timezone"] = clean_timezone
             deps.write_raw_config(raw)
             deps.reload_runtime()
             request.state.lang = code

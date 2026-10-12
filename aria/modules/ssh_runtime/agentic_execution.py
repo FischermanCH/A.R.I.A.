@@ -423,8 +423,8 @@ class MultiTargetSSHExecutionHandler:
             return summary
         clean = str(summary or "").strip()
         replacements = (
-            ("alle Server", "alle geprueften SSH-Ziele"),
-            ("allen Servern", "allen geprueften SSH-Zielen"),
+            ("alle Server", "alle geprüften SSH-Ziele"),
+            ("allen Servern", "allen geprüften SSH-Zielen"),
             ("all servers", "all checked SSH targets"),
             ("all hosts", "all checked SSH targets"),
         )
@@ -437,9 +437,8 @@ class MultiTargetSSHExecutionHandler:
             )
         else:
             prefix = (
-                f"Scope: Geprueft wurden {selected_count} von {configured_count} konfigurierten SSH-Zielen; "
-                "die Aussage gilt nur f"
-                "uer diese geprueften Ziele."
+                f"Scope: Geprüft wurden {selected_count} von {configured_count} konfigurierten SSH-Zielen; "
+                "die Aussage gilt nur für diese geprüften Ziele."
             )
         return f"{prefix} {clean}".strip()
 

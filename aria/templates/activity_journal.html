@@ -1,0 +1,157 @@
+{% extends "page_types/overview_page.html" %}
+{% from "_icons.html" import icon %}
+{% block page_header %}
+<main class="config-layout memory-domain-shell activity-journal-page">
+  {% include "_memories_nav.html" %}
+  <section class="floating-card config-domain-section">
+    <div class="page-title-row"><span>{{ icon('activities', 'page-title-icon') }}</span><h1>{{ tr(request, 'activity_journal.title', 'Aktivitätsjournal') }}</h1></div>
+    <p class="ui-page-purpose">{{ tr(request, 'activity_journal.purpose', 'Ein kompakter, privater Verlauf abgeschlossener ARIA-Aktivitäten. Rohdaten, Datei- und Dokumentinhalte werden hier nicht gespeichert.') }}</p>
+    {% if info_message %}<div class="alert ok">{{ info_message }}</div>{% endif %}
+    {% if error_message %}<div class="alert err">{{ error_message }}</div>{% endif %}
+    {% if not journal_enabled %}<div class="alert warn">{{ tr(request, 'activity_journal.disabled', 'Das Aktivitätsjournal ist ausgeschaltet. Vorhandene Einträge bleiben erhalten und lesbar.') }}</div>{% endif %}
+  </section>
+{% endblock %}
+
+{% block page_body %}
+  {% set base_path = module_route_path('activity_journal', '/memories/activity-journal') %}
+  <style>
+    .activity-journal-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(10rem,1fr)); gap:.75rem; align-items:end; }
+    .activity-journal-filter-actions { display:flex; gap:.55rem; align-items:end; flex-wrap:wrap; }
+    .activity-journal-day { margin-block:1.25rem; }
+    .activity-journal-day > h2 { margin-bottom:.6rem; }
+    .activity-journal-entry { margin-bottom:.6rem; }
+    .activity-journal-custom-range { display:grid; grid-template-columns:repeat(2,minmax(8rem,1fr)); gap:.75rem; grid-column:span 2; }
+    .activity-journal-custom-range[hidden] { display:none; }
+    @media (max-width: 520px) { .activity-journal-filters { grid-template-columns:1fr; } }
+  </style>
+  <section class="floating-card config-domain-section">
+    <div class="page-title-row"><h2>{{ tr(request, 'activity_journal.entries', 'Einträge') }}</h2><span class="meta-badge">{{ journal_count }}</span></div>
+    <form method="get" action="{{ base_path }}" class="filter-bar activity-journal-filters">
+      <label for="journal-q"><span>{{ tr(request, 'activity_journal.search', 'Suche') }}</span><input id="journal-q" type="search" name="q" value="{{ filters.q|e }}" maxlength="300"></label>
+      <label for="journal-outcome"><span>{{ tr(request, 'activity_journal.outcome', 'Ergebnis') }}</span>
+        <select id="journal-outcome" name="outcome"><option value="">{{ tr(request, 'activity_journal.all', 'Alle') }}</option>{% for value in ['ok','error','cancelled','interrupted','needs_confirmation'] %}<option value="{{ value }}" {% if filters.outcome == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select>
+      </label>
+      <label for="journal-tool"><span>{{ tr(request, 'activity_journal.tool', 'Tool') }}</span><input id="journal-tool" name="tool" value="{{ filters.tool|e }}" maxlength="160"></label>
+      <label for="journal-connection"><span>{{ tr(request, 'activity_journal.connection', 'Verbindung') }}</span><input id="journal-connection" name="connection" value="{{ filters.connection|e }}" maxlength="160"></label>
+      <label for="journal-server"><span>{{ tr(request, 'activity_journal.server', 'MCP-Server') }}</span><input id="journal-server" name="server" value="{{ filters.server|e }}" maxlength="100"></label>
+      <label for="journal-period"><span>{{ tr(request, 'activity_journal.period', 'Zeitraum') }}</span>
+        <select id="journal-period" name="period">
+          <option value="all" {% if filters.period == 'all' %}selected{% endif %}>{{ tr(request, 'activity_journal.period_all', 'Alle') }}</option>
+          <option value="today" {% if filters.period == 'today' %}selected{% endif %}>{{ tr(request, 'activity_journal.period_today', 'Heute') }}</option>
+          <option value="7d" {% if filters.period == '7d' %}selected{% endif %}>{{ tr(request, 'activity_journal.period_7d', '7 Tage') }}</option>
+          <option value="30d" {% if filters.period == '30d' %}selected{% endif %}>{{ tr(request, 'activity_journal.period_30d', '30 Tage') }}</option>
+          <option value="custom" {% if filters.period == 'custom' %}selected{% endif %}>{{ tr(request, 'activity_journal.period_custom', 'Benutzerdefiniert') }}</option>
+        </select>
+      </label>
+      <div id="journal-custom-range" class="activity-journal-custom-range" {% if filters.period != 'custom' %}hidden{% endif %}>
+        <label for="journal-since"><span>{{ tr(request, 'activity_journal.from', 'Von') }}</span><input id="journal-since" type="date" name="since" autocomplete="off"{% if filters.since %} value="{{ filters.since|e }}"{% endif %}></label>
+        <label for="journal-until"><span>{{ tr(request, 'activity_journal.until', 'Bis') }}</span><input id="journal-until" type="date" name="until" autocomplete="off"{% if filters.until %} value="{{ filters.until|e }}"{% endif %}></label>
+      </div>
+      <div class="activity-journal-filter-actions"><button type="submit" class="ui-primary-action">{{ tr(request, 'activity_journal.filter', 'Filtern') }}</button><a class="ui-secondary-action" href="{{ module_route_path('activity_journal', '/memories/activity-journal/export') }}">{{ icon('download', 'btn-icon') }} {{ tr(request, 'activity_journal.export', 'JSON exportieren') }}</a></div>
+    </form>
+  </section>
+
+  <div class="activity-journal-inventory" data-journal-inventory-expected="{{ journal_rendered_count }}">
+  {% for day, day_label, entries in journal_groups %}
+  <section class="activity-journal-day" data-journal-day="{{ day }}">
+    <h2>{{ day_label }}</h2>
+    <div class="learning-ledger-list">
+      {% for entry in entries %}
+      <article class="learning-ledger-item activity-journal-entry" data-entry-id="{{ entry.id|e }}" data-ui-user-content>
+        <header class="page-title-row">
+          <div><strong>{{ entry.goal or tr(request, 'activity_journal.no_goal', 'Abgeschlossene Aktivität') }}</strong><div class="hint-text">{{ entry.finished_time }} · {{ entry.finished_relative }}</div></div>
+          <span class="meta-badge {% if entry.outcome_status == 'ok' %}is-active{% elif entry.outcome_status == 'error' %}is-danger{% endif %}">{{ entry.outcome_status }}</span>
+        </header>
+        <p>{{ entry.outcome_phrase }}</p>
+        <div class="learning-ledger-summary">
+          {% for name, count in entry.tools.items() %}<span class="meta-badge">{{ name }}{% if count > 1 %} ×{{ count }}{% endif %}</span>{% endfor %}
+          {% for ref in entry.connection_refs %}<span class="meta-badge">{{ ref }}</span>{% endfor %}
+          {% for server in entry.mcp_servers %}<span class="meta-badge">MCP: {{ server }}</span>{% endfor %}
+          {% if entry.job_id %}<a class="ui-action-link" href="/jobs/panel#job-{{ entry.job_id|e }}">{{ tr(request, 'activity_journal.job', 'Agent-Job') }}</a>{% endif %}
+          {% if entry.corrected %}<span class="meta-badge">{{ tr(request, 'activity_journal.corrected', 'korrigiert') }}</span>{% endif %}
+          {% if entry.keep %}<span class="meta-badge is-active">{{ tr(request, 'activity_journal.kept', 'behalten') }}</span>{% endif %}
+        </div>
+        {% if entry.detail_rows %}<details class="ui-info-panel" data-ui-pattern="info"><summary>{{ tr(request, 'activity_journal.details', 'Details') }}</summary>
+          <dl class="detail-list">{% for label, value in entry.detail_rows %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+        </details>{% endif %}
+        <div class="config-actions-row">
+          <form method="post" action="{{ module_route_path('activity_journal', '/memories/activity-journal/entry/keep') }}">
+            <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}"><input type="hidden" name="entry_id" value="{{ entry.id|e }}"><input type="hidden" name="keep" value="{{ '0' if entry.keep else '1' }}">
+            <button type="submit" class="ui-tertiary-action ui-compact-action">{{ tr(request, 'activity_journal.release', 'Nicht mehr behalten') if entry.keep else tr(request, 'activity_journal.keep', 'Behalten') }}</button>
+          </form>
+          <form method="post" action="{{ module_route_path('activity_journal', '/memories/activity-journal/entry/delete') }}" onsubmit="return window.confirm('{{ tr(request, 'activity_journal.delete_confirm', 'Diesen Journal-Eintrag wirklich löschen?')|e }}');">
+            <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}"><input type="hidden" name="entry_id" value="{{ entry.id|e }}">
+            <button type="submit" class="ui-danger-action ui-compact-action">{{ tr(request, 'activity_journal.delete', 'Löschen') }}</button>
+          </form>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% else %}
+  <section class="floating-card config-domain-section ui-info-panel"><p>{{ tr(request, 'activity_journal.empty', 'Für diese Filter gibt es noch keine Journal-Einträge.') }}</p></section>
+  {% endfor %}
+  </div>
+
+  <section class="floating-card config-domain-section">
+    <h2>{{ tr(request, 'activity_journal.legacy_title', 'Alte Kontext-Rollups übernehmen') }}</h2>
+    <p>{{ tr(request, 'activity_journal.legacy_hint', 'Die Übernahme kopiert nur bereinigte Kurzfassungen ins Journal. Die vorhandenen Rollups bleiben unverändert bestehen.') }}</p>
+    <p class="hint-text">{{ legacy_count }} {{ tr(request, 'activity_journal.legacy_found', 'gefunden') }} · {{ legacy_migrated_count }} {{ tr(request, 'activity_journal.legacy_migrated', 'bereits übernommen') }}</p>
+    {% if legacy_preview %}<details class="ui-info-panel" data-ui-pattern="info"><summary>{{ tr(request, 'activity_journal.legacy_preview', 'Vorschau') }}</summary>{% for row in legacy_preview %}<p><strong>{{ row.period_start }} – {{ row.period_end }}</strong><br>{{ row.preview }}</p>{% endfor %}</details>{% endif %}
+    <form method="post" action="{{ module_route_path('activity_journal', '/memories/activity-journal/legacy/migrate') }}" class="config-actions-row">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}"><label class="checkbox-row"><input type="checkbox" name="confirmed" value="1" required> {{ tr(request, 'activity_journal.legacy_confirm', 'Ich bestätige die Übernahme der bereinigten Kurzfassungen.') }}</label>
+      <button type="submit" class="ui-primary-action">{{ tr(request, 'activity_journal.legacy_import', 'Rollups übernehmen') }}</button>
+    </form>
+  </section>
+  <script>
+  (() => {
+    const period = document.getElementById('journal-period');
+    const customRange = document.getElementById('journal-custom-range');
+    const dateInputs = [...document.querySelectorAll('#journal-since, #journal-until')];
+    const toggleCustomRange = () => {
+      const custom = period?.value === 'custom';
+      if (customRange) customRange.hidden = !custom;
+      for (const input of dateInputs) input.required = custom;
+    };
+    period?.addEventListener('change', toggleCustomRange);
+    window.addEventListener('pageshow', toggleCustomRange);
+    toggleCustomRange();
+  })();
+  </script>
+{% endblock %}
+
+{% block page_statistics %}
+  <details class="floating-card config-domain-section ui-info-panel" data-ui-pattern="info"><summary>{{ tr(request, 'activity_journal.stats', 'Journal-Statistik') }}</summary><p>{{ journal_count }} {{ tr(request, 'activity_journal.total_entries', 'Einträge insgesamt') }} · {{ retention_days }} {{ tr(request, 'activity_journal.days_retention', 'Tage Aufbewahrung') }}</p></details>
+{% endblock %}
+
+{% block page_information %}
+  {% if can_manage_journal_settings %}
+  <details class="floating-card config-domain-section ui-settings-section" data-ui-pattern="settings"><summary>{{ tr(request, 'activity_journal.settings', 'Journal-Einstellungen') }}</summary>
+    <form method="post" action="{{ module_route_path('activity_journal', '/memories/activity-journal/settings') }}">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}">
+      <label class="checkbox-row"><input type="checkbox" name="activity_journal_enabled" value="1" {% if journal_enabled %}checked{% endif %}> {{ tr(request, 'activity_journal.enabled', 'Aktivitätsjournal einschalten') }}</label>
+      <label><span>{{ tr(request, 'activity_journal.retention', 'Aufbewahrung in Tagen (7–365)') }}</span><input type="number" name="retention_days" min="7" max="365" value="{{ retention_days }}"></label>
+      <div class="config-actions-row"><button type="submit" class="ui-primary-action">{{ tr(request, 'activity_journal.save_settings', 'Einstellungen speichern') }}</button></div>
+    </form>
+  </details>
+  {% endif %}
+{% endblock %}
+
+{% block page_danger %}
+  <section class="floating-card config-domain-section ui-danger-zone" data-ui-pattern="danger">
+    <h2>{{ tr(request, 'activity_journal.danger', 'Gefahrenzone') }}</h2>
+    <div class="danger-zone-action">
+      <h3>{{ tr(request, 'activity_journal.delete_range', 'Journal-Zeitraum löschen') }}</h3><p>{{ tr(request, 'activity_journal.delete_range_hint', 'Löscht Journal-Einträge dieses Nutzers im gewählten Zeitraum. Erinnerungen, Dokumente, Notizen und Rezepte bleiben unberührt.') }}</p>
+      <form method="post" action="{{ module_route_path('activity_journal', '/memories/activity-journal/delete-range') }}">
+        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}"><label>{{ tr(request, 'activity_journal.from', 'Von') }}<input type="date" name="since" required></label><label>{{ tr(request, 'activity_journal.until', 'Bis') }}<input type="date" name="until" required></label>
+        <label>{{ tr(request, 'activity_journal.type_delete', 'Zur Bestätigung „AKTIVITÄTSJOURNAL LÖSCHEN“ eingeben') }}<input name="confirmation" required autocomplete="off"></label><button type="submit" class="danger-btn ui-danger-confirm">{{ tr(request, 'activity_journal.delete_range', 'Journal-Zeitraum löschen') }}</button>
+      </form>
+    </div>
+    {% if legacy_migrated_count %}<div class="danger-zone-action">
+      <h3>{{ tr(request, 'activity_journal.delete_legacy', 'Übernommene Alt-Rollups löschen') }} ({{ legacy_migrated_count }})</h3><p>{{ tr(request, 'activity_journal.delete_legacy_hint', 'Löscht nur Alt-Rollups dieses Nutzers, die zuvor nachweislich ins Journal übernommen wurden. Journal-Kopien bleiben erhalten.') }}</p>
+      <p><a class="ui-secondary-action" href="{{ module_route_path('activity_journal', '/memories/activity-journal/export') }}">{{ tr(request, 'activity_journal.export_first', 'Vorher Journal als JSON exportieren') }}</a></p>
+      <form method="post" action="{{ module_route_path('activity_journal', '/memories/activity-journal/legacy/delete') }}"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}"><label>{{ tr(request, 'activity_journal.type_delete_legacy', 'Zur Bestätigung „ALTE ROLLUPS LÖSCHEN“ eingeben') }}<input name="confirmation" required autocomplete="off"></label><button type="submit" class="danger-btn ui-danger-confirm">{{ tr(request, 'activity_journal.delete_legacy', 'Übernommene Alt-Rollups löschen') }}</button></form>
+    </div>{% endif %}
+  </section>
+</main>
+{% endblock %}

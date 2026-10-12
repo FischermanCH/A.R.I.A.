@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 import secrets
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -14,6 +15,7 @@ from aria.modules.platform_primitives.i18n import I18NStore
 from aria.modules import module_static_asset_prefix_path
 
 _CONFIG_I18N = I18NStore(Path(__file__).resolve().parents[2] / "i18n")
+LOGGER = logging.getLogger(__name__)
 
 
 def _config_text(key: str, default: str = "", **values: object) -> str:
@@ -62,6 +64,13 @@ class WebEvidenceConfig(BaseModel):
     ttl_hours: int = Field(default=24, ge=1, le=720)
 
 
+class NativeTraceConfig(BaseModel):
+    retention_days: int = Field(default=7, ge=1, le=365)
+    detail_level: Literal["minimal", "full"] = "minimal"
+    max_mebibytes: int = Field(default=50, ge=1, le=4096)
+    sweep_interval_seconds: int = Field(default=3600, ge=60, le=86400)
+
+
 class EmbeddingsConfig(BaseModel):
     model: str = "nomic-embed-text"
     api_base: str | None = None
@@ -78,7 +87,6 @@ class MemoryConfig(BaseModel):
     embedding_fingerprint: str = ""
     embedding_model: str = ""
     top_k: int = 3
-    compression_summary_prompt: str = "prompts/recipes/memory_compress.md"
     collections: "MemoryCollectionsConfig" = Field(default_factory=lambda: MemoryCollectionsConfig())
 
 
@@ -125,6 +133,8 @@ class AgenticLoopFeatureConfig(BaseModel):
     native_agent_recipe_learn_enabled: bool = True
     native_agent_memory_learn_enabled: bool = True
     native_agent_mcp_enabled: bool = False
+    activity_journal_enabled: bool = True
+    activity_journal_retention_days: int = Field(default=90, ge=7, le=365)
     native_agent_mcp_vision_enabled: bool = True
     native_agent_mcp_vision_max_live_images: int = Field(default=4, ge=1, le=12)
     native_agent_mcp_vision_max_lifetime_images: int = Field(default=24, ge=1, le=96)
@@ -304,6 +314,8 @@ class UIConfig(BaseModel):
     language: str = "de"
     theme: str = "matrix"
     background: str = "grid"
+    # Optional IANA zone used only for display. Empty follows TZ, browser, UTC.
+    display_timezone: str = ""
 
 
 class GuardrailConfig(BaseModel):
@@ -533,9 +545,6 @@ class MemoryCollectionTypeConfig(BaseModel):
     top_k: int
     dedup_threshold: float | None = None
     time_decay: bool = False
-    compress_after_days: int | None = None
-    archive_after_days: int | None = None
-    monthly_after_days: int = 30
 
 
 class MemoryCollectionsConfig(BaseModel):
@@ -561,8 +570,6 @@ class MemoryCollectionsConfig(BaseModel):
             weight=0.5,
             top_k=2,
             time_decay=True,
-            compress_after_days=7,
-            archive_after_days=90,
         )
     )
     knowledge: MemoryCollectionTypeConfig = Field(
@@ -580,6 +587,7 @@ class Settings(BaseModel):
     llm: LLMConfig
     web_llm: WebLLMConfig = Field(default_factory=WebLLMConfig)
     web_evidence: WebEvidenceConfig = Field(default_factory=WebEvidenceConfig)
+    native_trace: NativeTraceConfig = Field(default_factory=NativeTraceConfig)
     embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     inventory_index: InventoryIndexConfig = Field(default_factory=InventoryIndexConfig)
@@ -805,7 +813,6 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "ARIA_QDRANT_API_KEY": ("memory", "qdrant_api_key"),
         "ARIA_MEMORY_COLLECTION": ("memory", "collection"),
         "ARIA_MEMORY_TOP_K": ("memory", "top_k"),
-        "ARIA_MEMORY_COMPRESSION_SUMMARY_PROMPT": ("memory", "compression_summary_prompt"),
         "ARIA_PROMPTS_PERSONA": ("prompts", "persona"),
         "ARIA_PROMPTS_SKILLS_DIR": ("prompts", "skills_dir"),
         "ARIA_TOKEN_TRACKING_ENABLED": ("token_tracking", "enabled"),
@@ -818,6 +825,7 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "ARIA_UI_LANGUAGE": ("ui", "language"),
         "ARIA_UI_THEME": ("ui", "theme"),
         "ARIA_UI_BACKGROUND": ("ui", "background"),
+        "ARIA_UI_DISPLAY_TIMEZONE": ("ui", "display_timezone"),
         "ARIA_SECURITY_ENABLED": ("security", "enabled"),
         "ARIA_SECURITY_DB_PATH": ("security", "db_path"),
         "ARIA_SECURITY_BOOTSTRAP_LOCKED": ("security", "bootstrap_locked"),
@@ -1022,9 +1030,35 @@ def _apply_secure_store_overrides(data: dict[str, Any], config_path: Path) -> di
     return merged
 
 
+def _ignore_retired_context_rollup_settings(data: dict[str, Any]) -> dict[str, Any]:
+    """Drop Alpha994-and-older rollup knobs while keeping old YAML loadable."""
+
+    memory = data.get("memory")
+    if not isinstance(memory, dict):
+        return data
+    ignored: list[str] = []
+    if "compression_summary_prompt" in memory:
+        memory.pop("compression_summary_prompt", None)
+        ignored.append("memory.compression_summary_prompt")
+    collections = memory.get("collections")
+    sessions = collections.get("sessions") if isinstance(collections, dict) else None
+    if isinstance(sessions, dict):
+        for key in ("archive_after_days", "compress_after_days", "monthly_after_days"):
+            if key in sessions:
+                sessions.pop(key, None)
+                ignored.append(f"memory.collections.sessions.{key}")
+    if ignored:
+        LOGGER.info(
+            "Ignoring retired legacy context-rollup settings: %s",
+            ", ".join(ignored),
+        )
+    return data
+
+
 def load_settings(config_path: str | Path = "config/config.yaml") -> Settings:
     path = Path(config_path)
     raw = _read_yaml(path)
+    raw = _ignore_retired_context_rollup_settings(raw)
     pricing_section = raw.get("pricing")
     if isinstance(pricing_section, dict):
         if pricing_section.get("model_aliases") is None:

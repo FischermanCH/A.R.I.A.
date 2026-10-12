@@ -1,8 +1,11 @@
+display:
+  description_de: "Neutrales Beispiel für eine HTTP-API-Verbindung"
+  description_en: "Neutral example for an HTTP API connection"
 connections:
   http_api:
     api-main:
       title: "Main API"
-      description: "Neutrales Beispiel für eine HTTP-API-Verbindung"
+      description: "HTTP API connection example"
       base_url: "https://api.example.local/v1"
       auth_type: "bearer"
       auth_token: ""

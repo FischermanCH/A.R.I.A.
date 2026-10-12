@@ -63,6 +63,14 @@ def _runtime_text(lang: str, key: str, default: str = "", **values: object) -> s
         return template
 
 
+def _localized_cached_message(message: str, *, lang: str) -> str:
+    return _CONNECTION_RUNTIME_I18N.translate_exact(
+        lang,
+        message,
+        key_prefix="connection_runtime.",
+    )
+
+
 
 def _value(row: Any, key: str, default: Any = "") -> Any:
     if isinstance(row, Mapping):
@@ -670,7 +678,7 @@ def _cached_rss_connection_status(ref: str, row: Any, *, lang: str = "de") -> di
         "tags": tags,
         "target": _rss_target(row),
         "status": status,
-        "message": str(cached.get("last_message", "")).strip()
+        "message": _localized_cached_message(str(cached.get("last_message", "")).strip(), lang=lang)
         or _runtime_text(lang, "message_1125", 'RSS status from cache.'),
         "last_success_at": str(cached.get("last_success_at", "")).strip(),
     }
@@ -704,7 +712,7 @@ def _last_rss_connection_status(ref: str, row: Any, *, lang: str = "de") -> dict
         "tags": tags,
         "target": _rss_target(row),
         "status": status,
-        "message": str(cached.get("last_message", "")).strip()
+        "message": _localized_cached_message(str(cached.get("last_message", "")).strip(), lang=lang)
         or _runtime_text(lang, "message_1159", "No RSS status cached yet. Use 'Ping now' for a live check."),
         "last_success_at": str(cached.get("last_success_at", "")).strip(),
     }
@@ -723,7 +731,7 @@ def _cached_connection_status_row(kind: str, ref: str, row: Any, *, lang: str = 
     status = str(cached.get("last_status", "")).strip().lower()
     if status not in {"ok", "error"}:
         status = "warn"
-    message = str(cached.get("last_message", "")).strip()
+    message = _localized_cached_message(str(cached.get("last_message", "")).strip(), lang=lang)
     if not message:
         message = _runtime_text(lang, "message_1183", 'No cached status yet. Use the test button for a live check.')
     return {

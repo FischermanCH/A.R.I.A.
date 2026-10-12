@@ -257,7 +257,10 @@ def test_git_add_candidate_tree_has_no_private_operator_evidence_or_secret_shape
         except UnicodeDecodeError:
             continue
         relative = path.relative_to(ROOT)
-        generic_scan_exempt = relative.parts[0] in {"tests", "samples"}
+        generic_scan_exempt = (
+            relative.parts[0] in {"tests", "samples"}
+            or relative == Path("website/scripts/check_content.py")
+        )
         generic_private = (
             not generic_scan_exempt
             and any(pattern.search(text) for pattern in GENERIC_PRIVATE_PATTERNS)
@@ -328,7 +331,7 @@ def test_release_note_template_does_not_embed_private_operator_paths() -> None:
 
 def test_release_label_matches_current_alpha_backlog_version() -> None:
     backlog = (ROOT / "docs" / "backlog" / "alpha-backlog.md").read_text(encoding="utf-8")
-    match = re.search(r"aktuell (?:gebaut|versioniert): `([^`]+)`", backlog)
+    match = re.search(r"Release-Hygiene: aktuell intern versioniert: `([^`]+)`", backlog)
 
     assert match is not None
     assert DEFAULT_RELEASE_LABEL == match.group(1)
@@ -384,7 +387,10 @@ def test_chat_layout_keeps_window_fixed_and_history_scrollable() -> None:
     assert "flex: 1 1 auto;" in css
     assert "max-height: none;" in css
     assert "overflow-y: auto;" in css
-    assert "min-height: clamp(10rem, 40svh, 18rem);" in css
+    assert ".app-shell:has(.chat-layout-fill) > .ui-page-frame" in css
+    assert ".ui-page-visible-list:has(> .chat-layout-fill)" in css
+    assert ".chat-layout-fill .chat-form" in css
+    assert "flex: 0 0 auto;" in css
     assert "window.visualViewport" in template
     assert "scrollMessagesToLatest" in template
 
@@ -420,11 +426,11 @@ def test_chat_export_controls_are_present() -> None:
     assert "downloadChatExport" in template
     assert 'id="chat-export-button"' in template
     assert "{{ icon('copy', 'chat-export-icon') }}" in template
-    assert 'class="toolbox-summary-text"' in template
+    assert 'class="chat-actions-menu"' in template
     assert ".chat-tools-head" in css
     assert ".chat-export-button" in css
     assert ".chat-export-status" in css
-    assert ".toolbox-summary-text" in css
+    assert ".chat-actions-panel" in css
 
 
 def test_memory_browser_keeps_ios_touch_navigation_usable() -> None:

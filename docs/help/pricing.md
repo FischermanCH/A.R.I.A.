@@ -4,28 +4,28 @@ Stand: 2026-05-12
 
 ## Ziel
 
-ARIA soll sichtbar machen, wie viel LLM- und Embedding-Nutzung kostet. Das gilt nicht nur fuer sichtbare Chat-Antworten, sondern auch fuer interne Agentic-Aufrufe wie Routing, Guardrail-Entscheide, RSS-Zusammenfassungen, Rezeptvorschlaege und RAG/Memory-Embeddings.
+ARIA soll sichtbar machen, wie viel LLM- und Embedding-Nutzung kostet. Das gilt nicht nur für sichtbare Chat-Antworten, sondern auch für interne Agentic-Aufrufe wie Routing, Guardrail-Entscheide, RSS-Zusammenfassungen, Rezeptvorschläge und RAG/Memory-Embeddings.
 
-ARIA berechnet Kosten nur, wenn fuer das verwendete Modell ein Preis bekannt ist. Unbekannte Modelle werden nicht geraten, sondern in `/stats` als unbepreist gezeigt.
+ARIA berechnet Kosten nur, wenn für das verwendete Modell ein Preis bekannt ist. Unbekannte Modelle werden nicht geraten, sondern in `/stats` als unbepreist gezeigt.
 
-Wichtig: Diese Werte sind lokale Usage-Schaetzungen und keine abrechnungsgenaue Provider-Rechnung. Fuer stabile Betriebs-Hygiene gilt standardmaessig eine **90-Tage-Retention** fuer Token-/Kosten-/Activity-Logs und den redigierten LLM-Debug-Log. Beim Start und in der Maintenance werden aeltere lokale Runtime-Logs automatisch bereinigt; Config-Backups sind Downloads und werden nicht dauerhaft in ARIA gesammelt.
+Wichtig: Diese Werte sind lokale Nutzungsschätzungen und keine abrechnungsgenaue Provider-Rechnung. Token- und Kostenarchive folgen ihrer eigenen begrenzten Aufbewahrung; Native Traces verwenden standardmäßig sieben Tage. Beim Start und durch Wartung werden alte Runtime-Daten automatisch bereinigt. Persönliche Erinnerungen, Dokumente, Notizen und Rezepte sind keine Sweep-Ziele.
 
 ## Datenquelle
 
-Primaere Quelle ist die LiteLLM-GitHub-Preisliste:
+Primäre Quelle ist die LiteLLM-GitHub-Preisliste:
 
 - ARIA synchronisiert `model_prices_and_context_window.json` aus dem LiteLLM-Repository
-- ARIA importiert oder installiert dafuer **nicht** das LiteLLM-Python-Paket
+- ARIA importiert oder installiert dafür **nicht** das LiteLLM-Python-Paket
 - die letzte gute Kopie wird lokal unter `pricing.litellm_cache_file` gecached
-- beim Start oder manuell ueber `/stats` wird aktualisiert, wenn die Kopie aelter als `pricing.refresh_interval_days` ist
+- beim Start oder manuell über `/stats` wird aktualisiert, wenn die Kopie älter als `pricing.refresh_interval_days` ist
 - wenn GitHub nicht erreichbar ist, nutzt ARIA die letzte gute lokale Kopie
-- wenn noch keine Kopie existiert, nutzt ARIA einen kleinen gebuendelten Notfallseed
+- wenn noch keine Kopie existiert, nutzt ARIA einen kleinen gebündelten Notfallseed
 
 Ein LiteLLM-Proxy kann weiterhin normal als LLM-Provider genutzt werden. Das Pricing ist davon getrennt.
 
 ## Manuelle Overrides
 
-Eigene Deployments, Provider-Aliase oder Vertrags-/Sonderpreise koennen in der Pricing-Admin-UI unter `/stats` gepflegt werden.
+Eigene Deployments, Provider-Aliase oder Vertrags-/Sonderpreise können in der Pricing-Admin-UI unter `/stats` gepflegt werden.
 
 Wichtige Felder in `config/config.yaml`:
 
@@ -66,27 +66,27 @@ Embeddings:
 `/stats` zeigt:
 
 - Gesamt- und Durchschnittskosten
-- geloggte USD und nachtraeglich geschaetzte USD
+- geloggte USD und nachträglich geschätzte USD
 - Token nach Modell
 - Requests nach Quelle, z. B. `chat`, `routing`, `memory_recall`, `rss`, `runtime_diagnostics`
-- Pricing Coverage fuer Chat- und Embedding-Modelle
+- Pricing Coverage für Chat- und Embedding-Modelle
 - unbepreiste Modelle
 - Preisquellen, Cache-Status und Refresh-Button
 - manuelle Alias-/Preis-Overrides
 
-Wenn aeltere Token-Zeilen spaeter durch neue Preise oder Aliase bepreist werden koennen, kann die geschaetzte Summe hoeher sein als die urspruenglich geloggte Summe.
+Wenn ältere Token-Zeilen später durch neue Preise oder Aliase bepreist werden können, kann die geschätzte Summe höher sein als die ursprünglich geloggte Summe.
 
 ## Pflegeprozess
 
-1. `/stats` oeffnen.
-2. **Preise aktualisieren** ausfuehren.
-3. Coverage pruefen.
-4. Fuer Provider-/Proxy-Namen Aliase setzen.
-5. Fuer Sonderpreise manuelle Preise setzen.
-6. Danach einen kleinen Prompt ausfuehren und pruefen, ob Chat-Details Tokens und USD zeigen.
+1. `/stats` öffnen.
+2. **Preise aktualisieren** ausführen.
+3. Coverage prüfen.
+4. Für Provider-/Proxy-Namen Aliase setzen.
+5. Für Sonderpreise manuelle Preise setzen.
+6. Danach einen kleinen Prompt ausführen und prüfen, ob Chat-Details Tokens und USD zeigen.
 
 ## Fehlerbilder
 
 - `0 tokens`, obwohl ein LLM sichtbar genutzt wurde: Metering-Bug im jeweiligen Action-Pfad.
 - `n/a` oder unbepreist: Modellname ist nicht bekannt oder Alias fehlt.
-- Refresh dauert sehr lange: GitHub/LiteLLM-Quelle pruefen; ARIA sollte auf Cache/Seed zurueckfallen und nicht endlos warten.
+- Refresh dauert sehr lange: GitHub/LiteLLM-Quelle prüfen; ARIA sollte auf Cache/Seed zurückfallen und nicht endlos warten.

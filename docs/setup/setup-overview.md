@@ -112,9 +112,12 @@ Minimum `.env` values:
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
 ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://localhost:8800
+TZ=Europe/Zurich
 ```
 
-`ARIA_PUBLIC_URL` is optional and may be an internal LAN URL such as `http://aria.example.lan/`; it is used for clear host/link hints, not as a requirement for an internet-facing install.
+`ARIA_PUBLIC_URL` is optional and may be an internal LAN URL such as `http://aria.example.test/`; it is used for clear host/link hints, not as a requirement for an internet-facing install.
+
+`TZ` is optional but recommended. Use an IANA name such as `Europe/Zurich`. ARIA uses the configured display time zone under **Settings → Language** first, then `TZ`, then the browser time zone, and finally UTC. Stored timestamps remain UTC.
 
 Optional LLM / embedding environment overrides should normally stay empty when you manage saved provider profiles inside ARIA. They are only for deliberately forcing runtime values from Docker.
 

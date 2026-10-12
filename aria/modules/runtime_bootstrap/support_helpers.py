@@ -13,7 +13,7 @@ SettingsGetter = Callable[[], Any]
 RawConfigReader = Callable[[], dict[str, Any]]
 RoleSanitizer = Callable[[str | None], str]
 AuthSessionResolver = Callable[[Any], dict[str, Any] | None]
-DiagnosticsGetter = Callable[[Callable[[], Awaitable[dict[str, Any]]] | Callable[[], dict[str, Any]], bool], Awaitable[dict[str, Any]]]
+DiagnosticsGetter = Callable[..., Awaitable[dict[str, Any]]]
 DiagnosticsBuilder = Callable[[], Awaitable[dict[str, Any]] | dict[str, Any]]
 
 
@@ -39,7 +39,7 @@ class MainRuntimeSupportHelpers:
     get_secure_store: Callable[[dict[str, Any] | None], Any]
     get_auth_manager: Callable[[], AuthManager | None]
     active_admin_count: Callable[[list[dict[str, Any]]], int]
-    get_runtime_preflight_data: Callable[[bool], Awaitable[dict[str, Any]]]
+    get_runtime_preflight_data: Callable[..., Awaitable[dict[str, Any]]]
     update_finished_after_session: Callable[[Any, dict[str, Any]], bool]
 
 
@@ -150,10 +150,13 @@ def build_main_runtime_support_helpers(deps: MainRuntimeSupportDeps) -> MainRunt
                 count += 1
         return count
 
-    async def _get_runtime_preflight_data(force_refresh: bool = False) -> dict[str, Any]:
+    async def _get_runtime_preflight_data(
+        force_refresh: bool = False, *, passive: bool = False,
+    ) -> dict[str, Any]:
         return await deps.get_or_refresh_startup_diagnostics(
             deps.build_runtime_diagnostics,
             force_refresh=force_refresh,
+            passive=passive,
         )
 
     def _update_finished_after_session(request: Any, update_control: dict[str, Any]) -> bool:

@@ -24,6 +24,7 @@ LOGGER = logging.getLogger(__name__)
 SUPPORTED_MCP_TRANSPORTS = frozenset({"sse", "http"})
 MCP_DISCOVERY_TIMEOUT_SECONDS = 8.0
 MCP_DISCOVERY_FAILURE_COOLDOWN_SECONDS = 30.0
+MCP_DISCOVERY_FAILURE_BACKOFF_SECONDS = (30.0, 60.0, 120.0, 300.0, 600.0)
 MCP_DISCOVERY_REFRESH_INTERVAL_SECONDS = 300.0
 MCP_SESSION_IDLE_RECYCLE_SECONDS = 120.0
 MCP_TRANSPORT_CONNECT_TIMEOUT_SECONDS = 15.0
@@ -51,6 +52,13 @@ class MCPServerStatus:
     connected: bool
     tool_count: int
     error: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class MCPDiscoveryReport:
+    server_name: str
+    blocked: bool
+    backoff_seconds: int
 
 
 @dataclass(slots=True)
@@ -328,7 +336,10 @@ class MCPClientManager:
         self._statuses: dict[str, MCPServerStatus] = {}
         self._discovered_at: dict[str, float] = {}
         self._failure_at: dict[str, float] = {}
+        self._failure_count: dict[str, int] = {}
+        self._last_discovery_report: tuple[MCPDiscoveryReport, ...] = ()
         self._refresh_tasks: dict[str, asyncio.Task[None]] = {}
+        self._retry_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_locks: dict[str, tuple[asyncio.AbstractEventLoop, asyncio.Lock]] = {}
         self._session_queues: dict[str, asyncio.Queue[_SessionRequest]] = {}
         self._session_workers: dict[str, asyncio.Task[None]] = {}
@@ -514,6 +525,13 @@ class MCPClientManager:
         """Cancel discovery work and close every live server session in its owner task."""
 
         self._closed = True
+        retry_tasks = tuple(self._retry_tasks.values())
+        for task in retry_tasks:
+            if not task.done():
+                task.cancel()
+        if retry_tasks:
+            await asyncio.gather(*retry_tasks, return_exceptions=True)
+        self._retry_tasks.clear()
         refresh_names = tuple(self._refresh_tasks)
         if refresh_names:
             await asyncio.gather(*(
@@ -551,6 +569,7 @@ class MCPClientManager:
             await self._cancel_server_refresh(name)
             await self._close_server_session(name)
             self._failure_at.pop(name, None)
+            self._failure_count.pop(name, None)
             self._discovery.pop(name, None)
             self._discovered_at.pop(name, None)
             self._statuses.pop(name, None)
@@ -568,6 +587,7 @@ class MCPClientManager:
             error = type(exc).__name__
             status = MCPServerStatus(name, False, 0, error)
             self._failure_at[name] = self._clock()
+            self._failure_count[name] = 1
             self._discovery[name] = ()
             self._discovered_at[name] = self._clock()
             self._statuses[name] = status
@@ -630,8 +650,54 @@ class MCPClientManager:
         failed_at = self._failure_at.get(server_name)
         return (
             failed_at is not None
-            and now - failed_at < MCP_DISCOVERY_FAILURE_COOLDOWN_SECONDS
+            and now - failed_at < self.failure_backoff_seconds(server_name)
         )
+
+    def failure_backoff_seconds(self, server_name: str) -> int:
+        name = str(server_name)
+        failures = max(0, int(self._failure_count.get(name, 0) or 0))
+        if failures <= 0 and name in self._failure_at:
+            failures = 1
+        if failures <= 0:
+            return 0
+        index = min(failures - 1, len(MCP_DISCOVERY_FAILURE_BACKOFF_SECONDS) - 1)
+        return int(MCP_DISCOVERY_FAILURE_BACKOFF_SECONDS[index])
+
+    def discovery_report(self) -> tuple[MCPDiscoveryReport, ...]:
+        return self._last_discovery_report
+
+    def _record_discovery_failure(self, server_name: str, *, now: float) -> None:
+        self._failure_at[server_name] = now
+        self._failure_count[server_name] = max(
+            0, int(self._failure_count.get(server_name, 0) or 0),
+        ) + 1
+
+    def _record_discovery_success(self, server_name: str) -> None:
+        self._failure_at.pop(server_name, None)
+        self._failure_count.pop(server_name, None)
+
+    def inherit_discovery_cache(self, previous: "MCPClientManager") -> None:
+        """Reuse safe snapshots across a config reload when server config is unchanged."""
+
+        if previous is self:
+            return
+        now = self._clock()
+        for server_name, config in self.servers.items():
+            if previous.servers.get(server_name) != config:
+                continue
+            if server_name not in previous._discovery:
+                continue
+            self._discovery[server_name] = tuple(previous._discovery[server_name])
+            self._statuses[server_name] = previous._statuses.get(
+                server_name,
+                MCPServerStatus(server_name, False, 0, "discovery_pending"),
+            )
+            self._discovered_at[server_name] = now
+            if server_name in previous._failure_at:
+                self._failure_at[server_name] = now
+                self._failure_count[server_name] = max(
+                    1, int(previous._failure_count.get(server_name, 1) or 1),
+                )
 
     def _cache_is_stale(self, server_name: str, *, now: float) -> bool:
         updated_at = self._discovered_at.get(server_name)
@@ -664,7 +730,7 @@ class MCPClientManager:
             tools = ()
             error = type(exc).__name__
             now = self._clock()
-            self._failure_at[server_name] = now
+            self._record_discovery_failure(server_name, now=now)
             self._statuses[server_name] = MCPServerStatus(
                 server_name=server_name, connected=False, tool_count=0, error=error,
             )
@@ -672,14 +738,46 @@ class MCPClientManager:
                 "MCP discovery failed for server %s (%s)",
                 _sanitize_segment(server_name), error,
             )
+            self._schedule_retry(server_name, config)
         else:
             now = self._clock()
-            self._failure_at.pop(server_name, None)
+            self._record_discovery_success(server_name)
             self._statuses[server_name] = MCPServerStatus(
                 server_name=server_name, connected=True, tool_count=len(tools),
             )
         self._discovery[server_name] = tuple(tools)
         self._discovered_at[server_name] = now
+
+    def _schedule_retry(self, server_name: str, config: MCPServerConfig) -> None:
+        """Probe a failed server after backoff without making a future turn wait."""
+
+        if self._closed:
+            return
+        current = self._retry_tasks.get(server_name)
+        if current is not None and not current.done():
+            return
+        delay = max(0, self.failure_backoff_seconds(server_name))
+
+        async def retry() -> None:
+            await asyncio.sleep(delay)
+            if self._closed or not bool(config.enabled):
+                return
+            await self._refresh_server(server_name, config)
+
+        task = asyncio.create_task(
+            retry(), name=f"mcp-discovery-retry-{_sanitize_segment(server_name)}",
+        )
+        self._retry_tasks[server_name] = task
+
+        def finish(completed: asyncio.Task[None]) -> None:
+            if self._retry_tasks.get(server_name) is completed:
+                self._retry_tasks.pop(server_name, None)
+            if not completed.cancelled():
+                completed.exception()
+            if not self._closed and server_name in self._failure_at and bool(config.enabled):
+                asyncio.get_running_loop().call_soon(self._schedule_retry, server_name, config)
+
+        task.add_done_callback(finish)
 
     def _schedule_refresh(
         self, server_name: str, config: MCPServerConfig,
@@ -718,6 +816,7 @@ class MCPClientManager:
     ) -> dict[str, tuple[MCPDiscoveredTool, ...]]:
         tasks: list[asyncio.Task[None]] = []
         cold_tasks: list[asyncio.Task[None]] = []
+        cold_servers: set[str] = set()
         now = self._clock()
         for server_name, config in sorted(self.servers.items()):
             if not bool(config.enabled):
@@ -742,6 +841,7 @@ class MCPClientManager:
                 tasks.append(task)
                 if block_cold and is_cold:
                     cold_tasks.append(task)
+                    cold_servers.add(server_name)
         if refresh and tasks:
             await asyncio.gather(*(asyncio.shield(task) for task in tasks))
         elif cold_tasks:
@@ -749,6 +849,15 @@ class MCPClientManager:
             # already timeout-bounded discovery in parallel; warm/stale and
             # failure-cooldown paths remain snapshot-only and non-blocking.
             await asyncio.gather(*(asyncio.shield(task) for task in cold_tasks))
+        self._last_discovery_report = tuple(
+            MCPDiscoveryReport(
+                server_name=server_name,
+                blocked=server_name in cold_servers,
+                backoff_seconds=self.failure_backoff_seconds(server_name),
+            )
+            for server_name, config in sorted(self.servers.items())
+            if bool(config.enabled)
+        )
         return self._snapshot()
 
     def statuses(self) -> tuple[MCPServerStatus, ...]:
@@ -786,13 +895,14 @@ class MCPClientManager:
             transport_error = _transport_failure_code(exc)
             if transport_error:
                 failed_at = self._clock()
-                self._failure_at[server_name] = failed_at
+                self._record_discovery_failure(server_name, now=failed_at)
                 self._discovery[server_name] = ()
                 self._discovered_at[server_name] = failed_at
                 self._statuses[server_name] = MCPServerStatus(
                     server_name=server_name, connected=False, tool_count=0,
                     error=transport_error,
                 )
+                self._schedule_retry(server_name, config)
             LOGGER.warning(
                 "MCP Tool call failed for server %s (%s)",
                 _sanitize_segment(server_name), type(exc).__name__,
@@ -871,5 +981,6 @@ class MCPClientManager:
                     rollout_flag="native_agent_mcp_enabled",
                     order=9000 + len(bindings),
                     relay_result_content=not direct,
+                    effectful=not bool(tool.read_only),
                 ), handler=handler, confirmation_preview=None if direct else confirmation_preview))
         return tuple(bindings)

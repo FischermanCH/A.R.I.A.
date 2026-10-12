@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -20,6 +21,8 @@ _CORRECTION_LIMIT = 1_000
 _CORRECTION_QUEUE_LIMIT = 12
 _TOOL_LIMIT = 12
 _STEP_LIMIT = 100
+_NOTICE_PAYLOAD_LIMIT = 32_000
+_NOTICE_ERROR_LIMIT = 500
 _JOB_STATUSES = {
     "running", "done", "error", "detached", "paused", "awaiting_confirmation", "cancelled",
 }
@@ -28,6 +31,12 @@ _JOB_STATUSES = {
 def _bounded(value: object, limit: int) -> str:
     clean = " ".join(str(value or "").split())
     return clean if len(clean) <= limit else clean[: max(0, limit - 1)] + "…"
+
+
+def _bounded_multiline(value: object, limit: int) -> str:
+    clean = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    clean = "\n".join(line.rstrip() for line in clean.splitlines()).strip()
+    return clean if len(clean) <= limit else clean[: max(0, limit - 1)].rstrip() + "…"
 
 
 @dataclass(frozen=True)
@@ -53,6 +62,13 @@ class AgentJobRecord:
     pause_reason: str = ""
     event_key: str = ""
     usage: dict[str, Any] | None = None
+    corrected: bool = False
+    confirmation_asked: int = 0
+    confirmation_approved: int = 0
+    confirmation_rejected: int = 0
+    connection_kinds: tuple[str, ...] = ()
+    connection_refs: tuple[str, ...] = ()
+    mcp_servers: tuple[str, ...] = ()
 
     def as_dict(self, *, recent_steps: int = 8) -> dict[str, Any]:
         usage = dict(self.usage or {})
@@ -132,6 +148,13 @@ class AgentJobStore:
                     pause_reason TEXT NOT NULL DEFAULT '',
                     pause_event_key TEXT NOT NULL DEFAULT '',
                     usage TEXT NOT NULL DEFAULT '{}'
+                    ,corrected INTEGER NOT NULL DEFAULT 0
+                    ,confirmation_asked INTEGER NOT NULL DEFAULT 0
+                    ,confirmation_approved INTEGER NOT NULL DEFAULT 0
+                    ,confirmation_rejected INTEGER NOT NULL DEFAULT 0
+                    ,connection_kinds TEXT NOT NULL DEFAULT '[]'
+                    ,connection_refs TEXT NOT NULL DEFAULT '[]'
+                    ,mcp_servers TEXT NOT NULL DEFAULT '[]'
                 )
                 """
             )
@@ -185,6 +208,20 @@ class AgentJobStore:
                 connection.execute(
                     "ALTER TABLE agent_jobs ADD COLUMN usage TEXT NOT NULL DEFAULT '{}'"
                 )
+            if "corrected" not in columns:
+                connection.execute(
+                    "ALTER TABLE agent_jobs ADD COLUMN corrected INTEGER NOT NULL DEFAULT 0"
+                )
+            for column in ("confirmation_asked", "confirmation_approved", "confirmation_rejected"):
+                if column not in columns:
+                    connection.execute(
+                        f"ALTER TABLE agent_jobs ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0"
+                    )
+            for column in ("connection_kinds", "connection_refs", "mcp_servers"):
+                if column not in columns:
+                    connection.execute(
+                        f"ALTER TABLE agent_jobs ADD COLUMN {column} TEXT NOT NULL DEFAULT '[]'"
+                    )
             connection.execute(
                 "UPDATE agent_jobs SET pause_event_key=(CASE WHEN pause_reason='budget_reached' "
                 "THEN 'budget_paused#' ELSE 'paused#' END) || MAX(1,pause_count) "
@@ -193,8 +230,26 @@ class AgentJobStore:
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS agent_job_notices ("
                 "job_id TEXT NOT NULL,event_key TEXT NOT NULL,created_at REAL NOT NULL,"
+                "payload TEXT NOT NULL DEFAULT '{}',delivery_state TEXT NOT NULL DEFAULT 'pending',"
+                "attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '',"
+                "lease_until REAL NOT NULL DEFAULT 0,delivered_at REAL NOT NULL DEFAULT 0,"
                 "PRIMARY KEY(job_id,event_key))"
             )
+            notice_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(agent_job_notices)").fetchall()
+            }
+            for definition in (
+                "payload TEXT NOT NULL DEFAULT '{}'",
+                "delivery_state TEXT NOT NULL DEFAULT 'pending'",
+                "attempts INTEGER NOT NULL DEFAULT 0",
+                "last_error TEXT NOT NULL DEFAULT ''",
+                "lease_until REAL NOT NULL DEFAULT 0",
+                "delivered_at REAL NOT NULL DEFAULT 0",
+            ):
+                column = definition.split(" ", 1)[0]
+                if column not in notice_columns:
+                    connection.execute(f"ALTER TABLE agent_job_notices ADD COLUMN {definition}")
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS agent_job_pause_actions ("
                 "job_id TEXT NOT NULL,event_key TEXT NOT NULL,action TEXT NOT NULL,created_at REAL NOT NULL,"
@@ -203,6 +258,22 @@ class AgentJobStore:
             connection.execute(
                 "INSERT OR IGNORE INTO agent_job_notices(job_id,event_key,created_at) "
                 "SELECT job_id,'terminal',updated_at FROM agent_jobs WHERE notified=1"
+            )
+            connection.execute(
+                "UPDATE agent_job_notices SET delivery_state='delivered',delivered_at=created_at "
+                "WHERE event_key='terminal' AND job_id IN "
+                "(SELECT job_id FROM agent_jobs WHERE notified=1)"
+            )
+            connection.execute(
+                "CREATE TRIGGER IF NOT EXISTS trg_agent_jobs_terminal_notice "
+                "AFTER UPDATE OF status ON agent_jobs "
+                "WHEN NEW.status IN ('done','error','cancelled') "
+                "AND OLD.status NOT IN ('done','error','cancelled') "
+                "BEGIN "
+                "INSERT OR IGNORE INTO agent_job_notices("
+                "job_id,event_key,created_at,payload,delivery_state,attempts,last_error,lease_until,delivered_at"
+                ") VALUES(NEW.job_id,'terminal',NEW.updated_at,'{}','pending',0,'',0,0); "
+                "END"
             )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_agent_jobs_user_updated "
@@ -226,6 +297,7 @@ class AgentJobStore:
                 "VALUES(?,?,?,?,?,?,?,?,?)",
                 (str(job_id), str(user_id), _bounded(goal, _GOAL_LIMIT), status, "[]", "", timestamp, timestamp, str(worker_id)),
             )
+        self.enforce_user_cap(str(user_id))
         record = self.get(job_id)
         if record is None:  # pragma: no cover - SQLite insert/read invariant
             raise RuntimeError("agent_job_create_failed")
@@ -314,6 +386,26 @@ class AgentJobStore:
                 (json.dumps(normalized, separators=(",", ":")), timestamp, str(job_id)),
             )
 
+    def set_journal_context(
+        self, job_id: str, *, connection_kinds: Sequence[str] = (),
+        connection_refs: Sequence[str] = (), mcp_servers: Sequence[str] = (),
+    ) -> None:
+        """Persist bounded connection authority used by the terminal journal projection."""
+
+        def values(items: Sequence[str], limit: int) -> list[str]:
+            return sorted({_bounded(item, limit) for item in items if str(item).strip()})[:32]
+
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "UPDATE agent_jobs SET connection_kinds=?,connection_refs=?,mcp_servers=? WHERE job_id=?",
+                (
+                    json.dumps(values(connection_kinds, 80), ensure_ascii=True),
+                    json.dumps(values(connection_refs, 160), ensure_ascii=True),
+                    json.dumps(values(mcp_servers, 100), ensure_ascii=True),
+                    str(job_id),
+                ),
+            )
+
     def set_terminal(
         self, job_id: str, *, status: str, result: str, warning: str = "",
         now: float | None = None,
@@ -322,11 +414,44 @@ class AgentJobStore:
             raise ValueError("invalid_agent_job_terminal_status")
         timestamp = float(time.time() if now is None else now)
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT step_log,user_id FROM agent_jobs WHERE job_id=?", (str(job_id),),
+            ).fetchone()
+            minimized: list[dict[str, Any]] = []
+            if row is not None:
+                try:
+                    steps = [item for item in json.loads(str(row["step_log"] or "[]")) if isinstance(item, dict)]
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    steps = []
+                for step in steps[-_STEP_LIMIT:]:
+                    summary = str(step.get("outcome_summary") or "")
+                    minimized.append({
+                        "step_index": max(0, int(step.get("step_index") or 0)),
+                        "tool_names": list(step.get("tool_names") or [])[:_TOOL_LIMIT],
+                        "outcome_summary": (
+                            f"bounded outcome bytes={len(summary.encode('utf-8'))} "
+                            f"sha256={hashlib.sha256(summary.encode('utf-8')).hexdigest()}"
+                        ),
+                    })
             connection.execute(
                 "UPDATE agent_jobs SET status=?, result=?, warning=?, updated_at=?, "
-                "pause_requested=0, resume_state=NULL, correction_queue='[]', pause_reason='', paused_at=0 WHERE job_id=?",
-                (status, _bounded(result, _RESULT_LIMIT), _bounded(warning, 120), timestamp, str(job_id)),
+                "step_log=?, pause_requested=0, resume_state=NULL, correction_queue='[]', pause_reason='', paused_at=0 WHERE job_id=?",
+                (
+                    status, _bounded_multiline(result, _RESULT_LIMIT), _bounded(warning, 120), timestamp,
+                    json.dumps(minimized, ensure_ascii=True, separators=(",", ":")), str(job_id),
+                ),
             )
+            if row is not None:
+                connection.execute(
+                    "INSERT OR IGNORE INTO agent_job_notices("
+                    "job_id,event_key,created_at,payload,delivery_state,attempts,last_error,lease_until,delivered_at"
+                    ") VALUES(?, 'terminal', ?, '{}', 'pending', 0, '', 0, 0)",
+                    (str(job_id), timestamp),
+                )
+            user_id = str(row["user_id"]) if row is not None else ""
+        if user_id:
+            self.enforce_user_cap(user_id)
 
     def request_pause(
         self, job_id: str, *, user_id: str, now: float | None = None,
@@ -378,7 +503,7 @@ class AgentJobStore:
                 queue = []
             queue = [*queue[-(_CORRECTION_QUEUE_LIMIT - 1):], clean_text]
             connection.execute(
-                "UPDATE agent_jobs SET correction_queue=?, updated_at=? WHERE job_id=? AND user_id=?",
+                "UPDATE agent_jobs SET correction_queue=?, corrected=1, updated_at=? WHERE job_id=? AND user_id=?",
                 (
                     json.dumps(queue, ensure_ascii=True, separators=(",", ":")),
                     timestamp, str(job_id), str(user_id),
@@ -470,12 +595,22 @@ class AgentJobStore:
         serialized = json.dumps(state_json, ensure_ascii=True, separators=(",", ":"))
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
-                "UPDATE agent_jobs SET status='awaiting_confirmation', pause_requested=0, "
+                "UPDATE agent_jobs SET status='awaiting_confirmation', pause_requested=0, confirmation_asked=confirmation_asked+1, "
                 "resume_state=?, paused_at=?, updated_at=? "
                 "WHERE job_id=? AND status IN ('running','detached') AND cancel_requested=0",
                 (serialized, timestamp, timestamp, str(job_id)),
             )
             return int(cursor.rowcount or 0) == 1
+
+    def record_confirmation_resolution(
+        self, job_id: str, *, user_id: str, approved: bool,
+    ) -> None:
+        column = "confirmation_approved" if approved else "confirmation_rejected"
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                f"UPDATE agent_jobs SET {column}={column}+1 WHERE job_id=? AND user_id=?",
+                (str(job_id), str(user_id)),
+            )
 
     def claim_confirmation_resume(
         self, job_id: str, *, user_id: str,
@@ -679,7 +814,8 @@ class AgentJobStore:
             if status in {"paused", "awaiting_confirmation"}:
                 connection.execute(
                     "UPDATE agent_jobs SET status='cancelled', result='cancelled_by_user', "
-                    "cancel_requested=0, pause_requested=0, resume_state=NULL, paused_at=0, updated_at=? "
+                    "cancel_requested=0, pause_requested=0, resume_state=NULL, correction_queue='[]', "
+                    "pause_reason='', paused_at=0, updated_at=? "
                     "WHERE job_id=? AND user_id=? AND status=?",
                     (timestamp, str(job_id), str(user_id), status),
                 )
@@ -698,16 +834,147 @@ class AgentJobStore:
             ).fetchone()
         return bool(row and int(row["cancel_requested"] or 0))
 
+    @staticmethod
+    def _notice_record(row: sqlite3.Row | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        try:
+            payload = json.loads(str(row["payload"] or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = {}
+        return {
+            "job_id": str(row["job_id"]),
+            "event_key": str(row["event_key"]),
+            "payload": dict(payload) if isinstance(payload, dict) else {},
+            "delivery_state": str(row["delivery_state"] or "pending"),
+            "attempts": max(0, int(row["attempts"] or 0)),
+            "last_error": str(row["last_error"] or ""),
+            "lease_until": float(row["lease_until"] or 0),
+            "created_at": float(row["created_at"] or 0),
+            "delivered_at": float(row["delivered_at"] or 0),
+        }
+
+    def get_notice(self, job_id: str, event_key: str) -> dict[str, Any] | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM agent_job_notices WHERE job_id=? AND event_key=?",
+                (str(job_id), str(event_key)),
+            ).fetchone()
+        return self._notice_record(row)
+
+    def set_notice_payload(
+        self, job_id: str, event_key: str, payload: dict[str, Any], *, now: float | None = None,
+    ) -> bool:
+        timestamp = float(time.time() if now is None else now)
+        encoded = json.dumps(dict(payload or {}), ensure_ascii=True, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) > _NOTICE_PAYLOAD_LIMIT:
+            bounded = dict(payload or {})
+            bounded["text"] = _bounded(bounded.get("text"), 6_000)
+            bounded["badge_details"] = [
+                _bounded(value, 500) for value in list(bounded.get("badge_details") or ())[:24]
+            ]
+            encoded = json.dumps(bounded, ensure_ascii=True, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) > _NOTICE_PAYLOAD_LIMIT:
+            raise ValueError("agent_job_notice_payload_too_large")
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE agent_job_notices SET payload=?,last_error='' "
+                "WHERE job_id=? AND event_key=? AND delivery_state!='delivered'",
+                (encoded, str(job_id), str(event_key)),
+            )
+            if int(cursor.rowcount or 0) == 0:
+                cursor = connection.execute(
+                    "INSERT OR IGNORE INTO agent_job_notices("
+                    "job_id,event_key,created_at,payload,delivery_state,attempts,last_error,lease_until,delivered_at"
+                    ") SELECT job_id,?,?,?,'pending',0,'',0,0 FROM agent_jobs WHERE job_id=?",
+                    (str(event_key), timestamp, encoded, str(job_id)),
+                )
+        return int(cursor.rowcount or 0) == 1
+
+    def reserve_notice(
+        self, job_id: str, event_key: str, *, lease_seconds: float = 15.0,
+        now: float | None = None,
+    ) -> dict[str, Any] | None:
+        timestamp = float(time.time() if now is None else now)
+        lease_until = timestamp + max(0.001, float(lease_seconds))
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM agent_job_notices WHERE job_id=? AND event_key=?",
+                (str(job_id), str(event_key)),
+            ).fetchone()
+            if row is None or str(row["delivery_state"] or "pending") == "delivered":
+                return None
+            if (
+                str(row["delivery_state"] or "pending") == "delivering"
+                and float(row["lease_until"] or 0) > timestamp
+            ):
+                return None
+            connection.execute(
+                "UPDATE agent_job_notices SET delivery_state='delivering',attempts=attempts+1,"
+                "lease_until=?,last_error='' WHERE job_id=? AND event_key=?",
+                (lease_until, str(job_id), str(event_key)),
+            )
+            reserved = connection.execute(
+                "SELECT * FROM agent_job_notices WHERE job_id=? AND event_key=?",
+                (str(job_id), str(event_key)),
+            ).fetchone()
+        return self._notice_record(reserved)
+
+    def fail_notice(self, job_id: str, event_key: str, error: object) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "UPDATE agent_job_notices SET delivery_state='pending',lease_until=0,last_error=? "
+                "WHERE job_id=? AND event_key=? AND delivery_state!='delivered'",
+                (_bounded(error, _NOTICE_ERROR_LIMIT), str(job_id), str(event_key)),
+            )
+
+    def mark_notice_delivered(
+        self, job_id: str, event_key: str, *, now: float | None = None,
+    ) -> bool:
+        timestamp = float(time.time() if now is None else now)
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                "UPDATE agent_job_notices SET delivery_state='delivered',delivered_at=?,"
+                "lease_until=0,last_error='' WHERE job_id=? AND event_key=? "
+                "AND delivery_state!='delivered'",
+                (timestamp, str(job_id), str(event_key)),
+            )
+            if str(event_key) == "terminal":
+                connection.execute(
+                    "UPDATE agent_jobs SET notified=1 WHERE job_id=?",
+                    (str(job_id),),
+                )
+        return int(cursor.rowcount or 0) == 1
+
+    def pending_notices_for_user(
+        self, user_id: str, *, job_id: str = "", limit: int = 20,
+    ) -> tuple[dict[str, Any], ...]:
+        clauses = ["j.user_id=?", "n.event_key='terminal'", "n.delivery_state!='delivered'"]
+        values: list[Any] = [str(user_id)]
+        if job_id:
+            clauses.append("n.job_id=?")
+            values.append(str(job_id))
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT n.* FROM agent_job_notices n JOIN agent_jobs j ON j.job_id=n.job_id "
+                "WHERE " + " AND ".join(clauses) + " ORDER BY n.created_at LIMIT ?",
+                (*values, max(1, min(100, int(limit)))),
+            ).fetchall()
+        return tuple(record for row in rows if (record := self._notice_record(row)) is not None)
+
     def mark_notified(self, job_id: str) -> bool:
-        """Atomically claim the one completion notice for a terminal job."""
+        """Compatibility helper for old callers; terminal delivery uses the outbox."""
 
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             inserted = connection.execute(
-                "INSERT OR IGNORE INTO agent_job_notices(job_id,event_key,created_at) "
-                "SELECT job_id,'terminal',? FROM agent_jobs "
+                "INSERT OR IGNORE INTO agent_job_notices("
+                "job_id,event_key,created_at,payload,delivery_state,attempts,last_error,lease_until,delivered_at"
+                ") SELECT job_id,'terminal',?,'{}','delivered',0,'',0,? FROM agent_jobs "
                 "WHERE job_id=? AND status IN ('done','error','cancelled')",
-                (time.time(), str(job_id)),
+                (time.time(), time.time(), str(job_id)),
             )
             if int(inserted.rowcount or 0) != 1:
                 return False
@@ -724,9 +991,10 @@ class AgentJobStore:
             return False
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
-                "INSERT OR IGNORE INTO agent_job_notices(job_id,event_key,created_at) "
-                "SELECT job_id,?,? FROM agent_jobs WHERE job_id=?",
-                (clean_event, time.time(), str(job_id)),
+                "INSERT OR IGNORE INTO agent_job_notices("
+                "job_id,event_key,created_at,payload,delivery_state,attempts,last_error,lease_until,delivered_at"
+                ") SELECT job_id,?,?,'{}','delivered',0,'',0,? FROM agent_jobs WHERE job_id=?",
+                (clean_event, time.time(), time.time(), str(job_id)),
             )
             return int(cursor.rowcount or 0) == 1
 
@@ -739,20 +1007,49 @@ class AgentJobStore:
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 "SELECT * FROM agent_jobs WHERE user_id=? ORDER BY updated_at DESC LIMIT ?",
-                (str(user_id), max(1, min(100, int(limit)))),
+                (str(user_id), max(1, min(1000, int(limit)))),
             ).fetchall()
         return tuple(record for row in rows if (record := self._record(row)) is not None)
+
+    def enforce_user_cap(self, user_id: str, *, max_jobs: int = 500) -> int:
+        """Delete oldest terminal rows first while never discarding an active job."""
+
+        cap = max(1, int(max_jobs or 500))
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            total = int(connection.execute(
+                "SELECT COUNT(*) FROM agent_jobs WHERE user_id=?", (str(user_id),),
+            ).fetchone()[0])
+            overflow = max(0, total - cap)
+            ids = [str(row[0]) for row in connection.execute(
+                "SELECT job_id FROM agent_jobs WHERE user_id=? AND status IN ('done','error','cancelled') "
+                "ORDER BY updated_at ASC,created_at ASC LIMIT ?",
+                (str(user_id), overflow),
+            ).fetchall()]
+            for job_id in ids:
+                connection.execute("DELETE FROM agent_job_notices WHERE job_id=?", (job_id,))
+                connection.execute("DELETE FROM agent_job_pause_actions WHERE job_id=?", (job_id,))
+                connection.execute("DELETE FROM agent_jobs WHERE job_id=?", (job_id,))
+        return len(ids)
 
     def mark_stale_interrupted(self, *, stale_before: float, now: float | None = None) -> int:
         timestamp = float(time.time() if now is None else now)
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
                 "UPDATE agent_jobs SET status='error', result='worker_restart', pause_requested=0, "
-                "resume_state=NULL, paused_at=0, updated_at=? "
+                "resume_state=NULL, correction_queue='[]', pause_reason='', paused_at=0, updated_at=? "
                 "WHERE status IN ('running','detached') AND updated_at < ?",
                 (timestamp, float(stale_before)),
             )
             return max(0, int(cursor.rowcount or 0))
+
+    def stale_active(self, *, stale_before: float) -> tuple[AgentJobRecord, ...]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM agent_jobs WHERE status IN ('running','detached') AND updated_at < ?",
+                (float(stale_before),),
+            ).fetchall()
+        return tuple(record for row in rows if (record := self._record(row)) is not None)
 
     def stale_paused(self, *, stale_before: float) -> tuple[AgentJobRecord, ...]:
         with self._lock, self._connect() as connection:
@@ -855,6 +1152,12 @@ class AgentJobStore:
             usage = {}
         if not isinstance(usage, dict):
             usage = {}
+        def tuple_field(name: str) -> tuple[str, ...]:
+            try:
+                value = json.loads(str(row[name] or "[]")) if name in row.keys() else []
+            except (TypeError, ValueError, json.JSONDecodeError):
+                value = []
+            return tuple(str(item) for item in value if str(item).strip()) if isinstance(value, list) else ()
         status = str(row["status"])
         if status == "paused":
             event_key = str(row["pause_event_key"] or "") if "pause_event_key" in row.keys() else ""
@@ -881,4 +1184,11 @@ class AgentJobStore:
             pause_reason=str(row["pause_reason"] or "") if "pause_reason" in row.keys() else "",
             event_key=event_key,
             usage=usage,
+            corrected=bool(int(row["corrected"] or 0)) if "corrected" in row.keys() else False,
+            confirmation_asked=max(0, int(row["confirmation_asked"] or 0)) if "confirmation_asked" in row.keys() else 0,
+            confirmation_approved=max(0, int(row["confirmation_approved"] or 0)) if "confirmation_approved" in row.keys() else 0,
+            confirmation_rejected=max(0, int(row["confirmation_rejected"] or 0)) if "confirmation_rejected" in row.keys() else 0,
+            connection_kinds=tuple_field("connection_kinds"),
+            connection_refs=tuple_field("connection_refs"),
+            mcp_servers=tuple_field("mcp_servers"),
         )

@@ -14,6 +14,7 @@ MODULE_MANIFEST: dict[str, Any] = {
     "description": "Owns stats/admin dashboard metadata, pricing/health summaries, and the passive module-registry operator projection.",
     "routes_prefixes": [
         "/stats",
+        "/stats/blocks/{block_id}",
         "/activities",
     ],
     "routes": [
@@ -29,11 +30,13 @@ MODULE_MANIFEST: dict[str, Any] = {
     "python": [
         "aria/modules/stats_ui/routes.py",
         "aria/modules/stats_ui/activities.py",
+        "aria/modules/stats_ui/overview.py",
         "aria/modules/stats_ui/native_tools.py",
     ],
     "integration_points": ["aria/modules/stats_ui/native_tools.py::native_tool_contributions"],
     "templates": [
         "stats.html",
+        "_stats_check_block.html",
         "activities.html",
         "_stats_pricing_panel.html",
     ],
@@ -69,7 +72,6 @@ MODULE_MANIFEST: dict[str, Any] = {
         },
     ],
     "explicitly_excluded": [
-        "qdrant_runtime_access",
         "connection_mutation",
         "pricing_refresh_behavior",
         "release_update_behavior",

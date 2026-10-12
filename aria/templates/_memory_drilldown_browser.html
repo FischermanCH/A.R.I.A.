@@ -32,9 +32,9 @@
         <button type="button" data-memory-browser-mode="semantic" aria-pressed="{{ 'true' if memory_browser_initial_semantic else 'false' }}" hidden disabled aria-disabled="true">{{ tr(request, 'memories_browser.mode_semantic', 'Semantische Naehe') }}</button>
       </div>
       {% if not memory_browser_fullscreen|default(false) %}
-      <a class="button-like ui-icon-only memories-link" href="{{ memory_admin_fullscreen_path }}?fullscreen=1&mode={{ memory_browser_initial_mode|default('structure')|urlencode }}" target="_blank" rel="noopener" data-memory-browser-detach title="{{ tr(request, 'memories_browser.full_view', 'Vollbild oeffnen') }}" aria-label="{{ tr(request, 'memories_browser.full_view', 'Vollbild oeffnen') }}">
+      <a class="button-like ui-icon-only memories-link" href="{{ memory_admin_fullscreen_path }}?fullscreen=1&mode={{ memory_browser_initial_mode|default('structure')|urlencode }}" target="_blank" rel="noopener" data-memory-browser-detach title="{{ tr(request, 'memories_browser.full_view', 'Vollbild öffnen') }}" aria-label="{{ tr(request, 'memories_browser.full_view', 'Vollbild öffnen') }}">
         {{ icon('arrow_right', 'ui-action-icon') }}
-        <span class="sr-only">{{ tr(request, 'memories_browser.full_view', 'Vollbild oeffnen') }}</span>
+        <span class="sr-only">{{ tr(request, 'memories_browser.full_view', 'Vollbild öffnen') }}</span>
       </a>
       {% endif %}
     </div>
@@ -48,7 +48,7 @@
         <button type="button" data-memory-browser-expand-all aria-pressed="false" data-label-expand="{{ tr(request, 'memories_browser.expand_all', 'Alle aufklappen') }}" data-label-collapse="{{ tr(request, 'memories_browser.collapse_all', 'Alles einklappen') }}">{{ tr(request, 'memories_browser.expand_all', 'Alle aufklappen') }}</button>
         <button type="button" data-memory-browser-center>{{ tr(request, 'memories_map.brain_center', 'Center') }}</button>
         <button type="button" data-memory-browser-options-toggle aria-expanded="false">{{ tr(request, 'memories_browser.view_options', 'Optionen') }}</button>
-        <button type="button" data-memory-browser-zoom="in" aria-label="{{ tr(request, 'memories_browser.zoom_in', 'Vergroessern') }}">+</button>
+        <button type="button" data-memory-browser-zoom="in" aria-label="{{ tr(request, 'memories_browser.zoom_in', 'Vergrößern') }}">+</button>
       </div>
       <div class="memory-drilldown-view-options" data-memory-browser-options hidden>
         <label>
@@ -634,7 +634,7 @@
         </div>`
       : '';
     const documentDelete = canDelete && item.level === 'document' && item.kind !== 'notes' && item.collection && (item.document_id || item.document_name)
-      ? `<div class="memory-drilldown-actions-row"><button type="button" class="memory-drilldown-delete-button danger" data-memory-browser-delete-document data-collection="${escapeAttr(item.collection)}" data-document-id="${escapeAttr(item.document_id || '')}" data-document-name="${escapeAttr(item.document_name || item.label || '')}">${escapeHTML(labels.delete_document || 'Dokument loeschen')}</button></div>`
+      ? `<div class="memory-drilldown-actions-row"><button type="button" class="memory-drilldown-delete-button danger" data-memory-browser-delete-document data-collection="${escapeAttr(item.collection)}" data-document-id="${escapeAttr(item.document_id || '')}" data-document-name="${escapeAttr(item.document_name || item.label || '')}">${escapeHTML(labels.delete_document || 'Dokument löschen')}</button></div>`
       : '';
     const pointDelete = canDelete && ['chunk', 'entry'].includes(item.level) && item.collection && item.id
       ? `<div class="memory-drilldown-actions-row"><button type="button" class="memory-drilldown-delete-button danger" data-memory-browser-delete-point data-collection="${escapeAttr(item.collection)}" data-point-id="${escapeAttr(item.id)}">${escapeHTML(labels.delete_chunk || labels.delete || 'Delete')}</button></div>`
@@ -2130,7 +2130,7 @@
         const documentId = documentDelete.dataset.documentId || '';
         const documentName = documentDelete.dataset.documentName || '';
         if (!collection || (!documentId && !documentName)) return;
-        if (!window.confirm(labels.delete_document_confirm || 'Dieses Dokument mit allen Chunks wirklich loeschen?')) return;
+        if (!window.confirm(labels.delete_document_confirm || 'Dieses Dokument mit allen Chunks wirklich löschen?')) return;
         documentDelete.disabled = true;
         try {
           await postBrowserDelete(memoryBrowserDeleteDocumentPath, {

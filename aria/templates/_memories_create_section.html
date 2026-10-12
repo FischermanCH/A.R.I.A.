@@ -1,7 +1,9 @@
 {% set memory_create_path = module_route_path('memory_admin_ui', '/memories/create') %}
 <section id="memory-create" class="floating-card config-domain-section">
+  {% if memory_create_source_view|default('create') != 'create' %}
   <div class="page-title-row"><span>{{ icon('plus', 'page-title-icon') }}</span><h3>{{ tr(request, 'memories.create_title', 'Eigene Memory erfassen') }}</h3></div>
   <p class="hint-text">{{ tr(request, 'memories.create_subtitle', 'Lege einen strukturierten Fakt oder eine Präferenz für dein persönliches Modell an.') }}</p>
+  {% endif %}
   <form method="post" action="{{ memory_create_path }}" class="editor-form">
     <input type="hidden" name="source_view" value="{{ memory_create_source_view|default('create') }}">
     <div class="connection-form-grid">

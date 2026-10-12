@@ -121,6 +121,16 @@ def create_mcp_server(state: FakeMCPState) -> MCPServer:
             ImageContent(type="image", data=_MISLABELED_WEBP, mimeType="image/png"),
         ]
 
+    @server.tool(
+        description="Read bounded command output from the isolated fake runtime.",
+        annotations=ToolAnnotations(readOnlyHint=True),
+        structured_output=False,
+    )
+    async def read_command_output() -> str:
+        state.record("read_command_output", {})
+        await maybe_hang()
+        return "Command output: SECRET-CANARY-986"
+
     return server
 
 

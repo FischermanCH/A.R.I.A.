@@ -51,7 +51,7 @@ def test_request_is_secure_supports_standard_forwarded_header() -> None:
 def test_cookie_should_be_secure_uses_public_url_over_forwarded_headers() -> None:
     request = _request(headers={"forwarded": 'for=1.2.3.4;proto=https;host=aria.example', "host": "internal:8800"})
 
-    assert cookie_should_be_secure(request, public_url="http://aria.example.lan") is False
+    assert cookie_should_be_secure(request, public_url="http://aria.example.test") is False
 
 
 def test_cookie_should_be_secure_accepts_https_public_url() -> None:
@@ -87,17 +87,17 @@ def test_resolve_runtime_url_uses_request_host_when_no_forwarded_host() -> None:
 
 
 def test_resolve_runtime_url_prefers_configured_public_url_without_request() -> None:
-    assert resolve_runtime_url(_settings(public_url="http://aria.example.lan/")) == "http://aria.example.lan"
+    assert resolve_runtime_url(_settings(public_url="http://aria.example.test/")) == "http://aria.example.test"
 
 
 def test_resolve_runtime_url_prefers_configured_public_url_over_request_host() -> None:
     request = _request(headers={"host": "172.18.0.3:8800"}, host="172.18.0.3", port=8800)
 
-    assert resolve_runtime_url(_settings(public_url="http://aria.example.lan"), request) == "http://aria.example.lan"
+    assert resolve_runtime_url(_settings(public_url="http://aria.example.test"), request) == "http://aria.example.test"
 
 
 def test_runtime_host_line_prefers_configured_public_url() -> None:
-    assert runtime_host_line(_settings(public_url="http://aria.example.lan/")) == "Host: http://aria.example.lan"
+    assert runtime_host_line(_settings(public_url="http://aria.example.test/")) == "Host: http://aria.example.test"
 
 
 def test_runtime_host_line_falls_back_to_detected_local_url_for_bind_all() -> None:

@@ -1,84 +1,45 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/" ~ connection_page_type ~ "_page.html" %}
+{% from "_connection_clarity.html" import connection_inventory, connection_settings, connection_test_action, connection_danger_zone with context %}
+{% block page_body %}
 {% set webhook_save_path = required_module_route_path('http_api_admin_ui', '/config/connections/webhook/save') %}
-<main class="config-layout">
+{% set webhook_test_path = required_module_route_path('http_api_admin_ui', '/config/connections/webhook/test') %}
+<main class="config-layout config-domain-layout connection-clarity-layout ui-clarity-stack connection-{{ connection_page_type }}" data-ui-page-type="{{ connection_page_type }}">
   {% include "_connection_page_intro.html" %}
-  {% include "_connection_status_block.html" %}
-  {% include "_connection_mode_nav.html" %}
+  {% if connection_page_type == 'overview' %}
+  {% call connection_inventory(tr(request, connection_status_block.title_key, connection_status_block.title), tr(request, connection_status_block.hint_key, connection_status_block.hint), true) %}
+    {% set connection_overview_test_path = webhook_test_path %}{% include "_connection_status_block_content.html" %}
+  {% endcall %}
+  {% endif %}
 
-  <details id="manage-existing" class="config-card config-section-details connection-mode-card connection-mode-edit" {% if connection_mode != 'create' and selected_webhook_ref %}open{% endif %}>
-    <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.edit_existing_title','Bestehendes Profil bearbeiten') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.edit_existing_subtitle','Profilkarte anklicken oder hier das aktuell geladene Profil bearbeiten.') }}</span></span></summary>
-    <div class="config-section-content">
-
-    {% if selected_webhook_ref %}
-    {% set selected_guardrail_ref = selected_webhook.guardrail_ref %}
-    {% include "_connection_guardrail_summary.html" %}
-    {% if webhook_test_status == 'ok' or webhook_test_status == 'error' %}
-    <article class="connection-test-card status-{{ webhook_test_status }}">
-      <div class="connection-test-head"><span class="health-lamp status-{{ webhook_test_status }}"></span><strong>{% if webhook_test_status == 'ok' %}{{ tr(request,'config_conn.webhook_test_ok','Webhook connection test successful') }}{% else %}{{ tr(request,'config_conn.webhook_test_error','Webhook connection test failed') }}{% endif %}</strong></div>
-      <small>{% if webhook_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
-    </article>
-    {% endif %}
+  {% if connection_page_type == 'create' %}
+  {% call connection_settings(tr(request, 'config_conn.create_new_title', 'Neue Verbindung erfassen'), tr(request, 'config_conn.create_new_subtitle', 'Die Felder starten leer und erzeugen ein neues Profil.'), 'connection-settings-create') %}
+    <form id="webhook-settings-form" method="post" action="{{ webhook_save_path }}" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      {% set schema_fields = webhook_new_form_fields %}{% include "_connection_schema_fields.html" %}
+      <details class="skill-details" open><summary>{{ tr(request, 'config_conn.advanced', 'Erweiterte Optionen') }}</summary><div class="skill-details-content">{% set guardrail_field_id = 'guardrail_ref_webhook_new' %}{% set selected_guardrail_ref = '' %}{% include "_connection_guardrail_select.html" %}</div></details>
+      {% set meta_prefix = 'webhook_new' %}{% set meta_values = {} %}{% include "_connection_metadata_fields.html" %}
+      <button type="submit" class="ui-primary-action">{{ tr(request, 'config_conn.webhook_save_profile', 'Webhook-Profil speichern') }}</button>
+    </form>
+  {% endcall %}
+  {% elif connection_page_type == 'detail' and selected_webhook_ref %}
+  {% call connection_settings(tr(request, 'config_conn.edit_existing_title', 'Verbindung bearbeiten'), tr(request, 'config_conn.webhook_edit_settings_desc', 'Endpunkt, Methode, Inhaltstyp, Schutzregel und Metadaten dieses Webhook-Profils.'), 'manage-existing') %}
+    {% set selected_guardrail_ref = selected_webhook.guardrail_ref %}{% include "_connection_guardrail_summary.html" %}
     <form method="post" action="{{ webhook_save_path }}" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="{{ selected_webhook_ref }}">
-      {% set schema_fields = webhook_edit_form_fields %}
-      {% include "_connection_schema_fields.html" %}
-      <details class="skill-details" open>
-        <summary>{{ tr(request, 'config_conn.advanced', 'Advanced options') }}</summary>
-        <div class="skill-details-content">
-          {% set guardrail_field_id = 'guardrail_ref_webhook_edit' %}
-          {% set selected_guardrail_ref = selected_webhook.guardrail_ref %}
-          {% include "_connection_guardrail_select.html" %}
-        </div>
-      </details>
-      {% set meta_prefix = 'webhook_edit' %}
-
-      {% set meta_values = selected_webhook %}
-
-      {% include "_connection_metadata_fields.html" %}
-
-      <button type="submit">{{ tr(request,'config_conn.webhook_save_profile','Save webhook profile') }}</button>
+      {% set schema_fields = webhook_edit_form_fields %}{% include "_connection_schema_fields.html" %}
+      <details class="skill-details" open><summary>{{ tr(request, 'config_conn.advanced', 'Erweiterte Optionen') }}</summary><div class="skill-details-content">{% set guardrail_field_id = 'guardrail_ref_webhook_edit' %}{% set selected_guardrail_ref = selected_webhook.guardrail_ref %}{% include "_connection_guardrail_select.html" %}</div></details>
+      {% set meta_prefix = 'webhook_edit' %}{% set meta_values = selected_webhook %}{% include "_connection_metadata_fields.html" %}
+      <button type="submit" class="ui-primary-action">{{ tr(request, 'config_conn.webhook_save_profile', 'Webhook-Profil speichern') }}</button>
     </form>
-    <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
-    <p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
-    {% set delete_kind = 'webhook' %}
-    {% set delete_ref = selected_webhook_ref %}
-    {% set delete_extra_hint = '' %}
-    {% include "_connection_delete_inline.html" %}
-    {% else %}
-    <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div>
-    <small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
-    {% endif %}
-    </div>
-  </details>
+  {% endcall %}
 
-  <details id="create-new" class="config-card config-section-details connection-mode-card connection-mode-create" {% if connection_mode == 'create' %}open{% endif %}>
-    <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</span></span></summary>
-    <div class="config-section-content">
-    <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
-    <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
-    <div class="skill-summary connection-flow-note"><strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong><span>{{ tr(request,'config_conn.webhook_recommended_flow_text','1) Save webhook profile with URL. 2) ARIA stores the URL in the secure store. 3) Save. 4) ARIA tests the endpoint automatically.') }}</span></div>
-    <form method="post" action="{{ webhook_save_path }}" class="editor-form" autocomplete="off">
-      <input type="hidden" name="original_ref" value="">
-      {% set schema_fields = webhook_new_form_fields %}
-      {% include "_connection_schema_fields.html" %}
-      <details class="skill-details" open>
-        <summary>{{ tr(request, 'config_conn.advanced', 'Advanced options') }}</summary>
-        <div class="skill-details-content">
-          {% set guardrail_field_id = 'guardrail_ref_webhook_new' %}
-          {% set selected_guardrail_ref = '' %}
-          {% include "_connection_guardrail_select.html" %}
-        </div>
-      </details>
-      {% set meta_prefix = 'webhook_new' %}
+  {% set secret_rotation_fields = webhook_secret_rotation_fields %}{% set secret_rotation_kind = 'webhook' %}{% set secret_rotation_ref = selected_webhook_ref %}{% include "_connection_secret_rotation.html" %}
 
-      {% set meta_values = {} %}
+  {{ connection_test_action(webhook_test_path, selected_webhook_ref, tr(request, 'config_conn.webhook_test_action_desc', 'Sendet die bestehende, begrenzte Webhook-Prüfanfrage an den gespeicherten Endpunkt.')) }}
 
-      {% include "_connection_metadata_fields.html" %}
-
-      <button type="submit">{{ tr(request,'config_conn.webhook_save_profile','Save webhook profile') }}</button>
-    </form>
-    </div>
-  </details>
+  {% call connection_danger_zone(tr(request, 'config_conn.delete_profile', 'Verbindung löschen'), tr(request, 'config_conn.delete_profile_hint', 'Löscht dieses Profil einschließlich des gespeicherten Endpunkts und des Gesundheitsstatus.')) %}
+    {% set delete_kind = 'webhook' %}{% set delete_ref = selected_webhook_ref %}{% set delete_extra_hint = '' %}{% set delete_inside_danger = true %}{% include "_connection_delete_inline.html" %}
+  {% endcall %}
+  {% elif connection_page_type == 'detail' %}<p class="hint-text">{{ tr(request, 'config_conn.no_profile_loaded_hint', 'Dieses Profil wurde nicht gefunden.') }}</p>{% endif %}
 </main>
 {% endblock %}

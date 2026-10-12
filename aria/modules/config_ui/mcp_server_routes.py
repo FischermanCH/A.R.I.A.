@@ -9,7 +9,7 @@ from itertools import zip_longest
 from pathlib import Path
 import re
 from typing import Any
-from urllib.parse import quote_plus, urlsplit
+from urllib.parse import quote, quote_plus, urlencode, urlsplit
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -87,7 +87,12 @@ def _redirect(
     if tool_count is not None:
         parts.append(f"tool_count={max(0, int(tool_count))}")
     suffix = f"?{'&'.join(parts)}" if parts else ""
-    return RedirectResponse(url=f"{_route_path('/config/connections/mcp')}{suffix}", status_code=303)
+    base = _route_path("/config/connections/mcp")
+    if server:
+        base = f"{base}/{quote(str(server), safe='')}"
+        parts = [part for part in parts if not part.startswith("server=")]
+        suffix = f"?{'&'.join(parts)}" if parts else ""
+    return RedirectResponse(url=f"{base}{suffix}", status_code=303)
 
 
 def _config_home_redirect() -> RedirectResponse:
@@ -263,13 +268,14 @@ async def _status_rows(
 
 
 def register_mcp_server_admin_routes(app: FastAPI, deps: MCPServerAdminRouteDeps) -> None:
-    @app.get("/config/connections/mcp", response_class=HTMLResponse)
-    async def config_connections_mcp_page(
+    async def _render_mcp_page(
         request: Request,
+        *,
+        page_type: str,
+        selected_server: str = "",
         saved: int = 0,
         error: str = "",
         info: str = "",
-        server: str = "",
         tool_count: int = 0,
     ) -> Response:
         if not _is_admin(request):
@@ -280,7 +286,7 @@ def register_mcp_server_admin_routes(app: FastAPI, deps: MCPServerAdminRouteDeps
         master_enabled = bool(
             isinstance(agentic, Mapping) and agentic.get("native_agent_mcp_enabled", False)
         )
-        selected_name = deps.sanitize_server_name(server)
+        selected_name = deps.sanitize_server_name(selected_server)
         selected = servers.get(selected_name, {})
         rows = await _status_rows(
             raw,
@@ -296,6 +302,7 @@ def register_mcp_server_admin_routes(app: FastAPI, deps: MCPServerAdminRouteDeps
                 if status_error
                 else ""
             )
+        selected_status = next((row for row in rows if row.get("name") == selected_name), {})
         selected_headers = selected.get("headers", {}) if isinstance(selected, Mapping) else {}
         return deps.templates.TemplateResponse(
             request=request,
@@ -305,6 +312,16 @@ def register_mcp_server_admin_routes(app: FastAPI, deps: MCPServerAdminRouteDeps
                 "username": deps.get_username_from_request(request) or "web",
                 "connections_nav": "mcp",
                 "connections_page_heading": _I18N.t(lang, "mcp_admin.title", "MCP servers"),
+                "connection_page_type": page_type,
+                "connection_overview_url": "/config/connections/mcp",
+                "connection_create_url": "/config/connections/mcp/new",
+                "connection_detail_url": (
+                    f"/config/connections/mcp/{quote(selected_name, safe='')}" if selected_name else ""
+                ),
+                "connection_detail_urls": {
+                    name: f"/config/connections/mcp/{quote(name, safe='')}"
+                    for name in servers
+                },
                 "saved": int(saved or 0),
                 "error_message": _message(lang, "error", error),
                 "info_message": _message(lang, "info", info).format(
@@ -326,8 +343,59 @@ def register_mcp_server_admin_routes(app: FastAPI, deps: MCPServerAdminRouteDeps
                     if isinstance(selected_headers, Mapping)
                     else [],
                 },
+                "selected_mcp_status": selected_status,
                 "page_return_to": _connections_route_path("/connections/types"),
             },
+        )
+
+    @app.get("/config/connections/mcp", response_class=HTMLResponse)
+    async def config_connections_mcp_page(
+        request: Request,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+        server: str = "",
+        tool_count: int = 0,
+    ) -> Response:
+        selected_name = deps.sanitize_server_name(server)
+        if selected_name:
+            query = urlencode({key: value for key, value in request.query_params.items() if key != "server"})
+            target = f"/config/connections/mcp/{quote(selected_name, safe='')}"
+            return RedirectResponse(url=f"{target}?{query}" if query else target, status_code=307)
+        return await _render_mcp_page(
+            request,
+            page_type="overview",
+            saved=saved,
+            error=error,
+            info=info,
+            tool_count=tool_count,
+        )
+
+    @app.get("/config/connections/mcp/new", response_class=HTMLResponse)
+    async def config_connections_mcp_create_page(
+        request: Request,
+        error: str = "",
+        info: str = "",
+    ) -> Response:
+        return await _render_mcp_page(request, page_type="create", error=error, info=info)
+
+    @app.get("/config/connections/mcp/{server_name}", response_class=HTMLResponse)
+    async def config_connections_mcp_detail_page(
+        request: Request,
+        server_name: str,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+        tool_count: int = 0,
+    ) -> Response:
+        return await _render_mcp_page(
+            request,
+            page_type="detail",
+            selected_server=server_name,
+            saved=saved,
+            error=error,
+            info=info,
+            tool_count=tool_count,
         )
 
     @app.post("/config/connections/mcp/save")
@@ -401,6 +469,46 @@ def register_mcp_server_admin_routes(app: FastAPI, deps: MCPServerAdminRouteDeps
         except (OSError, RuntimeError, ValueError):
             return _redirect(error="save_failed", server=clean_name)
         return _redirect(saved=True, info="saved", server=clean_name)
+
+    @app.post("/config/connections/mcp/credentials")
+    async def config_connections_mcp_credentials(
+        request: Request,
+        server_name: str = Form(""),
+        url: str = Form(""),
+        csrf_token: str = Form(""),  # noqa: ARG001
+    ) -> RedirectResponse:
+        if not _is_admin(request):
+            return _config_home_redirect()
+        clean_name = deps.sanitize_server_name(server_name)
+        raw = deps.read_raw_config()
+        rows = _mutable_server_rows(raw)
+        existing = rows.get(clean_name)
+        if not clean_name or not isinstance(existing, Mapping):
+            return _redirect(error="unknown_server")
+        updated = dict(existing)
+        clean_url = str(url or "").strip()
+        form = await request.form()
+        existing_headers = existing.get("headers", {})
+        try:
+            headers = _headers_from_form(
+                form,
+                existing=existing_headers if isinstance(existing_headers, Mapping) else {},
+            )
+        except ValueError:
+            return _redirect(error="invalid_headers", server=clean_name)
+        headers_changed = headers != dict(existing_headers) if isinstance(existing_headers, Mapping) else bool(headers)
+        if not clean_url and not headers_changed:
+            return _redirect(error="credentials_required", server=clean_name)
+        if clean_url:
+            updated["url"] = clean_url[:2048]
+        updated["headers"] = headers
+        rows[clean_name] = updated
+        try:
+            deps.write_raw_config(raw)
+            deps.reload_runtime()
+        except (OSError, RuntimeError, ValueError):
+            return _redirect(error="save_failed", server=clean_name)
+        return _redirect(saved=True, info="credentials_updated", server=clean_name)
 
     @app.post("/config/connections/mcp/master")
     async def config_connections_mcp_master(

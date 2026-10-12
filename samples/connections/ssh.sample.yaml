@@ -1,8 +1,11 @@
+display:
+  description_de: "Neutrales Beispiel für eine SSH-Verbindung"
+  description_en: "Neutral example for an SSH connection"
 connections:
   ssh:
     srv-main:
       title: "Main Server"
-      description: "Neutrales Beispiel für eine SSH-Verbindung"
+      description: "SSH connection example"
       host: "10.0.0.10"
       port: 22
       user: "admin"

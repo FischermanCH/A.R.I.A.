@@ -6,6 +6,11 @@ services:
       QDRANT__SERVICE__API_KEY: "${ARIA_QDRANT_API_KEY:-CHANGE-ME-LONG-RANDOM-QDRANT-KEY}"
     volumes:
       - qdrant_storage:/qdrant/storage
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 
 
@@ -19,6 +24,7 @@ services:
     environment:
       ARIA_ARIA_HOST: "0.0.0.0"
       ARIA_ARIA_PORT: "8800"
+      TZ: "${TZ:-UTC}"
       ARIA_PUBLIC_URL: "${ARIA_PUBLIC_URL:-http://localhost:8800}"
       ARIA_QDRANT_URL: "http://qdrant:6333"
       ARIA_QDRANT_API_KEY: "${ARIA_QDRANT_API_KEY:-CHANGE-ME-LONG-RANDOM-QDRANT-KEY}"
@@ -29,6 +35,11 @@ services:
       - qdrant_storage:/qdrant/storage:ro
     depends_on:
       - qdrant
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   qdrant_storage:

@@ -79,7 +79,7 @@ def native_tool_contributions(runtime_owner: Any) -> tuple[NativeToolBinding, ..
         truncated = len(items) > len(rows) or content_truncated
         payload = {"status": "ok", "notes": rows, "selection": {
             "shown": len(rows), "available": len(items), "truncated": truncated,
-            "notice": "gekuerzt: Ergebnisse oder Inhalte sind ausschnittweise" if truncated else "alle ausgewaehlten Treffer sind enthalten",
+            "notice": "gekürzt: Ergebnisse oder Inhalte sind ausschnittweise" if truncated else "alle ausgewählten Treffer sind enthalten",
         }} if rows else {
             "status": "no_notes", "notes": [], "message": "No notes match the requested scope for this user.",
         }

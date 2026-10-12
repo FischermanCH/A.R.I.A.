@@ -1,7 +1,7 @@
-{% extends "base.html" %}
+{% extends "page_types/" ~ connection_page_type ~ "_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
-<main class="config-layout">
+{% block page_body %}
+<main class="config-layout connection-{{ connection_page_type }}" data-ui-page-type="{{ connection_page_type }}">
   {% set rss_ui_page_path = required_module_route_path('rss_ui', '/config/connections/rss') %}
   {% set rss_ui_poll_interval_save_path = required_module_route_path('rss_ui', '/config/connections/rss/poll-interval/save') %}
   {% set rss_ui_export_opml_path = required_module_route_path('rss_ui', '/config/connections/rss/export-opml') %}
@@ -11,6 +11,81 @@
   {% set rss_ui_suggest_metadata_path = required_module_route_path('rss_ui', '/config/connections/rss/suggest-metadata') %}
   {% include "_connection_page_intro.html" %}
   {% include "_connection_mode_nav.html" %}
+
+  {% if connection_page_type == 'overview' %}
+  <section class="config-card connection-inventory" data-connection-inventory="rss">
+    <div class="connection-status-head">
+      <div>
+        <h2>{{ tr(request,'config_conn.rss_groups_title','Thematic feed groups') }}</h2>
+        <small>{{ tr(request,'config_conn.rss_groups_hint','ARIA groups RSS profiles by topic so larger feed collections stay manageable.') }}</small>
+      </div>
+      <form method="get" action="{{ rss_ui_page_path }}" class="inline-form" data-busy-immediate="true">
+        <input type="hidden" name="refresh_groups" value="1">
+        {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
+        <button type="submit" class="ui-secondary-action ui-compact-action">{{ icon('refresh', 'ui-action-icon') }}{{ tr(request,'config_conn.rss_refresh_groups','Refresh categories with LLM') }}</button>
+      </form>
+    </div>
+    <div class="editor-form rss-feed-filter">
+      <label for="rss_feed_search">{{ tr(request,'config_conn.rss_search_label','Search RSS feeds') }}</label>
+      <input
+        id="rss_feed_search"
+        type="search"
+        placeholder="{{ tr(request,'config_conn.rss_search_placeholder','Search RSS title, URL, ref, group, and tags') }}"
+        autocomplete="off"
+        data-rss-search-input
+      >
+    </div>
+    {% if rss_status_groups %}
+    <div class="rss-group-stack">
+      {% for group in rss_status_groups %}
+      {% set group_label = tr(request, 'rss_grouping.fallback_group_name', 'Other feeds') if group.is_default|default(false) else group.name %}
+      <details class="skill-details rss-group-card" data-rss-group-card data-ui-user-content data-rss-group-name="{{ group_label|lower|e }}" {% if connection_status_block.total_count|default(0) <= 40 %}open{% endif %}>
+        <summary>
+          <span>
+            <strong>{{ group_label }}</strong>
+            <small>{{ group.total }} {{ tr(request,'config_conn.profiles','Profiles') }}</small>
+          </span>
+          <span class="status-badge-row compact">
+            <span class="status-badge status-ok">{{ group.healthy }} {{ tr(request,'config_conn.healthy','Healthy') }}</span>
+            {% if group.issues %}<span class="status-badge status-error">{{ group.issues }} {{ tr(request,'config_conn.issues','Issues') }}</span>{% endif %}
+          </span>
+        </summary>
+        <div class="skill-details-content connection-status-grid">
+          {% for item in group.rows %}
+          <article
+            class="connection-test-card connection-profile-card status-{{ item.status }}"
+            data-connection-inventory-item="true"
+            data-ui-user-content
+            data-rss-feed-card
+            data-rss-search-text="{{ (item.display_name ~ ' ' ~ item.ref ~ ' ' ~ item.target ~ ' ' ~ group_label ~ ' ' ~ (item.tags or [])|join(' '))|lower|e }}"
+          >
+            <div class="connection-test-head">
+              <span class="health-lamp status-{{ item.status }}"></span>
+              <strong>{{ item.display_name }}</strong>
+              {% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}
+              <span class="status-chip status-{{ item.status }}">{% if item.status == 'ok' %}{{ tr(request, 'config_conn.status_reachable', 'Reachable') }}{% elif item.status == 'error' %}{{ tr(request, 'config_conn.status_problem', 'Problem') }}{% else %}{{ tr(request, 'config_conn.status_not_checked', 'Not checked') }}{% endif %}</span>
+            </div>
+            <small class="connection-status-target">{{ item.target }}</small>
+            {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
+            <small>{{ item.message }}</small>
+            <div class="inline-actions">
+              <a href="{{ item.edit_url }}" class="button-link subtle-link ui-action-link">{{ tr(request,'config_conn.open_profile','Open') }}</a>
+              <form method="post" action="{{ rss_ui_ping_now_path }}" class="inline-form" data-busy-immediate="true">
+                <input type="hidden" name="rss_ref" value="{{ item.ref }}">
+                <button type="submit" class="ui-secondary-action ui-compact-action">{{ icon('refresh', 'ui-action-icon') }}{{ tr(request,'config_conn.rss_ping_now','Test now') }}</button>
+              </form>
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="skill-summary"><span>{{ tr(request,'config_conn.rss_no_profiles_hint','No RSS profiles yet. Add a profile and ARIA will test it automatically.') }}</span></div>
+    {% endif %}
+  </section>
+  {% endif %}
 
   <section class="config-card">
     <h2>{{ tr(request,'config_conn.rss_global_poll_title','Globales RSS-Ping-Intervall') }}</h2>
@@ -57,7 +132,7 @@
     </details>
   </section>
 
-  <details id="manage-existing" class="config-card config-section-details connection-mode-card connection-mode-edit" {% if connection_mode != 'create' %}open{% endif %}>
+  {% if connection_page_type == 'detail' %}<details id="manage-existing" class="config-card config-section-details connection-mode-card connection-mode-edit" open>
     <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.edit_existing_title','Bestehendes Profil bearbeiten') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.edit_existing_subtitle','Profilkarte anklicken oder hier das aktuell geladene Profil bearbeiten.') }}</span></span></summary>
     <div class="config-section-content">
     <div class="connection-status-stack">
@@ -93,7 +168,7 @@
             <span class="health-lamp status-{{ item.status }}"></span>
             <strong>{{ item.display_name }}</strong>
             {% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}
-            <span class="connection-current-badge">{{ tr(request,'config_conn.current','Current') }}</span>
+            <span class="status-chip status-{{ item.status }}">{% if item.status == 'ok' %}{{ tr(request, 'config_conn.status_reachable', 'Erreichbar') }}{% elif item.status == 'error' %}{{ tr(request, 'config_conn.status_problem', 'Problem') }}{% else %}{{ tr(request, 'config_conn.status_not_checked', 'Nicht geprüft') }}{% endif %}</span><span class="connection-current-badge">{{ tr(request,'config_conn.current','Aktuell') }}</span>
           </div>
           <small class="connection-status-target">{{ item.target }}</small>
           {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
@@ -111,22 +186,24 @@
       {% if rss_status_groups %}
       <div class="rss-group-stack">
         {% for group in rss_status_groups %}
-        <details class="skill-details rss-group-card" data-rss-group-card data-rss-group-name="{{ group.name|lower|e }}">
+        {% set group_label = tr(request, 'rss_grouping.fallback_group_name', 'Other feeds') if group.is_default|default(false) else group.name %}
+        <details class="skill-details rss-group-card" data-rss-group-card data-ui-user-content data-rss-group-name="{{ group_label|lower|e }}">
           <summary>
             <div>
-              <h3>{{ group.name }}</h3>
+              <h3>{{ group_label }}</h3>
               <small>{{ group.total }} {{ tr(request,'config_conn.profiles','Profiles') }} · {{ group.healthy }} {{ tr(request,'config_conn.healthy','Healthy') }} · {{ group.issues }} {{ tr(request,'config_conn.issues','Issues') }}</small>
             </div>
           </summary>
           <div class="skill-details-content connection-status-grid">
             {% for item in group.rows %}
             <a
-              href="{{ rss_ui_page_path }}?mode=edit&rss_ref={{ item.ref|urlencode }}"
+              href="{{ item.edit_url }}"
               class="connection-test-card connection-test-card-link status-{{ item.status }}{% if item.selected %} current-profile{% endif %}"
+              data-ui-user-content
               data-rss-feed-card
-              data-rss-search-text="{{ (item.display_name ~ ' ' ~ item.ref ~ ' ' ~ item.target ~ ' ' ~ group.name ~ ' ' ~ (item.tags or [])|join(' '))|lower|e }}"
+              data-rss-search-text="{{ (item.display_name ~ ' ' ~ item.ref ~ ' ' ~ item.target ~ ' ' ~ group_label ~ ' ' ~ (item.tags or [])|join(' '))|lower|e }}"
             >
-              <div class="connection-test-head"><span class="health-lamp status-{{ item.status }}"></span><strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}{% if item.selected %}<span class="connection-current-badge">{{ tr(request,'config_conn.current','Current') }}</span>{% endif %}</div>
+              <div class="connection-test-head"><span class="health-lamp status-{{ item.status }}"></span><strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}<span class="status-chip status-{{ item.status }}">{% if item.status == 'ok' %}{{ tr(request, 'config_conn.status_reachable', 'Erreichbar') }}{% elif item.status == 'error' %}{{ tr(request, 'config_conn.status_problem', 'Problem') }}{% else %}{{ tr(request, 'config_conn.status_not_checked', 'Nicht geprüft') }}{% endif %}</span>{% if item.selected %}<span class="connection-current-badge">{{ tr(request,'config_conn.current','Aktuell') }}</span>{% endif %}</div>
               <small class="connection-status-target">{{ item.target }}</small>
           {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
               {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request,'config_conn.last_success','Last success') }}: {{ item.last_success_at|replace('T',' ') }}</small>{% endif %}
@@ -179,7 +256,8 @@
     </div>
   </details>
 
-  <details id="create-new" class="config-card config-section-details connection-mode-card connection-mode-create" {% if connection_mode == 'create' %}open{% endif %}>
+  {% endif %}
+  {% if connection_page_type == 'create' %}<details id="create-new" class="config-card config-section-details connection-mode-card connection-mode-create" open>
     <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</span></span></summary>
     <div class="config-section-content">
     <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
@@ -205,7 +283,7 @@
       <button type="submit">{{ tr(request,'config_conn.rss_save_profile','Save RSS profile') }}</button>
     </form>
     </div>
-  </details>
+  </details>{% endif %}
 </main>
 <script>
   (function () {

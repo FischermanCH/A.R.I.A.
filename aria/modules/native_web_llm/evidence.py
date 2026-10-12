@@ -65,6 +65,7 @@ class PublicWebEvidenceStore:
             return ()
         expires_at = _parse_time(payload.get("expires_at"))
         if expires_at is None or expires_at <= datetime.now(timezone.utc):
+            await self._delete_points([evidence_point_id(question)])
             return ()
         citations: list[NativeWebCitation] = []
         for row in list(payload.get("citations") or [])[:6]:
@@ -81,6 +82,53 @@ class PublicWebEvidenceStore:
                 )
             )
         return tuple(citations)
+
+    async def _delete_points(self, point_ids: list[Any]) -> int:
+        clean_ids = [point_id for point_id in point_ids if str(point_id).strip()]
+        if not clean_ids:
+            return 0
+        try:
+            await asyncio.wait_for(
+                self.client.delete(
+                    collection_name=self.collection,
+                    points_selector=models.PointIdsList(points=clean_ids),
+                    wait=True,
+                ),
+                timeout=max(1.0, self.read_timeout_ms / 1000),
+            )
+            return len(clean_ids)
+        except Exception:
+            return 0
+
+    async def prune_expired(self, *, now: datetime | None = None) -> dict[str, int]:
+        """Physically delete expired cached evidence in bounded pages."""
+
+        current = now or datetime.now(timezone.utc)
+        offset: Any | None = None
+        examined = 0
+        expired: list[Any] = []
+        try:
+            while True:
+                rows, next_offset = await asyncio.wait_for(
+                    self.client.scroll(
+                        collection_name=self.collection, limit=256, offset=offset,
+                        with_payload=True, with_vectors=False,
+                    ),
+                    timeout=max(1.0, self.read_timeout_ms / 1000),
+                )
+                for row in rows:
+                    examined += 1
+                    payload = getattr(row, "payload", None)
+                    expires_at = _parse_time(payload.get("expires_at")) if isinstance(payload, dict) else None
+                    if expires_at is None or expires_at <= current:
+                        expired.append(getattr(row, "id", ""))
+                if next_offset is None:
+                    break
+                offset = next_offset
+        except Exception:
+            return {"examined": examined, "removed": 0}
+        removed = await self._delete_points(expired)
+        return {"examined": examined, "removed": removed}
 
     def schedule_update(self, question: str, result: NativeWebResult) -> bool:
         if not result.passed or not result.citations:

@@ -349,12 +349,18 @@ def test_pipeline_bridge_web_debug_details_are_toggle_gated_and_bounded(monkeypa
     ))
 
     assert result is not None
-    assert result.detail_lines[1:] == [
+    pre_loop_lines = [
+        line for line in result.detail_lines
+        if line.startswith("Routing Debug: pre_loop_timing ")
+    ]
+    assert len(pre_loop_lines) == 1
+    assert all(field in pre_loop_lines[0] for field in ("mcp=", "selector=", "context=", "other="))
+    assert [line for line in result.detail_lines[1:] if line not in pre_loop_lines] == [
         "Routing Debug: native_llm_timing calls=0 total_ms=0 per_call_ms=[] "
         "cache_read=0 cache_write=0 tools=0 input_tokens=0",
         "Routing Debug: native_finish_reason=-",
         "Routing Debug: memory_learn_extraction pre_filter=skip extraction_ms=0 claim=no",
-        "Routing Debug: semantic match_recipe=- sim=0.00",
+            "Routing Debug: semantic match_recipe=- sim=0.00 source_connection=- target_connection=-",
         'Routing Debug: web_llm_query="actual query \\"from Luna\\"\\nsecond line"',
         "Routing Debug: web_llm_params model=openai/gpt-5.6-luna ctx=high effort=low max_out=1200",
         "Routing Debug: web_llm_sources="
@@ -370,7 +376,7 @@ def test_pipeline_bridge_web_debug_details_are_toggle_gated_and_bounded(monkeypa
         source="web", start=time.perf_counter(),
     ))
     assert result_off is not None
-    assert len(result_off.detail_lines) == 5
+    assert len(result_off.detail_lines) == 6
     assert "native_llm_timing" in result_off.detail_lines[1]
 
 

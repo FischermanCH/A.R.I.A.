@@ -39,9 +39,8 @@ def test_help_home_renders_clickable_start_links() -> None:
         "agentic",
         "releases",
         "pricing",
+        "qdrant",
         "security",
-        "alpha-help-system",
-        "help-system",
     ):
         assert f'href="/help?doc={doc_id}"' in response.text
     assert "<code>Quick Start</code>" not in response.text
@@ -54,7 +53,7 @@ def test_help_page_renders_current_workflow_docs() -> None:
         "chat": "Prompt Queue",
         "navigation": "Erweiterte Ansicht",
         "notes": "Markdown",
-        "agentic": "Operator",
+        "agentic": "Hintergrund-Jobs",
     }.items():
         response = client.get(f"/help?doc={doc_id}")
 
@@ -117,8 +116,9 @@ def test_help_page_language_query_can_switch_back_to_german_after_english() -> N
 
     assert english.status_code == 200
     assert german.status_code == 200
-    assert "Chat, Queue, and Confirmations" in english.text
-    assert "Chat, Queue und Bestaetigungen" in german.text
+    assert "Chat is ARIA&#39;s workspace" in english.text or "Chat is ARIA's workspace" in english.text
+    assert "Prompt Queue" in german.text
+    assert "Bestätigungen" in german.text
     assert "Chat, Queue, and Confirmations" not in german.text
 
 
@@ -162,7 +162,9 @@ def test_docs_surface_pages_use_static_help_docs_route_readpoints(monkeypatch) -
     assert 'href="/help?doc=qdrant"' in help_response.text
     assert 'href="/licenses"' in help_response.text
     assert 'href="/help"' in licenses_response.text
-    assert 'href="/help?doc=quick-start"' not in licenses_response.text
+    assert 'href="/help?doc=quick-start"' in licenses_response.text
+    assert 'data-ui-section-header="help"' in licenses_response.text
+    assert 'data-ui-canonical-nav-id="help.licenses"' in licenses_response.text
     assert 'href="/help"' in product_info_response.text
     assert 'href="/product-info"' in product_info_response.text
     assert 'href="/product-info?doc=overview"' in product_info_response.text
@@ -251,10 +253,11 @@ def test_licenses_page_renders_core_entries() -> None:
     response = client.get("/licenses")
 
     assert response.status_code == 200
-    assert "help-doc-inline-nav" not in response.text
+    assert "help-doc-inline-nav" in response.text
+    assert 'data-ui-canonical-nav-id="help.licenses"' in response.text
     assert 'href="/help"' in response.text
-    assert "Help System" in response.text or "Hilfe-System" in response.text
-    assert 'href="/help?doc=quick-start"' not in response.text
+    assert "Hilfe-Übersicht" in response.text
+    assert 'href="/help?doc=quick-start"' in response.text
     assert "MIT" in response.text
     assert "Permission is hereby granted" in response.text
     assert "Apache-2.0" in response.text

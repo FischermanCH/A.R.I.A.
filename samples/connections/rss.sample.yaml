@@ -1,7 +1,10 @@
+display:
+  description_de: "Neutrales Beispiel für einen RSS-Feed"
+  description_en: "Neutral example for an RSS feed"
 connections:
   rss:
     news-main:
       title: "News Feed"
-      description: "Neutrales Beispiel für einen RSS-Feed"
+      description: "RSS feed example"
       feed_url: "https://example.org/feed.xml"
       timeout_seconds: 10

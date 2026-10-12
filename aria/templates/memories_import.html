@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "page_types/tool_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% block page_body %}
 {% set memory_upload_path = module_route_path('memory_admin_ui', '/memories/upload') %}
 <main class="config-layout memory-import-layout memory-domain-shell">
   {% include "_memories_nav.html" %}
@@ -17,7 +17,7 @@
 
   <section id="document-import" class="floating-card config-domain-section">
     <div class="page-title-row"><span>{{ icon('upload', 'page-title-icon') }}</span><h2>{{ tr(request, 'memories_import.title', 'Import') }}</h2></div>
-    <p>{{ tr(request, 'memories_import.subtitle', 'Bring neue Inhalte ins Memory. Anzeigen, Browsen und semantische Nähe bleiben im Gedächtnis-Bereich.') }}</p>
+    <p class="ui-page-purpose">{{ tr(request, 'memories_import.subtitle', 'Importiere Dokumente für die persönliche Suche; Anzeigen und Durchsuchen bleiben im Gedächtnis-Browser.') }}</p>
   </section>
 
   <section id="document-import-form" class="floating-card config-domain-section">

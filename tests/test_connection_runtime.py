@@ -216,7 +216,7 @@ def test_cached_only_connection_status_without_cache_returns_warn_placeholder(mo
     )
 
     assert status["status"] == "warn"
-    assert status["message"] == "Noch kein Status im Cache. Nutze den Test-Button fuer eine Live-Pruefung."
+    assert status["message"] == "Noch kein Status im Cache. Nutze den Test-Button für eine Live-Prüfung."
 
 
 def test_ssh_connection_test_explains_unknown_host_key(monkeypatch, tmp_path) -> None:

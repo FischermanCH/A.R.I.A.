@@ -10,6 +10,7 @@ DOCKER_HELPER_DIR="${DOCKER_HELPER_DIR:-$REPO_ROOT/docker}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-}"
 IMAGE_REF="${IMAGE_REF:-}"
 KEEP_TARS="${KEEP_TARS:-7}"
+PROTECTED_PUBLIC_TAR_NAMES="${PROTECTED_PUBLIC_TAR_NAMES:-aria-alpha604-local.tar aria-alpha982-local.tar aria-alpha983-local.tar}"
 
 log() {
   printf '[aria-export] %s\n' "$*"
@@ -91,8 +92,15 @@ prune_old_tars() {
   prune_list="$(
     find "$target_dir" -maxdepth 1 -type f -name 'aria-alpha*-local.tar' \
       | sed 's#^.*/##' \
-      | awk '
+      | awk -v protected_names="$PROTECTED_PUBLIC_TAR_NAMES" '
+          BEGIN {
+            count = split(protected_names, protected, /[[:space:]]+/)
+            for (idx = 1; idx <= count; idx += 1) {
+              if (protected[idx] != "") protected_tar[protected[idx]] = 1
+            }
+          }
           $0 ~ /^aria-alpha[0-9]+-local\.tar$/ {
+            if (protected_tar[$0]) next
             version = $0
             sub(/^aria-alpha/, "", version)
             sub(/-local\.tar$/, "", version)

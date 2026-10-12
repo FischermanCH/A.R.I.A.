@@ -205,7 +205,7 @@ def test_down_server_in_cooldown_is_immediate_and_makes_no_new_network_call() ->
     asyncio.run(scenario())
 
 
-def test_pipeline_first_turn_blocks_for_cold_discovery_and_assembles_mcp_tool(
+def test_pipeline_first_turn_uses_snapshot_and_never_blocks_on_cold_discovery(
     monkeypatch, tmp_path,
 ) -> None:  # noqa: ANN001
     captured: dict[str, object] = {}
@@ -218,7 +218,7 @@ def test_pipeline_first_turn_blocks_for_cold_discovery_and_assembles_mcp_tool(
             successful_tool_names=("mcp__blender__execute_blender_code",),
         )
 
-    factory = _Factory(_Session([_tool("execute_blender_code")]))
+    factory = _Factory(_Session([_tool("execute_blender_code")]), delayed=True)
     owner = _pipeline(tmp_path)
     owner._native_mcp_client = MCPClientManager(
         {"blender": _server()}, session_factory=factory,
@@ -228,15 +228,41 @@ def test_pipeline_first_turn_blocks_for_cold_discovery_and_assembles_mcp_tool(
         pipeline_bridge, "filter_tools_by_configured_connections", lambda rows, _settings: tuple(rows),
     )
 
-    result = asyncio.run(pipeline_bridge.run_native_agent_first_stage(
-        owner, message="build the scene", user_id="alice", request_id="cold-first-turn",
-        source="test", start=0.0,
-    ))
+    async def scenario():  # noqa: ANN202
+        started = time.perf_counter()
+        result = await pipeline_bridge.run_native_agent_first_stage(
+            owner, message="build the scene", user_id="alice", request_id="cold-first-turn",
+            source="test", start=started,
+        )
+        elapsed = time.perf_counter() - started
+        await asyncio.wait_for(factory.started.wait(), timeout=0.2)
+        factory.release.set()
+        return result, elapsed
+
+    result, elapsed = asyncio.run(scenario())
 
     assert result is not None and result.text == "scene created"
-    assert "mcp__blender__execute_blender_code" in captured["names"]
+    assert "mcp__blender__execute_blender_code" not in captured["names"]
     assert factory.opens == 1
-    assert any("server=blender status=connected tool_count=1" in line for line in result.detail_lines)
+    assert elapsed < 5.0  # unrelated cold local-store/bootstrap work is measured separately
+    timing_line = next(
+        line for line in result.detail_lines
+        if line.startswith("Routing Debug: mcp_discovery_ms=")
+    )
+    assert int(timing_line.split("mcp_discovery_ms=", 1)[1].split(" ", 1)[0]) <= 50
+    assert any(
+        "Routing Debug: mcp_discovery_ms=" in line
+        and "blocked=no" in line
+        and "server=blender" in line
+        for line in result.detail_lines
+    )
+    assert any(
+        line.startswith("Routing Debug: pre_loop_timing mcp=")
+        and " selector=" in line and " bindings=" in line and " stores=" in line
+        and " recipes=" in line and " upstream=" in line and " context=" in line
+        and " bridge_other=" in line
+        for line in result.detail_lines
+    )
 
 
 def test_startup_warmup_is_background_noop_when_off_and_swallows_down_server() -> None:

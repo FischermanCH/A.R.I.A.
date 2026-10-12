@@ -26,7 +26,7 @@ ARIA is designed to get from container to usable web UI quickly.
 - `/memories` for the graphical Memory browser and `/memories/import` for document imports
 - `/connections/types` for external systems
 - `/recipes` for the recipe hub and `/recipes/mine` for saved recipes
-- `/config/workbench/routing` for action/routing dry-runs
+- `/config/llm/debug` for action/routing dry-runs
 
 ## Deployment notes
 

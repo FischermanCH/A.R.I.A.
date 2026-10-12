@@ -63,8 +63,13 @@ Chat details show sources, collection, and chunk references when document recall
 - `/memories` for the graphical Memory browser
 - `/memories/import` for new documents and memory imports
 - `/memories/auto-memory` for Auto-memory and agentic learning settings
+- `/memories/activity-journal` for compact user-scoped summaries of completed tool activities and agent jobs
 - `/memories/maintenance` for technical maintenance, rebuilds, and internal learning artifacts
 - `/config/embeddings` for embedding model and safety confirmation when memory already exists
+
+### Activity journal
+
+The Activity journal stores short redacted facts about completed tool turns and Agent Jobs. It never stores raw output, file or document contents, images, prompts, or credentials. ARIA reads it only on demand through a user-scoped read-only tool; the journal is never injected into a prompt automatically. Retention defaults to 90 days. Kept entries and explicitly imported legacy context rollups are exempt from automatic cleanup.
 
 ### Auto-memory and learning
 

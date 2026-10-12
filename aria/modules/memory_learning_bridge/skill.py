@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, timedelta, timezone
+from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
+import time
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
@@ -38,7 +40,6 @@ from aria.modules.memory.recall_sources import format_recall_source_detail
 from aria.modules.memory.recall_sources import recall_source_priority
 from aria.modules.qdrant_gateway.client import create_async_qdrant_client
 from aria.modules.system_diagnostics.qdrant_collection_classifier import is_notes_qdrant_collection
-from aria.modules.memory_session_compression.service import SessionCompressionService
 from aria.modules.model_usage_observability.usage_meter import UsageMeter
 from aria.modules.skill_contracts.contracts import BaseSkill, SkillResult
 
@@ -88,7 +89,9 @@ class MemorySkill(BaseSkill):
         self._collection_ready = False
         self._collection_cache: dict[tuple[str, int], str] = {}
         self._project_root = Path(__file__).resolve().parents[3]
-        self._compression_prompt_cache: tuple[str, float] | None = None
+        self._document_inventory_fallback_cache: dict[
+            tuple[str, str], tuple[dict[str, Any], ...]
+        ] = {}
         self.last_cleanup_status: dict[str, Any] = {
             "scope": "",
             "user_id": "",
@@ -159,6 +162,20 @@ class MemorySkill(BaseSkill):
     def _payload_user_matches(self, payload_user_id: Any, requested_user_id: str) -> bool:
         return payload_user_matches(payload_user_id, requested_user_id)
 
+    def _document_payload_visible_to_user(
+        self, payload: Mapping[str, Any], *, user_id: str, collection: str,
+    ) -> bool:
+        """Stored ownership wins; the collection slug is legacy-only authority."""
+
+        stored_owner = str(payload.get("user_id", "") or "").strip()
+        if stored_owner:
+            return self._payload_user_matches(stored_owner, user_id)
+        collection_owner = self._document_collection_user_slug(collection, "aria_docs")
+        return bool(collection_owner and collection_owner == self._slug_user_id(user_id))
+
+    def _invalidate_document_inventory_cache(self) -> None:
+        self._document_inventory_fallback_cache.clear()
+
     @staticmethod
     def _parse_timestamp(value: Any) -> datetime | None:
         if not value:
@@ -226,116 +243,12 @@ class MemorySkill(BaseSkill):
             and str(data.get("rollup_level", "")).strip().lower() in {self.ROLLUP_LEVEL_WEEK, self.ROLLUP_LEVEL_MONTH}
         )
 
-    @staticmethod
-    def _session_day_from_collection_name(collection_name: str) -> date | None:
-        raw = str(collection_name or "").strip()
-        if not raw:
-            return None
-        day_raw = raw.rsplit("_", 1)[-1]
-        if len(day_raw) != 6 or not day_raw.isdigit():
-            return None
-        try:
-            return datetime.strptime(day_raw, "%y%m%d").date()
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _week_bucket_for_day(day_value: date) -> tuple[str, date, date]:
-        iso_year, iso_week, _ = day_value.isocalendar()
-        start = day_value - timedelta(days=day_value.weekday())
-        end = start + timedelta(days=6)
-        return f"{iso_year}-W{iso_week:02d}", start, end
-
-    @staticmethod
-    def _month_bucket_for_day(day_value: date) -> tuple[str, date, date]:
-        start = day_value.replace(day=1)
-        if start.month == 12:
-            next_month = start.replace(year=start.year + 1, month=1, day=1)
-        else:
-            next_month = start.replace(month=start.month + 1, day=1)
-        end = next_month - timedelta(days=1)
-        return start.strftime("%Y-%m"), start, end
-
     def _display_memory_type(self, collection: str, payload: dict[str, Any] | None) -> str:
         if self._is_document_payload(payload) or self._is_document_collection_name(collection):
             return "document"
         if is_notes_qdrant_collection(collection):
             return "notes"
         return self._normalize_memory_type(collection, (payload or {}).get("type"))
-
-    async def _store_rollup_summary(
-        self,
-        *,
-        user_id: str,
-        text: str,
-        base_collection: str,
-        rollup_level: str,
-        rollup_bucket: str,
-        period_start: date,
-        period_end: date,
-        source_kind: str,
-        source_collections: list[str],
-    ) -> SkillResult:
-        vector, usage = await self._embed(
-            text,
-            source="compression",
-            operation=f"{rollup_level}_rollup",
-            user_id=user_id,
-        )
-        target_collection = await self._get_collection_for_vector(len(vector), base_collection=base_collection)
-        point_id = str(
-            uuid5(
-                NAMESPACE_URL,
-                f"{target_collection}|{user_id.strip()}|rollup|{rollup_level}|{rollup_bucket}",
-            )
-        )
-        now_iso = datetime.now(timezone.utc).isoformat()
-        point = PointStruct(
-            id=point_id,
-            vector=vector,
-            payload={
-                "text": text,
-                "user_id": user_id,
-                "timestamp": now_iso,
-                "type": "knowledge",
-                "source": "compression",
-                "rollup_level": rollup_level,
-                "rollup_bucket": rollup_bucket,
-                "rollup_period_start": period_start.isoformat(),
-                "rollup_period_end": period_end.isoformat(),
-                "rollup_source_kind": source_kind,
-                "rollup_source_count": len(source_collections),
-                "rollup_source_collections": list(source_collections),
-                "embedding_model": self._resolve_embedding_model(),
-                "embedding_fingerprint": self._active_embedding_fingerprint(),
-                "created_at": now_iso,
-                "updated_at": now_iso,
-            },
-        )
-        await self.qdrant.upsert(collection_name=target_collection, points=[point])
-        return SkillResult(
-            skill_name=self.name,
-            content="Rollup gespeichert.",
-            success=True,
-            metadata={
-                "embedding_usage": usage,
-                "embedding_model": self._resolve_embedding_model(),
-                "rollup_level": rollup_level,
-                "rollup_bucket": rollup_bucket,
-                "collection": target_collection,
-                "point_id": point_id,
-            },
-        )
-
-    async def _list_rollup_rows(self, user_id: str, base_collection: str) -> list[dict[str, Any]]:
-        rows = await self._list_rows_from_collection(
-            collection=base_collection,
-            user_id=user_id,
-            memory_type="knowledge",
-            label=self._type_label("knowledge"),
-            limit=5000,
-        )
-        return [row for row in rows if str(row.get("source", "")).strip().lower() == "compression" and str(row.get("rollup_level", "")).strip()]
 
     def _combined_score(
         self,
@@ -431,13 +344,17 @@ class MemorySkill(BaseSkill):
         knowledge_collection = f"{cfg.knowledge.prefix}_{slug}"
         context_mem_collection = f"{self.CONTEXT_MEM_PREFIX}_{slug}"
         session_prefix = f"{cfg.sessions.prefix}_{slug}_"
-        current_session_collection = f"{session_prefix}{datetime.now().strftime('%y%m%d')}"
         legacy_collection = f"{self.memory.collection}_{slug}"
 
         known_names = await self._list_collection_names()
         session_collections = [name for name in known_names if name.startswith(session_prefix)]
-        if current_session_collection not in session_collections:
-            session_collections.append(current_session_collection)
+        context_mem_collections = [context_mem_collection]
+        context_dimension_prefix = f"{context_mem_collection}_dim_"
+        context_mem_collections.extend(
+            name
+            for name in known_names
+            if name.startswith(context_dimension_prefix)
+        )
 
         targets: list[dict[str, Any]] = [
             {
@@ -459,18 +376,21 @@ class MemorySkill(BaseSkill):
                 "top_k": int(cfg.knowledge.top_k),
             },
             {
-                "type": "knowledge",
-                "label": self._type_label("knowledge"),
-                "collection": context_mem_collection,
-                "top_k": int(cfg.knowledge.top_k),
-            },
-            {
                 "type": "fact",
                 "label": self._type_label("fact"),
                 "collection": legacy_collection,
                 "top_k": int(cfg.facts.top_k),
             },
         ]
+        for context_collection in context_mem_collections:
+            targets.append(
+                {
+                    "type": "knowledge",
+                    "label": self._type_label("knowledge"),
+                    "collection": context_collection,
+                    "top_k": int(cfg.knowledge.top_k),
+                }
+            )
         _ = include_learning_audit
 
         for session_collection in session_collections:
@@ -609,21 +529,28 @@ class MemorySkill(BaseSkill):
         user_id: str,
         allowed_collections: set[str],
     ) -> list[dict[str, Any]]:
+        guides = await self._document_guide_payloads(user_id=user_id)
         if allowed_collections:
             collections = sorted(allowed_collections)
         else:
-            guides = await self._document_guide_payloads(user_id=user_id)
             collections = [
                 str(guide.get("target_collection", "") or "").strip()
                 for guide in guides
                 if str(guide.get("target_collection", "") or "").strip()
             ]
+        owners_by_collection = {
+            str(guide.get("target_collection", "") or "").strip():
+            str(guide.get("user_id", "") or "").strip()
+            for guide in guides
+            if str(guide.get("target_collection", "") or "").strip()
+        }
         return [
             {
                 "type": "document",
                 "label": self._type_label("document"),
                 "collection": collection,
                 "top_k": int(self.memory.collections.knowledge.top_k),
+                "owner_user_id": owners_by_collection.get(collection, ""),
             }
             for collection in dict.fromkeys(collections)
         ]
@@ -665,11 +592,60 @@ class MemorySkill(BaseSkill):
         except Exception:
             return []
 
-    async def _document_chunk_catalog_payloads(self, *, user_id: str) -> list[dict[str, Any]]:
+    async def _document_meta_payloads(self, *, user_id: str) -> list[dict[str, Any]]:
+        """Read the active per-user document MetaCatalog without touching chunks."""
+
+        collection = document_meta_collection_for_user(user_id)
+        try:
+            if not await self.qdrant.collection_exists(collection_name=collection):
+                return []
+            points: list[Any] = []
+            offset = None
+            while len(points) < 401:
+                batch, next_offset = await self.qdrant.scroll(
+                    collection_name=collection, scroll_filter=None, limit=200,
+                    offset=offset, with_payload=True, with_vectors=False,
+                )
+                points.extend(batch or [])
+                if next_offset is None:
+                    break
+                offset = next_offset
+            manifest = next((
+                dict(getattr(point, "payload", {}) or {})
+                for point in points
+                if str(dict(getattr(point, "payload", {}) or {}).get("kind", "")) == "catalog_manifest"
+            ), {})
+            active_build_id = str(manifest.get("active_build_id", "") or "").strip()
+            rows: list[dict[str, Any]] = []
+            for point in points:
+                payload = dict(getattr(point, "payload", {}) or {})
+                if str(payload.get("kind", "") or "") != "document_meta":
+                    continue
+                if active_build_id and str(payload.get("catalog_build_id", "") or "") != active_build_id:
+                    continue
+                owner = str(payload.get("user_id", "") or "").strip()
+                if owner and not self._payload_user_matches(owner, user_id):
+                    continue
+                rows.append({
+                    **payload,
+                    "source": "document_meta_catalog",
+                    "guide_summary": str(payload.get("description", "") or ""),
+                    "guide_keywords": list(payload.get("knows", ()) or ()),
+                })
+                if len(rows) >= 200:
+                    break
+            return rows
+        except Exception:
+            return []
+
+    async def _document_chunk_catalog_payloads(
+        self, *, user_id: str, collections: Sequence[str] | None = None,
+        max_documents: int = 200, max_points: int = 4_000,
+    ) -> list[dict[str, Any]]:
         clean_user = str(user_id or "").strip()
-        requested_slug = self._slug_user_id(clean_user)
-        names = await self._list_collection_names()
+        names = list(collections) if collections is not None else await self._list_collection_names()
         grouped: dict[tuple[str, str], dict[str, Any]] = {}
+        inspected_points = 0
         for collection in names:
             if (
                 self._is_document_guide_collection_name(collection)
@@ -678,9 +654,6 @@ class MemorySkill(BaseSkill):
             ):
                 continue
             is_document_collection = self._is_document_collection_name(collection)
-            collection_user_slug = self._document_collection_user_slug(collection, "aria_docs")
-            if collection_user_slug and collection_user_slug != requested_slug:
-                continue
             try:
                 exists = await self.qdrant.collection_exists(collection_name=collection)
                 if not exists:
@@ -696,6 +669,9 @@ class MemorySkill(BaseSkill):
                         with_vectors=False,
                     )
                     for point in points or []:
+                        inspected_points += 1
+                        if inspected_points > max_points:
+                            break
                         payload = dict(getattr(point, "payload", {}) or {})
                         if str(payload.get("source", "")).strip() == "rag_document_guide":
                             continue
@@ -703,11 +679,9 @@ class MemorySkill(BaseSkill):
                             continue
                         if not is_document_collection and not is_explicit_document_payload(payload):
                             continue
-                        payload_user = str(payload.get("user_id", "") or "").strip()
-                        if payload_user:
-                            if not self._payload_user_matches(payload_user, requested_slug):
-                                continue
-                        elif is_document_collection and collection_user_slug != requested_slug:
+                        if not self._document_payload_visible_to_user(
+                            payload, user_id=clean_user, collection=collection,
+                        ):
                             continue
                         document_id = self._document_payload_id(payload)
                         document_name = self._document_payload_name(payload)
@@ -715,11 +689,13 @@ class MemorySkill(BaseSkill):
                             document_id = f"{collection}:legacy-document"
                             document_name = collection
                         key = (collection, document_id or document_name)
+                        if key not in grouped and len(grouped) >= max_documents:
+                            continue
                         row = grouped.setdefault(
                             key,
                             {
                                 "source": "rag_document_chunk_catalog",
-                                "user_id": requested_slug,
+                                "user_id": str(payload.get("user_id", "") or "").strip(),
                                 "document_id": document_id,
                                 "document_name": document_name,
                                 "target_collection": collection,
@@ -735,11 +711,13 @@ class MemorySkill(BaseSkill):
                         text = self._clean_fact_text(str(payload.get("text", "") or "").strip())
                         if text and len(row["texts"]) < 6:
                             row["texts"].append(text[:360])
-                    if next_offset is None:
+                    if next_offset is None or inspected_points >= max_points or len(grouped) >= max_documents:
                         break
                     offset = next_offset
             except Exception:
                 continue
+            if inspected_points >= max_points or len(grouped) >= max_documents:
+                break
         rows: list[dict[str, Any]] = []
         for row in grouped.values():
             snippets = [str(item).strip() for item in row.pop("texts", []) if str(item).strip()]
@@ -758,11 +736,47 @@ class MemorySkill(BaseSkill):
             rows.append(row)
         return rows
 
-    async def _document_catalog_payloads(self, *, user_id: str) -> list[dict[str, Any]]:
+    async def _document_catalog_payloads_with_source(
+        self, *, user_id: str, include_meta: bool = True,
+    ) -> tuple[list[dict[str, Any]], str]:
         guides = await self._document_guide_payloads(user_id=user_id)
-        chunks = await self._document_chunk_catalog_payloads(user_id=user_id)
+        meta_rows = await self._document_meta_payloads(user_id=user_id) if include_meta else []
+        guide_collections = {
+            str(row.get("target_collection", "") or "").strip()
+            for row in (*guides, *meta_rows)
+            if str(row.get("target_collection", "") or "").strip()
+        }
+        names = await self._list_collection_names()
+        uncovered = [
+            name for name in names
+            if self._is_document_collection_name(name)
+            and not self._is_document_guide_collection_name(name)
+            and not self._is_document_meta_collection_name(name)
+            and name not in guide_collections
+        ]
+        chunks: list[dict[str, Any]] = []
+        fallback_used = False
+        user_slug = self._slug_user_id(user_id)
+        if uncovered:
+            cache_key = (user_slug, "__legacy_index__")
+            cached = self._document_inventory_fallback_cache.get(cache_key)
+            fallback_used = True
+            if cached is None:
+                scanned = await self._document_chunk_catalog_payloads(
+                    user_id=user_id,
+                    collections=uncovered,
+                    max_documents=200,
+                    max_points=4_000,
+                )
+                cached = tuple(dict(row) for row in scanned)
+                self._document_inventory_fallback_cache[cache_key] = cached
+            chunks.extend(dict(row) for row in cached)
         by_key: dict[tuple[str, str], dict[str, Any]] = {}
         for row in chunks:
+            key = (str(row.get("target_collection", "") or ""), str(row.get("document_id", "") or row.get("document_name", "") or ""))
+            if key[0] and key[1]:
+                by_key[key] = row
+        for row in meta_rows:
             key = (str(row.get("target_collection", "") or ""), str(row.get("document_id", "") or row.get("document_name", "") or ""))
             if key[0] and key[1]:
                 by_key[key] = row
@@ -770,7 +784,13 @@ class MemorySkill(BaseSkill):
             key = (str(row.get("target_collection", "") or ""), str(row.get("document_id", "") or row.get("document_name", "") or ""))
             if key[0] and key[1]:
                 by_key[key] = row
-        return list(by_key.values())
+        return list(by_key.values()), ("fallback" if fallback_used else "catalog")
+
+    async def _document_catalog_payloads(self, *, user_id: str) -> list[dict[str, Any]]:
+        rows, _source = await self._document_catalog_payloads_with_source(
+            user_id=user_id, include_meta=False,
+        )
+        return rows
 
     async def _recall_document_inventory(
         self,
@@ -784,7 +804,8 @@ class MemorySkill(BaseSkill):
         requested_ids = {str(item or "").strip() for item in list(document_ids or []) if str(item or "").strip()}
         requested_names = {str(item or "").strip().lower() for item in list(document_names or []) if str(item or "").strip()}
         requested_collections = {str(item or "").strip() for item in list(target_collections or []) if str(item or "").strip()}
-        rows = await self._document_catalog_payloads(user_id=user_id)
+        started_at = time.perf_counter()
+        rows, inventory_source = await self._document_catalog_payloads_with_source(user_id=user_id)
         selected_rows: list[dict[str, Any]] = []
         for row in rows:
             document_id = str(row.get("document_id", "") or "").strip()
@@ -805,7 +826,9 @@ class MemorySkill(BaseSkill):
                 str(row.get("document_id", "") or ""),
             )
         )
-        selected_rows = selected_rows[: max(1, int(limit or 12))]
+        selected_total = len(selected_rows)
+        selected_rows = selected_rows[: min(200, max(1, int(limit or 12)))]
+        inventory_ms = max(0, int((time.perf_counter() - started_at) * 1000))
         if not selected_rows:
             return SkillResult(
                 skill_name=self.name,
@@ -814,7 +837,11 @@ class MemorySkill(BaseSkill):
                 metadata={
                     "document_inventory": True,
                     "sources": [],
-                    "detail_lines": ["Routing Debug: document_inventory selected=0 reason=no_matching_document_metadata"],
+                    "detail_lines": [
+                        "Routing Debug: document_inventory "
+                        f"selected=0 reason=no_matching_document_metadata ms={inventory_ms} "
+                        f"source={inventory_source}"
+                    ],
                 },
             )
 
@@ -839,7 +866,13 @@ class MemorySkill(BaseSkill):
             )
 
         content = "\n".join(lines)
+        truncation_notice = (
+            f"[truncated: showing {len(selected_rows)} of {selected_total} documents]"
+            if selected_total > len(selected_rows) else ""
+        )
         truncated, saved = self.truncate(content)
+        if truncation_notice:
+            truncated = f"{truncated}\n{truncation_notice}"
         collections = sorted({str(row.get("target_collection", "") or "") for row in selected_rows if str(row.get("target_collection", "") or "")})
         metadata: dict[str, Any] = {
             "document_inventory": True,
@@ -847,13 +880,14 @@ class MemorySkill(BaseSkill):
             "detail_lines": [
                 "Routing Debug: document_inventory "
                 f"selected={len(selected_rows)} collections={','.join(collections[:8]) or '-'} "
-                f"requested_ids={len(requested_ids)}",
+                f"requested_ids={len(requested_ids)} ms={inventory_ms} source={inventory_source}",
                 *[str(entry.get("detail", "")).strip() for entry in sources if str(entry.get("detail", "")).strip()],
             ],
         }
         return SkillResult(skill_name=self.name, content=truncated, success=True, tokens_saved=saved, metadata=metadata)
 
     async def rebuild_document_meta_catalog(self, *, user_id: str) -> dict[str, Any]:
+        self._invalidate_document_inventory_cache()
         guides = await self._document_catalog_payloads(user_id=user_id)
 
         class _SkillEmbeddingAdapter:
@@ -936,7 +970,16 @@ class MemorySkill(BaseSkill):
         user_id: str,
         target: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        must_conditions = [FieldCondition(key="user_id", match=MatchValue(value=str(user_id or "").strip() or "web"))]
+        is_document_target = str(target.get("type", "") or "").strip().lower() == "document"
+        target_owner = str(target.get("owner_user_id", "") or "").strip()
+        if is_document_target and target_owner and not self._payload_user_matches(target_owner, user_id):
+            return []
+        must_conditions = [] if is_document_target else [
+            FieldCondition(key="user_id", match=MatchValue(value=str(user_id or "").strip() or "web"))
+        ]
+        # Document owner matching is slug-normalized and therefore cannot be
+        # expressed safely as an exact Qdrant MatchValue. Apply it below to
+        # every returned payload instead.
         document_id = str(target.get("document_id", "")).strip()
         document_name = str(target.get("document_name", "")).strip()
         if document_id:
@@ -951,7 +994,7 @@ class MemorySkill(BaseSkill):
                 collection_name=target["collection"],
                 query=vector,
                 query_filter=Filter(must=must_conditions),
-                limit=max(1, int(target["top_k"])),
+                limit=max(1, int(target["top_k"])) * 4,
             )
         except Exception:
             return []
@@ -959,6 +1002,10 @@ class MemorySkill(BaseSkill):
         weighted: list[dict[str, Any]] = []
         for hit in self._extract_hits(query_result):
             payload = hit.payload or {}
+            if is_document_target and not self._document_payload_visible_to_user(
+                payload, user_id=user_id, collection=str(target.get("collection", "") or ""),
+            ):
+                continue
             if not self._payload_embedding_compatible(payload):
                 continue
             if not self._personal_claim_is_runtime_active(payload):
@@ -967,7 +1014,7 @@ class MemorySkill(BaseSkill):
             if not text:
                 continue
             score = self._combined_score(getattr(hit, "score", 0.0), target["type"], payload)
-            if str(target.get("type", "")).strip().lower() == "document":
+            if is_document_target:
                 score += float(target.get("guide_score", 0.0) or 0.0) * 0.15
             weighted.append(
                 {
@@ -989,7 +1036,134 @@ class MemorySkill(BaseSkill):
                     "rollup_source_count": int(payload.get("rollup_source_count", 0) or 0),
                 }
             )
-        return weighted
+        return weighted[:max(1, int(target["top_k"]))]
+
+    @staticmethod
+    def _document_hit_needs_previous_context(row: dict[str, Any]) -> bool:
+        text = str(row.get("text", "") or "").strip()
+        return bool(
+            text
+            and (
+                len(text) <= 160
+                or ("\n" not in text and text.endswith(("?", ":")))
+            )
+        )
+
+    async def _document_neighbor_row(
+        self,
+        *,
+        anchor: dict[str, Any],
+        chunk_index: int,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        collection = str(anchor.get("collection", "") or "").strip()
+        document_id = str(anchor.get("document_id", "") or "").strip()
+        document_name = str(anchor.get("document_name", "") or "").strip()
+        if not collection or chunk_index < 1 or not (document_id or document_name):
+            return None
+        conditions = [
+            FieldCondition(
+                key="document_id" if document_id else "document_name",
+                match=MatchValue(value=document_id or document_name),
+            ),
+            FieldCondition(key="chunk_index", match=MatchValue(value=chunk_index)),
+        ]
+        try:
+            points, _next_offset = await self.qdrant.scroll(
+                collection_name=collection,
+                scroll_filter=Filter(must=conditions),
+                limit=8,
+                offset=None,
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception:
+            return None
+        for point in points:
+            payload = getattr(point, "payload", None) or {}
+            if not self._document_payload_visible_to_user(
+                payload, user_id=user_id, collection=collection,
+            ):
+                continue
+            if document_id and str(payload.get("document_id", "") or "").strip() != document_id:
+                continue
+            if document_name and str(payload.get("document_name", "") or "").strip() != document_name:
+                continue
+            if int(payload.get("chunk_index", 0) or 0) != chunk_index:
+                continue
+            text = str(payload.get("text", "") or "").strip()
+            if not text:
+                continue
+            return {
+                "score": 0.0,
+                "label": str(anchor.get("label", "") or ""),
+                "type": "document",
+                "text": text,
+                "collection": collection,
+                "document_id": str(payload.get("document_id", "") or "").strip(),
+                "document_name": str(payload.get("document_name", "") or "").strip(),
+                "chunk_index": chunk_index,
+                "chunk_total": int(payload.get("chunk_total", 0) or 0),
+                "source": str(payload.get("source", "") or "").strip() or "n/a",
+                "neighbor": True,
+                "neighbor_of_chunk_index": int(anchor.get("chunk_index", 0) or 0),
+            }
+        return None
+
+    async def _expand_document_context_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        user_id: str,
+        max_primary_hits: int = 4,
+    ) -> list[dict[str, Any]]:
+        primary_documents = [
+            row for row in rows
+            if str(row.get("type", "") or "").strip().lower() == "document"
+        ][:max(1, int(max_primary_hits))]
+        if not primary_documents:
+            return rows
+
+        grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+        group_order: list[tuple[str, str, str]] = []
+        for anchor in primary_documents:
+            identity = (
+                str(anchor.get("collection", "") or "").strip(),
+                str(anchor.get("document_id", "") or "").strip(),
+                str(anchor.get("document_name", "") or "").strip(),
+            )
+            if identity not in grouped:
+                grouped[identity] = []
+                group_order.append(identity)
+            grouped[identity].append(anchor)
+            neighbor_indexes = [int(anchor.get("chunk_index", 0) or 0) + 1]
+            if self._document_hit_needs_previous_context(anchor):
+                neighbor_indexes.insert(0, int(anchor.get("chunk_index", 0) or 0) - 1)
+            for neighbor_index in neighbor_indexes:
+                neighbor = await self._document_neighbor_row(
+                    anchor=anchor, chunk_index=neighbor_index, user_id=user_id,
+                )
+                if neighbor is not None:
+                    grouped[identity].append(neighbor)
+
+        expanded: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, int]] = set()
+        for identity in group_order:
+            for row in sorted(grouped[identity], key=lambda item: int(item.get("chunk_index", 0) or 0)):
+                key = (
+                    str(row.get("collection", "") or ""),
+                    str(row.get("document_id", "") or row.get("document_name", "") or ""),
+                    int(row.get("chunk_index", 0) or 0),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                expanded.append(row)
+        expanded.extend(
+            row for row in rows
+            if str(row.get("type", "") or "").strip().lower() != "document"
+        )
+        return expanded
 
     async def _query_forget_hits(
         self,
@@ -1453,7 +1627,6 @@ class MemorySkill(BaseSkill):
             return SkillResult(skill_name=self.name, content="Keine passende Erinnerung gefunden.", success=True)
 
         output_count = max(top_k, 5)
-        lines: list[str] = []
         selected_rows: list[dict[str, Any]] = []
         seen: set[str] = set()
         for item in weighted_hits:
@@ -1462,16 +1635,25 @@ class MemorySkill(BaseSkill):
             if cleaned and key not in seen:
                 seen.add(key)
                 selected_rows.append(item)
-                if str(item.get("type", "")).strip().lower() == "document" and str(item.get("document_name", "")).strip():
-                    lines.append(f"- [{item['label']}: {item['document_name']}] {cleaned}")
-                else:
-                    lines.append(f"- [{item['label']}] {cleaned}")
-            if len(lines) >= output_count:
+            if len(selected_rows) >= output_count:
                 break
+
+        selected_rows = await self._expand_document_context_rows(
+            selected_rows, user_id=user_id, max_primary_hits=4,
+        )
+        lines: list[str] = []
+        for item in selected_rows:
+            cleaned = str(item.get("text", "") or "").strip()
+            if str(item.get("type", "")).strip().lower() == "document" and str(item.get("document_name", "")).strip():
+                lines.append(f"- [{item['label']}: {item['document_name']}] {cleaned}")
+            else:
+                lines.append(f"- [{item['label']}] {cleaned}")
 
         content = "\n".join(lines) if lines else "Keine passende Erinnerung gefunden."
         truncated, saved = self.truncate(content)
-        source_entries = self._build_recall_source_entries(selected_rows)
+        source_entries = self._build_recall_source_entries(
+            selected_rows, max_items=12 if docs_only else 4,
+        )
         metadata: dict[str, Any] = {
             "embedding_usage": usage,
             "embedding_model": self._resolve_embedding_model(),
@@ -1979,6 +2161,8 @@ class MemorySkill(BaseSkill):
             lowered = collection.lower()
             if slug not in lowered:
                 continue
+            if self._is_legacy_session_collection_name(collection):
+                continue
             try:
                 exists = await self.qdrant.collection_exists(collection_name=collection)
                 if not exists:
@@ -2007,7 +2191,6 @@ class MemorySkill(BaseSkill):
             str(self.memory.collection or "").strip().lower(),
             str(self.memory.collections.facts.prefix or "").strip().lower(),
             str(self.memory.collections.preferences.prefix or "").strip().lower(),
-            str(self.memory.collections.sessions.prefix or "").strip().lower(),
             str(self.memory.collections.knowledge.prefix or "").strip().lower(),
             "aria_memory",  # legacy default prefix
         }
@@ -2019,10 +2202,20 @@ class MemorySkill(BaseSkill):
                 return True
         return False
 
+    def _is_legacy_session_collection_name(self, collection: str) -> bool:
+        name = str(collection or "").strip().lower()
+        session_prefix = str(self.memory.collections.sessions.prefix or "aria_sessions").strip().lower()
+        return bool(
+            (session_prefix and name.startswith(f"{session_prefix}_"))
+            or (name.startswith("aria_memory_") and "_session_" in name)
+        )
+
     async def cleanup_empty_collections_global(self) -> list[str]:
         names = await self._list_collection_names()
         removed: list[str] = []
         for collection in names:
+            if self._is_legacy_session_collection_name(collection):
+                continue
             if not self._is_memory_collection_name(collection):
                 continue
             try:
@@ -2076,7 +2269,12 @@ class MemorySkill(BaseSkill):
             )
             if not points:
                 return False
-            payload = getattr(points[0], "payload", {}) or {}
+            first_point = points[0]
+            payload = (
+                first_point.get("payload", {})
+                if isinstance(first_point, Mapping)
+                else getattr(first_point, "payload", {})
+            ) or {}
             if clean_user and str(payload.get("user_id", "")).strip() != clean_user:
                 return False
             await self.qdrant.delete(
@@ -2084,11 +2282,16 @@ class MemorySkill(BaseSkill):
                 points_selector=PointIdsList(points=[self._coerce_point_id(clean_id)]),
                 wait=True,
             )
-            if clean_user:
-                await self.cleanup_empty_collections_for_user(clean_user)
-            return True
         except Exception:
             return False
+        if clean_user:
+            try:
+                await self.cleanup_empty_collections_for_user(clean_user)
+            except Exception:
+                # The selected point is already durably gone. Optional empty-
+                # collection cleanup must not turn that success into a retry.
+                pass
+        return True
 
     async def delete_document(
         self,
@@ -2192,50 +2395,6 @@ class MemorySkill(BaseSkill):
         except Exception:
             return False
 
-    def _load_compression_prompt_template(self) -> str:
-        configured = str(self.memory.compression_summary_prompt or "").strip()
-        path = Path(configured)
-        if not path.is_absolute():
-            path = (self._project_root / configured).resolve()
-
-        fallback = "Summary {{kind}} {{day}}:\n{{entries}}"
-        if not path.exists() or not path.is_file():
-            return fallback
-        try:
-            mtime = path.stat().st_mtime
-            if self._compression_prompt_cache and self._compression_prompt_cache[1] == mtime:
-                return self._compression_prompt_cache[0]
-            text = path.read_text(encoding="utf-8").strip() or fallback
-            self._compression_prompt_cache = (text, mtime)
-            return text
-        except OSError:
-            return fallback
-
-    def _build_compression_summary(self, kind: str, day_raw: str, rows: list[dict[str, Any]]) -> str:
-        template = self._load_compression_prompt_template()
-        entries = "\n".join(f"- {row['text']}" for row in rows[:8])
-        rendered = (
-            template
-            .replace("{{kind}}", kind)
-            .replace("{{day}}", day_raw)
-            .replace("{{entries}}", entries)
-        ).strip()
-        if rendered:
-            return rendered
-        return f"{kind}_summary {day_raw}: " + "; ".join(row["text"] for row in rows[:8])
-
-    async def compress_old_sessions(
-        self,
-        user_id: str,
-        compress_after_days: int = 7,
-        monthly_after_days: int = 30,
-    ) -> dict[str, Any]:
-        return await SessionCompressionService(self).compress_old_sessions(
-            user_id,
-            compress_after_days=compress_after_days,
-            monthly_after_days=monthly_after_days,
-        )
-
     async def _discover_users_from_collections(self) -> list[str]:
         names = await self._list_collection_names()
         users: set[str] = set()
@@ -2293,29 +2452,6 @@ class MemorySkill(BaseSkill):
             except Exception:
                 continue
         return sorted(users)
-
-    async def compress_all_users(
-        self,
-        compress_after_days: int = 7,
-        monthly_after_days: int = 30,
-    ) -> dict[str, int]:
-        users = await self._discover_users_from_collections()
-        total = {
-            "users": len(users),
-            "compressed_week": 0,
-            "compressed_month": 0,
-            "collections_removed": 0,
-        }
-        for user in users:
-            stats = await self.compress_old_sessions(
-                user_id=user,
-                compress_after_days=compress_after_days,
-                monthly_after_days=monthly_after_days,
-            )
-            total["compressed_week"] += int(stats.get("compressed_week", 0))
-            total["compressed_month"] += int(stats.get("compressed_month", 0))
-            total["collections_removed"] += int(stats.get("collections_removed", 0))
-        return total
 
     @staticmethod
     def _extract_hits(query_result: Any) -> list[Any]:
@@ -2392,29 +2528,6 @@ class MemorySkill(BaseSkill):
                 if not isinstance(candidates, list):
                     candidates = []
                 return await self._forget_apply(user_id=user_id, candidates=candidates)
-
-            if action == "compress_sessions":
-                compress_after = int(params.get("compress_after_days", 7))
-                monthly_after = int(params.get("monthly_after_days", 30))
-                stats = await self.compress_old_sessions(
-                    user_id=user_id,
-                    compress_after_days=compress_after,
-                    monthly_after_days=monthly_after,
-                )
-                return SkillResult(
-                    skill_name=self.name,
-                    content=(
-                        _memory_skill_text(
-                            "compression_completed",
-                            "Compression completed: week={week}, month={month}, removed collections={collections}",
-                            week=stats["compressed_week"],
-                            month=stats["compressed_month"],
-                            collections=stats["collections_removed"],
-                        )
-                    ),
-                    success=True,
-                    metadata={"compression_stats": stats},
-                )
 
             return SkillResult(
                 skill_name=self.name,

@@ -933,20 +933,20 @@ def connection_overview_meta(kind: str) -> dict[str, dict[str, str]]:
         "profiles": {
             "label_key": str(profiles.get("label_key") or "config_conn.profiles").strip(),
             "label": str(profiles.get("label") or "Profiles").strip(),
-            "hint_key": str(profiles.get("hint_key") or f"config_conn.{clean_kind}_profiles_hint").strip(),
-            "hint": str(profiles.get("hint") or f"Available {label} profiles in ARIA.").strip(),
+            "hint_key": str(profiles.get("hint_key") or "config_conn.overview_profiles_hint").strip(),
+            "hint": str(profiles.get("hint") or "Configured profiles of this connection type.").strip(),
         },
         "healthy": {
             "label_key": str(healthy.get("label_key") or "config_conn.healthy").strip(),
             "label": str(healthy.get("label") or "Healthy").strip(),
-            "hint_key": str(healthy.get("hint_key") or f"config_conn.{clean_kind}_healthy_hint").strip(),
-            "hint": str(healthy.get("hint") or f"Profiles with successful {label} checks.").strip(),
+            "hint_key": str(healthy.get("hint_key") or "config_conn.overview_healthy_hint").strip(),
+            "hint": str(healthy.get("hint") or "Profiles whose latest connection check succeeded.").strip(),
         },
         "issues": {
             "label_key": str(issues.get("label_key") or "config_conn.issues").strip(),
             "label": str(issues.get("label") or "Issues").strip(),
-            "hint_key": str(issues.get("hint_key") or f"config_conn.{clean_kind}_issue_hint").strip(),
-            "hint": str(issues.get("hint") or f"Profiles that currently fail the {label} check.").strip(),
+            "hint_key": str(issues.get("hint_key") or "config_conn.overview_issue_hint").strip(),
+            "hint": str(issues.get("hint") or "Profiles whose latest connection check failed.").strip(),
         },
     }
 

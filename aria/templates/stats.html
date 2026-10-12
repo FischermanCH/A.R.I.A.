@@ -1,828 +1,112 @@
-{% extends "base.html" %}
-{% from "_icons.html" import icon %}
-{% block content %}
-{% set stats_ui_reset_path = module_route_path('stats_ui', '/stats/reset') %}
-<main class="stats-layout stats-clean-layout">
-  <section class="stat-card stats-domain-intro">
-    <div class="page-title-row"><span>{{ icon('stats', 'page-title-icon') }}</span><h2>{{ tr(request, 'stats.title', 'Statistiken') }}</h2></div>
-  </section>
+{% extends "page_types/overview_page.html" %}
+{% block page_header %}
+<header class="stats-overview__page-head">
+  <div><p class="stats-overview__breadcrumbs">{{ tr(request, 'stats.overview.parent', 'System') }} <span>›</span> {{ tr(request, 'stats.overview.title', 'Statistiken') }}</p><h1>{{ tr(request, 'stats.overview.title', 'Statistiken') }}</h1><p class="ui-page-purpose">{{ tr(request, 'stats.overview.purpose', 'Gesundheit, Kosten, Aktivitäten und Speicherbedarf auf einen Blick.') }}</p></div>
+  <span class="stats-overview__freshness" title="{{ overview.freshness_absolute }}">{{ tr(request, 'stats.overview.updated', 'Aktualisiert') }} {{ overview.freshness }}</span>
+</header>
+{% endblock %}
 
-  <section class="stat-card stats-release-card">
-    <div class="stats-cluster-grid stats-release-grid">
-      <div class="stats-cluster-item">
-        <div class="memory-led-panel status-ok">
-          <div class="memory-led-value">{{ release_meta.label }}</div>
-          <div class="memory-led-caption">{{ tr(request, 'stats.release_label', 'Current ARIA version') }}</div>
-        </div>
-      </div>
-      <div class="stats-cluster-item">
-        <div class="memory-led-panel status-ok">
-          <div class="memory-led-value">{{ release_meta.version }}</div>
-          <div class="memory-led-caption">{{ tr(request, 'stats.release_base', 'Base version') }}</div>
-        </div>
-      </div>
-    </div>
-    <p class="stat-sub stats-release-cli-hint">
-      {{ tr(request, 'stats.release_cli_hint', 'CLI quick check') }}:
-      <code>aria --version</code>
-      ·
-      <code>aria version-check</code>
-    </p>
-  </section>
-
-  <section class="stat-card stats-diagnostic-card" id="operator-guardrail">
-    <div class="stats-health-head">
-      <div>
-        <h2>{{ tr(request, 'stats.operator_guardrail_title', 'Operator Guardrail') }}</h2>
-        <p class="stat-sub">{{ tr(request, 'stats.operator_guardrail_subtitle', 'Compact release/operations view across gateway, pricing, preflight, health and update path.') }}</p>
-      </div>
-      <span class="health-meter status-{{ operator_guardrail.overall_status }}">
-        <span class="health-lamp status-{{ operator_guardrail.overall_status }}"></span>
-        <span>
-          {% if operator_guardrail.overall_status == 'ok' %}
-            {{ tr(request, 'stats.health_ok', 'OK') }}
-          {% elif operator_guardrail.overall_status == 'warn' %}
-            {{ tr(request, 'stats.health_warn', 'Warn') }}
-          {% else %}
-            {{ tr(request, 'stats.health_error', 'Error') }}
-          {% endif %}
-        </span>
-      </span>
-    </div>
-    <p class="stats-health-summary">{{ operator_guardrail.summary }}</p>
-    {% set operator_review_rows = operator_guardrail.rows|selectattr('status', 'ne', 'ok')|list %}
-    {% if operator_review_rows %}
-    <div class="alert note stats-operator-review">
-      <strong>{{ tr(request, 'stats.operator_guardrail_review_title', 'Review nötig') }}:</strong>
-      <ul class="stats-operator-review-list">
-        {% for row in operator_review_rows %}
-        <li>
-          <span class="health-lamp status-{{ row.visual_status }}"></span>
-          <span>
-            {% if row.url %}
-            <a href="{{ row.url }}">{{ tr(request, row.label_key, row.fallback) }}</a>
-            {% else %}
-            <strong>{{ tr(request, row.label_key, row.fallback) }}</strong>
-            {% endif %}
-            <small>{{ row.summary }}{% if row.detail %} · {{ row.detail }}{% endif %}</small>
-          </span>
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
-    <div class="health-meter-row">
-      <span class="health-meter status-ok">
-        <span class="health-lamp status-ok"></span>
-        <span>{{ operator_guardrail.ok_count }}</span>
-      </span>
-      <span class="health-meter status-warn">
-        <span class="health-lamp status-warn"></span>
-        <span>{{ operator_guardrail.warn_count }}</span>
-      </span>
-      <span class="health-meter status-error">
-        <span class="health-lamp status-error"></span>
-        <span>{{ operator_guardrail.error_count }}</span>
-      </span>
-    </div>
-    <div class="stats-health-grid">
-      {% for row in operator_guardrail.rows %}
-        {% if row.url %}
-        <a href="{{ row.url }}" class="stats-health-card stats-health-card-link status-{{ row.visual_status }}">
-        {% else %}
-        <article class="stats-health-card status-{{ row.visual_status }}">
-        {% endif %}
-          <div class="stats-health-card-head">
-            <div class="stats-health-title">
-              <span class="health-lamp status-{{ row.visual_status }}"></span>
-              <strong>{{ tr(request, row.label_key, row.fallback) }}</strong>
-            </div>
-          </div>
-          <p class="stats-health-summary">{{ row.summary }}</p>
-          {% if row.detail %}
-          <small class="stats-health-detail">{{ row.detail }}</small>
-          {% endif %}
-        {% if row.url %}
-        </a>
-        {% else %}
-        </article>
-        {% endif %}
-      {% endfor %}
-    </div>
-  </section>
-
-  {% if reset_done is not none %}
-  <div class="alert ok">
-    {{ tr(request, 'stats.reset_done', 'Statistiken und Ausführungs-Historie wurden zurückgesetzt. Eine neue Abrechnungsperiode wurde gestartet.') }}
-    {{ tr(request, 'config_logs.pruned_info', 'Entfernt') }}:
-    <strong>{{ reset_done }}</strong>
-    {{ tr(request, 'config_logs.rows', 'Zeilen') }}
-    {% if reset_archive %}
-      · {{ tr(request, 'stats.reset_archive', 'Archiv') }}:
-      <code>{{ reset_archive }}</code>
-    {% endif %}
-  </div>
-  {% endif %}
-  {% if reset_error %}
-  <div class="alert err">{{ reset_error }}</div>
-  {% endif %}
-
-  <section class="stats-grid">
-    <article class="stat-card stats-cluster stats-token-card">
-      <h2>{{ tr(request, 'stats.tokens_title', 'Tokens') }}</h2>
-      <div class="stats-token-stack">
-        <div class="stats-token-hero memory-led-panel status-ok">
-          <div class="memory-led-value">{{ model_totals.model_total_tokens }}</div>
-          <div class="memory-led-caption">{{ tr(request, 'stats.model_total_tokens', 'All Model Tokens') }}</div>
-        </div>
-        <dl class="stats-token-list">
-          <div>
-            <dt>{{ tr(request, 'stats.chat_tokens_title', 'Chat Tokens') }}</dt>
-            <dd>{{ model_totals.chat_total_tokens }}</dd>
-          </div>
-          <div>
-            <dt>{{ tr(request, 'stats.embedding_tokens_title', 'Embedding Tokens') }}</dt>
-            <dd>{{ model_totals.embedding_total_tokens }}</dd>
-          </div>
-          <div>
-            <dt>{{ tr(request, 'stats.requests_days', 'Requests') }} · {{ tr(request, 'stats.current_period', 'current period') }}</dt>
-            <dd>{{ stats.request_count }}</dd>
-          </div>
-          <div>
-            <dt>{{ tr(request, 'stats.avg_chat_tokens_per_request', 'Avg chat tokens / request') }}</dt>
-            <dd>{{ stats.avg_tokens_per_request }}</dd>
-          </div>
-        </dl>
-      </div>
-    </article>
-
-    <article class="stat-card stats-cluster stats-cost-card">
-      <h2>{{ tr(request, 'stats.costs_title', 'Costs') }}</h2>
-      {% if pricing_meta.has_unpriced_usage %}
-      <div class="stats-price-warning">
-        <div>
-          <strong>{{ tr(request, 'stats.unpriced_usage_title', 'Unbepreiste Modellnutzung') }}</strong>
-          <span>{{ pricing_meta.unpriced_model_tokens }} {{ tr(request, 'stats.unpriced_tokens', 'Unpriced model tokens') }}</span>
-        </div>
-        <a href="#stats-pricing-details">{{ tr(request, 'stats.pricing_details_link', 'Details') }}</a>
-      </div>
-      {% endif %}
-      <dl class="stats-cost-matrix">
-        <div class="memory-led-panel status-ok stats-cost-cell stats-cost-cell-primary">
-          <dt>{{ tr(request, 'stats.estimated_total_cost_usd', 'Estimated USD') }}</dt>
-          <dd>${{ "%.6f"|format(pricing_meta.estimated_total_cost_usd) }}</dd>
-        </div>
-        <div class="memory-led-panel status-ok stats-cost-cell">
-          <dt>{{ tr(request, 'stats.logged_total_cost_usd', 'Logged USD') }}</dt>
-          <dd>${{ "%.6f"|format(stats.total_cost_usd) }}</dd>
-        </div>
-        <div class="memory-led-panel status-ok stats-cost-cell">
-          <dt>{{ tr(request, 'stats.avg_cost_per_request_short', 'Avg / request') }}</dt>
-          <dd>${{ "%.6f"|format(stats.avg_cost_usd_per_request) }}</dd>
-        </div>
-        <div class="memory-led-panel status-ok stats-cost-cell">
-          <dt>{{ tr(request, 'stats.priced_requests_tail', 'priced requests') }}</dt>
-          <dd>{{ stats.priced_requests_count }}</dd>
-        </div>
-      </dl>
-      <p class="stat-sub stats-cost-disclaimer">
-        {{ tr(request, 'stats.cost_estimate_disclaimer', 'Kosten sind Usage-Schaetzwerte fuer Orientierung und koennen von Provider-Rechnungen abweichen. Reset startet nur eine neue lokale Abrechnungsperiode.') }}
-      </p>
-      <p class="stat-sub stats-cost-footnote">
-        {% if pricing_meta.has_estimated_cost_gap %}
-          {{ tr(request, 'stats.estimated_cost_gap_hint_short', 'Estimated includes repriced older token rows.') }}
-        {% else %}
-          {{ tr(request, 'stats.costs_complete_hint', 'Known model prices are included in the current estimate.') }}
-        {% endif %}
-      </p>
-      <div class="stats-cost-actions">
-        <a class="secondary-link" href="#stats-pricing-details">{{ tr(request, 'stats.pricing_details_link', 'Details') }}</a>
-        {% if request.state.can_access_advanced_config %}
-        <details class="stats-inline-reset">
-          <summary>{{ tr(request, 'stats.reset_period_title', 'Abrechnungsperiode zurücksetzen') }}</summary>
-          <p class="hint-text">{{ tr(request, 'stats.reset_period_hint', 'Der aktuelle Usage-Log wird archiviert, der sichtbare Kosten-/Tokenzaehler startet wieder bei 0. Memories, Rezepte und Verbindungen bleiben erhalten.') }}</p>
-          <form method="post" action="{{ stats_ui_reset_path }}" class="config-form-grid">
-            <label for="stats-reset-confirm-inline">{{ tr(request, 'config_logs.reset_confirm_label', 'Bestätigung') }}</label>
-            <input id="stats-reset-confirm-inline" name="confirm_text" type="text" value="" placeholder="RESET" autocomplete="off">
-            <div class="config-actions">
-              <button type="submit" class="danger-btn">{{ tr(request, 'stats.reset_period_now', 'Periode jetzt zurücksetzen') }}</button>
-            </div>
-          </form>
-        </details>
-        {% endif %}
-      </div>
-    </article>
-
-    <article class="stat-card stats-cluster stat-card-memory">
-      <h2>{{ tr(request, 'stats.resources_title', 'Resources') }}</h2>
-      <div class="stats-cluster-grid">
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-{{ runtime_memory.status }}">
-            <div class="memory-led-value">{{ runtime_memory.rss_human }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.memory_aria_ram', 'ARIA RAM') }}</div>
-          </div>
-          <p class="stat-sub stat-sub-memory"><strong>{{ runtime_memory.percent_label }}</strong> {{ tr(request, 'stats.memory_of_total', 'of system RAM') }} {{ runtime_memory.total_human }}</p>
-        </div>
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-ok">
-            <div class="memory-led-value">{{ qdrant_storage.size_human }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.qdrant_size', 'Qdrant DB') }}</div>
-          </div>
-          {% if qdrant_storage.path %}
-          <p class="stat-sub stat-sub-memory">{{ qdrant_storage.path }}</p>
-          {% endif %}
-        </div>
-      </div>
-    </article>
-
-    <article class="stat-card stats-cluster stats-diagnostic-card" id="model-gateway-audit">
-      <div class="stats-health-head">
-        <div>
-          <h2>{{ tr(request, 'stats.gateway_title', 'Model Gateway Audit') }}</h2>
-          <p class="stat-sub">{{ tr(request, 'stats.gateway_hint', 'Prueft, ob Chat-LLM und Embeddings ueber die zentrale Runtime mit UsageMeter laufen.') }}</p>
-        </div>
-        <span class="health-meter status-{{ model_gateway.status }}">
-          <span class="health-lamp status-{{ model_gateway.status }}"></span>
-          <span>
-            {% if model_gateway.status == 'ok' %}
-              {{ tr(request, 'stats.health_ok', 'OK') }}
-            {% elif model_gateway.status == 'warn' %}
-              {{ tr(request, 'stats.health_warn', 'Warn') }}
-            {% else %}
-              {{ tr(request, 'stats.health_error', 'Error') }}
-            {% endif %}
-          </span>
-        </span>
-      </div>
-      <div class="stats-cluster-grid">
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-ok">
-            <div class="memory-led-value">{{ model_gateway.chat_model }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.gateway_chat_model', 'Chat model') }}</div>
-          </div>
-        </div>
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-ok">
-            <div class="memory-led-value">{{ model_gateway.embedding_model }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.gateway_embedding_model', 'Embedding model') }}</div>
-          </div>
-        </div>
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-{{ 'ok' if model_gateway.usage_meter_shared else 'error' }}">
-            <div class="memory-led-value">{{ tr(request, 'stats.gateway_shared_yes', 'shared') if model_gateway.usage_meter_shared else tr(request, 'stats.gateway_shared_no', 'split') }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.gateway_usage_meter', 'UsageMeter') }}</div>
-          </div>
-        </div>
-      </div>
-      {% if model_gateway.has_unpriced_usage %}
-      <div class="alert note">
-        <strong>{{ tr(request, 'stats.unpriced_usage_title', 'Unpriced model usage') }}:</strong>
-        {{ model_gateway.unpriced_model_tokens }} {{ tr(request, 'stats.unpriced_tokens', 'Unpriced model tokens') }}
-      </div>
-      {% endif %}
-      <ul class="stats-list">
-        {% for row in model_gateway.rows %}
-        <li>
-          <span>
-            <span class="health-lamp status-{{ row.status }}"></span>
-            {{ tr(request, row.label_key, row.fallback) }}
-          </span>
-          <strong>{{ row.detail }}</strong>
-        </li>
-        {% endfor %}
-      </ul>
-    </article>
-
-    <article class="stat-card stats-cluster stats-diagnostic-card" id="recipe-experience-memory">
-      <div class="stats-health-head">
-        <div>
-          <h2>{{ tr(request, 'stats.recipe_experience_title', 'Recipe Experience Memory') }}</h2>
-          <p class="stat-sub">{{ tr(request, 'stats.recipe_experience_hint', 'Semantische Qdrant-Erfahrungen aus erfolgreichen Recipe-/Guardrail-Läufen. Wird nur als Planner-Kontext genutzt, nicht als Executor.') }}</p>
-        </div>
-        <span class="health-meter status-{{ recipe_experience_memory.status }}">
-          <span class="health-lamp status-{{ recipe_experience_memory.status }}"></span>
-          <span>
-            {% if recipe_experience_memory.status == 'ok' %}
-              {{ tr(request, 'stats.health_ok', 'OK') }}
-            {% elif recipe_experience_memory.status == 'warn' %}
-              {{ tr(request, 'stats.health_warn', 'Warn') }}
-            {% else %}
-              {{ tr(request, 'stats.health_error', 'Error') }}
-            {% endif %}
-          </span>
-        </span>
-      </div>
-      <div class="stats-cluster-grid">
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-{{ recipe_experience_memory.status }}">
-            <div class="memory-led-value">{{ recipe_experience_memory.point_count }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.recipe_experience_points', 'Experience points') }}</div>
-          </div>
-        </div>
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-{{ recipe_experience_memory.status }}">
-            <div class="memory-led-value">{{ recipe_experience_memory.collection_count }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.recipe_experience_collections', 'Collections') }}</div>
-          </div>
-        </div>
-      </div>
-      {% if recipe_experience_memory.error %}
-      <p class="hint-text">{{ recipe_experience_memory.error }}</p>
-      {% elif recipe_experience_memory.recent_rows %}
-      <ul class="stats-list">
-        {% for row in recipe_experience_memory.recent_rows %}
-        <li>
-          <span>{{ row.title }} · {{ row.target }}</span>
-          <strong>{{ row.action }}</strong>
-        </li>
-        {% endfor %}
-      </ul>
-      {% elif recipe_experience_memory.collections %}
-      <ul class="stats-list">
-        {% for row in recipe_experience_memory.collections %}
-        <li><span>{{ row.name }}</span><strong>{{ row.points }}</strong></li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <p class="hint-text">{{ tr(request, 'stats.recipe_experience_empty', 'Noch keine Experience-Memory-Punkte. Erfolgreiche Läufe füllen diese Schicht automatisch.') }}</p>
-      {% endif %}
-    </article>
-
-    <details class="stat-card stats-details stats-source-usage-card">
-      <summary>{{ tr(request, 'stats.cost_details_title', 'Kosten Details') }}</summary>
-      <div class="stats-details-content">
-        <p class="stat-sub">{{ tr(request, 'stats.cost_details_hint', 'Zeigt Modellnutzung und Kosten nach Quelle, z. B. Chat, RSS, RAG oder Memory.') }}</p>
-        {% if source_usage_rows %}
-          <ul class="stats-list">
-            {% for row in source_usage_rows %}
-              <li>
-                <span>{{ row.source }}</span>
-                <strong>
-                  {{ row.request_count }} {{ tr(request, 'stats.requests_days', 'Requests') }}
-                  · {{ row.token_count }} {{ tr(request, 'stats.total_tokens', 'Total Tokens') }}
-                  · ${{ "%.6f"|format(row.cost_usd) }}
-                </strong>
-              </li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p>{{ tr(request, 'stats.no_data', 'No data yet.') }}</p>
-        {% endif %}
-      </div>
-    </details>
-  </section>
-
-  <section class="stat-card" id="startup-preflight">
-    <div class="stats-health-head">
-      <div>
-        <h2>{{ tr(request, 'stats.preflight_title', 'Startup Preflight') }}</h2>
-        <p class="stat-sub">{{ tr(request, 'stats.preflight_subtitle', 'Checks from the latest startup/runtime diagnostic run.') }}</p>
-      </div>
-      <div class="stats-health-totals">
-        <div class="health-overview status-{{ preflight_meta.overall_status }}">
-          <span class="health-lamp status-{{ preflight_meta.overall_status }}"></span>
-          <div>
-            <strong>{{ tr(request, 'stats.preflight_overall', 'Preflight') }}</strong>
-            <small>
-              {% if preflight_meta.overall_status == 'ok' %}
-                {{ tr(request, 'stats.preflight_ok', 'Startup checks look healthy.') }}
-              {% elif preflight_meta.overall_status == 'warn' %}
-                {{ tr(request, 'stats.preflight_warn', 'At least one startup check needs attention.') }}
-              {% else %}
-                {{ tr(request, 'stats.preflight_error', 'At least one startup check currently fails.') }}
-              {% endif %}
-            </small>
-          </div>
-        </div>
-        <div class="health-meter-row">
-          <span class="health-meter status-ok">
-            <span class="health-lamp status-ok"></span>
-            <span>{{ preflight_meta.ok_count }}</span>
-          </span>
-          <span class="health-meter status-warn">
-            <span class="health-lamp status-warn"></span>
-            <span>{{ preflight_meta.warn_count }}</span>
-          </span>
-          <span class="health-meter status-error">
-            <span class="health-lamp status-error"></span>
-            <span>{{ preflight_meta.error_count }}</span>
-          </span>
-        </div>
-        {% if preflight_meta.checked_at %}
-        <p class="stat-sub">{{ tr(request, 'stats.preflight_checked_at', 'Last check') }}: {{ preflight_meta.checked_at|replace('T', ' ') }}</p>
-        {% endif %}
-      </div>
-    </div>
-    {% if preflight_meta.issue_checks %}
-    <div class="alert {% if preflight_meta.overall_status == 'error' %}err{% else %}ok{% endif %}">
-      <strong>{{ tr(request, 'stats.preflight_attention', 'Auffällige Checks') }}:</strong>
-      {% for row in preflight_meta.issue_checks %}
-        {% if not loop.first %} · {% endif %}
-        {{ row.name }} — {{ row.summary }}
-      {% endfor %}
-    </div>
-    {% endif %}
-    <div class="stats-health-grid stats-health-grid-preflight">
-      {% for row in preflight_meta.checks %}
-        <article class="stats-health-card status-{{ row.visual_status }}">
-          <div class="stats-health-card-head">
-            <div class="stats-health-title">
-              <span class="health-lamp status-{{ row.visual_status }}"></span>
-              <strong>{{ row.name }}</strong>
-            </div>
-          </div>
-          <p class="stats-health-summary">{{ row.summary }}</p>
-          {% if row.detail %}
-          <small class="stats-health-detail">{{ row.detail }}</small>
-          {% endif %}
-        </article>
-      {% endfor %}
-    </div>
-  </section>
-
-  <section class="stat-card" id="runtime-health">
-    <div class="stats-health-head">
-      <div>
-        <h2>{{ tr(request, 'stats.health_title', 'Health') }}</h2>
-        <p class="stat-sub">{{ tr(request, 'stats.health_subtitle', 'Lightweight runtime health of the main ARIA services.') }}</p>
-      </div>
-      <div class="stats-health-totals">
-        <div class="health-overview status-{{ health_meta.overall_status }}">
-          <span class="health-lamp status-{{ health_meta.overall_status }}"></span>
-          <div>
-            <strong>{{ tr(request, 'stats.health_overall', 'Overall') }}</strong>
-            <small>
-              {% if health_meta.overall_status == 'ok' %}
-                {{ tr(request, 'stats.health_overall_ok', 'All core services look healthy.') }}
-              {% elif health_meta.overall_status == 'warn' %}
-                {{ tr(request, 'stats.health_overall_warn', 'At least one service needs attention.') }}
-              {% else %}
-                {{ tr(request, 'stats.health_overall_error', 'At least one service currently reports an error.') }}
-              {% endif %}
-            </small>
-          </div>
-        </div>
-        <div class="health-meter-row">
-          <span class="health-meter status-ok">
-            <span class="health-lamp status-ok"></span>
-            <span>{{ health_meta.ok_count }}</span>
-          </span>
-          <span class="health-meter status-warn">
-            <span class="health-lamp status-warn"></span>
-            <span>{{ health_meta.warn_count }}</span>
-          </span>
-          <span class="health-meter status-error">
-            <span class="health-lamp status-error"></span>
-            <span>{{ health_meta.error_count }}</span>
-          </span>
-        </div>
-      </div>
-    </div>
-    <div class="stats-health-grid">
-      {% for row in health_meta.services %}
-        {% if row.url %}
-        <a href="{{ row.url }}" class="stats-health-card stats-health-card-link status-{{ row.visual_status }}">
-        {% else %}
-        <article class="stats-health-card status-{{ row.visual_status }}">
-        {% endif %}
-          <div class="stats-health-card-head">
-            <div class="stats-health-title">
-              <span class="health-lamp status-{{ row.visual_status }}"></span>
-              <strong>{{ row.name }}</strong>
-            </div>
-          </div>
-          <p class="stats-health-summary">{{ row.summary }}</p>
-          <small class="stats-health-detail">{{ row.detail }}</small>
-        {% if row.url %}
-        </a>
-        {% else %}
-        </article>
-        {% endif %}
-      {% endfor %}
-    </div>
-  </section>
-
-  {% set routing_index = routing_index_meta or {} %}
-  <section class="stat-card">
-    <div class="stats-health-head">
-      <div>
-        <h2>{{ tr(request, 'stats.routing_index_title', 'Routing Index') }}</h2>
-        <p class="stat-sub">{{ tr(request, 'stats.routing_index_subtitle', 'Admin/debug status for the generated Qdrant routing collection. Not active in chat routing yet.') }}</p>
-      </div>
-    </div>
-    <div class="stats-health-grid">
-      <article class="stats-health-card status-{{ routing_index.visual_status or 'warn' }}">
-        <div class="stats-health-card-head">
-          <div class="stats-health-title">
-            <span class="health-lamp status-{{ routing_index.visual_status or 'warn' }}"></span>
-            <strong>{{ tr(request, 'stats.routing_index_state', 'Index status') }}</strong>
-          </div>
-        </div>
-        <p class="stats-health-summary">{{ routing_index.message or tr(request, 'stats.routing_index_unknown', 'Status unknown.') }}</p>
-        <small class="stats-health-detail">
-          {{ tr(request, 'stats.routing_index_collection', 'Collection') }}:
-          <code>{{ routing_index.collection_name or '-' }}</code>
-        </small>
-        <small class="stats-health-detail">
-          {{ tr(request, 'stats.routing_index_fingerprint', 'Fingerprint') }}:
-          <code>{{ (routing_index.current_config_hash or '-')[:12] }}</code>
-          →
-          <code>{{ (routing_index.indexed_config_hash or '-')[:12] }}</code>
-          ·
-          {% if routing_index.stale %}
-            <strong>{{ tr(request, 'stats.routing_index_stale', 'outdated') }}</strong>
-          {% else %}
-            {{ tr(request, 'stats.routing_index_fresh', 'current') }}
-          {% endif %}
-        </small>
-      </article>
-      <article class="stats-health-card status-ok">
-        <div class="stats-health-card-head">
-          <div class="stats-health-title">
-            <span class="health-lamp status-ok"></span>
-            <strong>{{ tr(request, 'stats.routing_index_profiles', 'Routable profiles') }}</strong>
-          </div>
-        </div>
-        <p class="stats-health-summary">{{ routing_index.document_count if routing_index.document_count is not none else '-' }}</p>
-        <small class="stats-health-detail">{{ tr(request, 'stats.routing_index_profiles_hint', 'Generated from SSH, SFTP, RSS, Discord and HTTP API connection metadata.') }}</small>
-      </article>
-      <article class="stats-health-card status-{{ routing_index.visual_status or 'warn' }}">
-        <div class="stats-health-card-head">
-          <div class="stats-health-title">
-            <span class="health-lamp status-{{ routing_index.visual_status or 'warn' }}"></span>
-            <strong>{{ tr(request, 'stats.routing_index_indexed', 'Indexed points') }}</strong>
-          </div>
-        </div>
-        <p class="stats-health-summary">{{ routing_index.indexed_count if routing_index.indexed_count is not none else '-' }}</p>
-        <small class="stats-health-detail">
-          {{ routing_index.collection_count or 0 }}
-          {{ tr(request, 'stats.routing_index_collections', 'routing collection(s)') }}
-        </small>
-      </article>
-    </div>
-  </section>
-
-  {% include "_connections_live_status.html" %}
-
-  <section class="stat-card">
-    <div class="stats-health-head">
-      <div>
-        <h2>{{ tr(request, 'activities.title', 'Ausführungs-Historie') }}</h2>
-        <p class="stat-sub">{{ tr(request, 'activities.subtitle', 'Operative Rezept-Läufe und Systemaktionen aus den Logs, getrennt vom semantischen Memory.') }}</p>
-      </div>
-    </div>
-
-    <div class="stats-health-grid stats-activity-kpi-grid">
-      <article class="stats-health-card status-ok">
-        <div class="stats-health-title">
-          <span class="health-lamp status-ok"></span>
-          <div>
-            <strong>{{ tr(request, 'activities.total', 'Ausführungs-Historie') }}</strong>
-            <small class="stats-health-state">{{ tr(request, 'activities.total', 'Ausführungs-Historie') }}</small>
-          </div>
-        </div>
-        <p class="stats-health-summary">{{ activities.summary.count }}</p>
-      </article>
-      <article class="stats-health-card status-ok">
-        <div class="stats-health-title">
-          <span class="health-lamp status-ok"></span>
-          <div>
-            <strong>{{ tr(request, 'activities.success', 'Erfolgreich') }}</strong>
-            <small class="stats-health-state">{{ tr(request, 'activities.status_ok', 'OK') }}</small>
-          </div>
-        </div>
-        <p class="stats-health-summary">{{ activities.summary.success }}</p>
-      </article>
-      <article class="stats-health-card status-{{ 'error' if activities.summary.errors else 'ok' }}">
-        <div class="stats-health-title">
-          <span class="health-lamp status-{{ 'error' if activities.summary.errors else 'ok' }}"></span>
-          <div>
-            <strong>{{ tr(request, 'activities.errors', 'Mit Fehlern') }}</strong>
-            <small class="stats-health-state">
-              {% if activities.summary.errors %}
-                {{ tr(request, 'activities.status_error', 'Fehler') }}
-              {% else %}
-                {{ tr(request, 'activities.status_ok', 'OK') }}
-              {% endif %}
-            </small>
-          </div>
-        </div>
-        <p class="stats-health-summary">{{ activities.summary.errors }}</p>
-      </article>
-      <article class="stats-health-card status-ok">
-        <div class="stats-health-title">
-          <span class="health-lamp status-ok"></span>
-          <div>
-            <strong>{{ tr(request, 'activities.avg_duration', 'Ø Dauer') }}</strong>
-            <small class="stats-health-state">ms</small>
-          </div>
-        </div>
-        <p class="stats-health-summary">{{ activities.summary.avg_duration_ms }} ms</p>
-      </article>
-    </div>
-
-    {% if activities.rows %}
-    <div class="stats-activity-list">
-      {% for row in activities.rows %}
-      <details class="memory-card activity-card" {% if row.recipe_errors or row.skill_errors %}open{% endif %}>
-        <summary class="memory-summary">
-          <div class="memory-summary-main">
-            <strong class="memory-title">{{ row.title }}</strong>
-            <span class="memory-preview">{{ row.summary_bits|join(' · ') }}</span>
-          </div>
-          <div class="memory-summary-meta">
-            <span class="meta-badge">
-              {% if row.success %}
-                {{ tr(request, 'activities.status_ok', 'OK') }}
-              {% else %}
-                {{ tr(request, 'activities.status_error', 'Fehler') }}
-              {% endif %}
-            </span>
-          </div>
+{% block page_body %}
+<main class="stats-overview__stack" data-stats-owner-sections="4">
+  <section class="stats-overview__section" aria-labelledby="stats-health-title" data-stats-section="health">
+    <div class="stats-overview__section-head"><div><p class="stats-overview__eyebrow">{{ tr(request, 'stats.overview.health.question', 'Ist ARIA gesund?') }}</p><h2 id="stats-health-title">{{ overview.health.headline }}</h2></div><span class="stats-overview__status stats-overview__status--{{ overview.health.status }}"><i></i>{% if overview.health.status == 'ok' %}{{ tr(request, 'stats.overview.health.healthy', 'Gesund') }}{% elif overview.health.status == 'warn' %}{{ tr(request, 'stats.overview.health.warning', 'Hinweis') }}{% else %}{{ tr(request, 'stats.overview.health.error', 'Fehler') }}{% endif %}</span></div>
+    {% if overview.health.issues %}<ul class="stats-overview__issues">{% for issue in overview.health.issues %}<li><span class="health-lamp status-{{ issue.status }}" aria-hidden="true"></span><span><strong>{{ issue.name }}</strong>{% if issue.message %} — {{ issue.message }}{% endif %}</span>{% if issue.url %}<a class="ui-secondary-action" href="{{ issue.url }}">{{ issue.action }}</a>{% endif %}</li>{% endfor %}</ul>{% endif %}
+    <div class="stats-check-blocks" data-stats-check-block-count="{{ check_blocks|length }}">
+      {% for block in check_blocks %}
+      <details class="stats-check-block status-{{ block.status }}" data-stats-check-block="{{ block.key }}">
+        <summary data-stats-check-summary>
+          <span class="health-lamp status-{{ block.status }}" aria-hidden="true"></span>
+          <span class="stats-check-block__title">{{ block.title }}</span>
+          <span class="stats-check-block__counts"><span class="health-meter status-ok" data-stats-count="ok"><span class="health-lamp status-ok" aria-hidden="true"></span>{{ block.counts.ok }}</span><span class="health-meter status-warn" data-stats-count="warn"><span class="health-lamp status-warn" aria-hidden="true"></span>{{ block.counts.warn }}</span><span class="health-meter status-error" data-stats-count="error"><span class="health-lamp status-error" aria-hidden="true"></span>{{ block.counts.error }}</span>{% if block.time_label %}<time>{{ block.time_label }}</time>{% endif %}</span>
+          <span class="stats-check-block__caret" aria-hidden="true">⌄</span>
         </summary>
-        <div class="memory-card-body">
-          <ul class="stats-list">
-            {% for item in row.detail_items %}
-            <li><span>{{ tr(request, item.key, item.fallback) }}</span><strong>{{ item.value }}</strong></li>
-            {% endfor %}
-          </ul>
-          {% set activity_errors = row.recipe_errors or row.skill_errors %}
-          {% if activity_errors %}
-          <details class="stats-details activity-errors" open>
-            <summary>{{ tr(request, 'activities.error_details', 'Fehlerdetails') }}</summary>
-            <div class="stats-details-content">
-              <section class="stat-card">
-                <ul class="stats-list">
-                  {% for error in activity_errors %}
-                  <li><span>{{ error }}</span></li>
-                  {% endfor %}
-                </ul>
-              </section>
-            </div>
-          </details>
-          {% endif %}
+        <div class="stats-check-block__lazy" data-stats-block-content data-stats-block-url="{{ block.fragment_url }}">
+          <p class="stats-check-block__loading" data-stats-block-loading hidden>{{ tr(request, 'stats.overview.checks.loading', 'Prüfungen werden geladen …') }}</p>
+          <div data-stats-block-result></div>
+          <div class="alert err stats-check-block__error" data-stats-block-error hidden>
+            <span>{{ tr(request, 'stats.overview.checks.load_error', 'Die Prüfungen konnten nicht geladen werden.') }}</span>
+            <button class="ui-secondary-action" type="button" data-stats-block-retry>{{ tr(request, 'stats.overview.checks.retry', 'Erneut versuchen') }}</button>
+          </div>
+          <noscript>{{ tr(request, 'stats.overview.checks.requires_js', 'Für die Detailprüfungen muss JavaScript aktiviert sein.') }}</noscript>
         </div>
       </details>
       {% endfor %}
     </div>
-    {% else %}
-    <p class="stat-sub">{{ tr(request, 'activities.empty', 'Noch keine Einträge in der Ausführungs-Historie.') }}</p>
-    {% endif %}
   </section>
 
-  <details class="stats-details">
-    <summary>{{ tr(request, 'stats.more_routing', 'More Info / Details: Routing & Intents') }}</summary>
-    <div class="stats-details-content">
-      <section class="stat-card">
-        <h2>{{ tr(request, 'stats.requests_by_intent', 'Requests by intent') }}</h2>
-        {% if stats.requests_by_intent %}
-          <ul class="stats-list">
-            {% for intent, count in stats.requests_by_intent.items() %}
-              <li><span>{{ intent }}</span><strong>{{ count }}</strong></li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p>{{ tr(request, 'stats.no_data', 'No data yet.') }}</p>
-        {% endif %}
-      </section>
-
-      <section class="stat-card">
-        <h2>{{ tr(request, 'stats.requests_by_router', 'Requests by router level') }}</h2>
-        {% if stats.requests_by_router_level %}
-          <ul class="stats-list">
-            {% for level, count in stats.requests_by_router_level.items() %}
-              <li><span>Level {{ level }}</span><strong>{{ count }}</strong></li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p>{{ tr(request, 'stats.no_data', 'No data yet.') }}</p>
-        {% endif %}
-      </section>
+  <section class="stats-overview__section" aria-labelledby="stats-cost-title" data-stats-section="costs">
+    <div class="stats-overview__section-head"><div><p class="stats-overview__eyebrow">{{ tr(request, 'stats.overview.costs.question', 'Was kostet es?') }}</p><h2 id="stats-cost-title">{{ tr(request, 'stats.overview.costs.title', 'Kosten und Nutzung') }}</h2></div><span class="stats-overview__chip">{{ tr(request, 'stats.overview.costs.days_30', '30 Tage') }}</span></div>
+    <div class="stats-overview__metrics stats-overview__metrics--three">{% for key in ['today', 'seven_days', 'month'] %}{% set period = overview.usage.periods[key] %}<article data-locale-value="currency"><span>{% if key == 'today' %}{{ tr(request, 'stats.overview.costs.today', 'Heute') }}{% elif key == 'seven_days' %}{{ tr(request, 'stats.overview.costs.seven_days', 'Letzte 7 Tage') }}{% else %}{{ tr(request, 'stats.overview.costs.month', 'Dieser Monat') }}{% endif %}</span><strong>{{ period.cost_label }}</strong><small>{{ tr(request, 'stats.overview.costs.recorded', 'protokolliert') }}{% if key == 'month' %} · {{ period.estimated_label }} {{ tr(request, 'stats.overview.costs.estimated', 'geschätzt') }}{% endif %}</small></article>{% endfor %}</div>
+    <div class="stats-overview__cost-grid">
+      <figure class="stats-overview__chart"><figcaption><strong>{{ tr(request, 'stats.overview.costs.daily', 'Tageskosten') }}</strong><span>{{ tr(request, 'stats.overview.costs.currency', 'US-Dollar') }}</span></figcaption><svg viewBox="0 0 640 180" role="img" aria-labelledby="stats-trend-title stats-trend-desc"><title id="stats-trend-title">{{ tr(request, 'stats.overview.costs.chart_title', 'Tageskosten der letzten 30 Tage') }}</title><desc id="stats-trend-desc">{{ cost_svg_description }}</desc><g class="stats-chart-y-axis">{% for tick in overview.usage.y_ticks %}<line x1="58" y1="{{ tick.y }}" x2="622" y2="{{ tick.y }}" class="axis"></line><text x="54" y="{{ tick.y + 4 }}" text-anchor="end">{{ tick.label }}</text>{% endfor %}</g><g class="bars" transform="translate(38 0)">{% for day in overview.usage.chart %}<rect tabindex="0" aria-label="{{ day.label }}: {{ day.formatted }}" x="{{ day.x }}" y="{{ day.y }}" width="12" height="{{ day.height }}"{% if loop.last %} class="today"{% endif %}><title>{{ day.label }}: {{ day.formatted }}</title></rect>{% endfor %}</g><g class="stats-chart-x-axis" transform="translate(38 0)">{% for tick in overview.usage.x_ticks %}<text x="{{ tick.x }}" y="170" text-anchor="middle">{{ tick.label }}</text>{% endfor %}</g></svg></figure>
+      <div class="stats-overview__breakdown"><h3>{{ tr(request, 'stats.overview.costs.by_model', 'Nach Modell') }}</h3>{% if overview.usage.models %}<dl>{% for row in overview.usage.models %}<div><dt>{{ row.name }}</dt><dd data-locale-value="currency">{{ row.cost }}</dd></div>{% endfor %}</dl>{% else %}<p class="stats-overview__meta">{{ tr(request, 'stats.overview.costs.empty', 'Noch keine Nutzung protokolliert.') }}</p>{% endif %}<h3>{{ tr(request, 'stats.overview.costs.drivers', 'Größte Kostentreiber') }}</h3>{% if overview.usage.drivers %}<ol>{% for row in overview.usage.drivers %}<li>{{ row.name }} <strong data-locale-value="percent">{{ row.share }}</strong></li>{% endfor %}</ol>{% endif %}</div>
     </div>
-  </details>
+    <details class="ui-info-panel stats-overview__info"><summary class="ui-info-panel__summary"><span class="ui-info-panel__marker">i</span><span><strong>{{ tr(request, 'stats.overview.costs.info_title', 'So entstehen die Zahlen') }}</strong><small>{{ tr(request, 'stats.overview.costs.info_summary', 'Protokollierte und geschätzte Werte unterscheiden') }}</small></span></summary><div class="ui-info-panel__content"><p>{{ tr(request, 'stats.overview.costs.info_body', 'Protokolliert verwendet den beim Aufruf gespeicherten Preis. Geschätzt bewertet dieselben Token mit dem aktuell lokal gespeicherten Preis. Beides sind lokale Näherungen und keine Anbieterrechnung.') }}</p>{% if overview.usage.periods.month.unpriced_tokens %}<p>{{ tr(request, 'stats.overview.costs.unpriced', 'Unbepreiste Token') }}: <strong data-locale-value="integer">{{ format_integer(overview.usage.periods.month.unpriced_tokens) }}</strong></p>{% endif %}</div></details>
+  </section>
 
-  <details class="stats-details">
-    <summary>{{ tr(request, 'stats.more_models_tokens', 'More Info / Details: Models & Tokens') }}</summary>
-    <div class="stats-details-content">
-      <section class="stat-card">
-        <h2>{{ tr(request, 'stats.requests_by_source', 'Requests by source') }}</h2>
-        {% if stats.requests_by_source %}
-          <ul class="stats-list">
-            {% for source, count in stats.requests_by_source.items() %}
-              <li>
-                <span>{{ source }}</span>
-                <strong>{{ count }} · {{ stats.model_tokens_by_source.get(source, 0) }} {{ tr(request, 'stats.total_tokens', 'Total Tokens') }}</strong>
-              </li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p>{{ tr(request, 'stats.no_data', 'No data yet.') }}</p>
-        {% endif %}
-      </section>
+  <section class="stats-overview__section" aria-labelledby="stats-activity-title" data-stats-section="activity">
+    <div class="stats-overview__section-head"><div><p class="stats-overview__eyebrow">{{ tr(request, 'stats.overview.activity.question', 'Was tut ARIA?') }}</p><h2 id="stats-activity-title">{{ tr(request, 'stats.overview.activity.title', 'Aktivitäten der letzten 7 Tage') }}</h2></div><a class="ui-secondary-action" href="/memories/activity-journal">{{ tr(request, 'stats.overview.activity.open_journal', 'Journal öffnen') }}</a></div>
+    {% if not overview.activity.enabled %}<div class="ui-empty-state"><p>{{ tr(request, 'stats.overview.activity.disabled', 'Das Aktivitätsjournal ist ausgeschaltet.') }}</p><a href="/memories/activity-journal">{{ tr(request, 'stats.overview.activity.settings', 'Journal-Einstellung öffnen') }}</a></div>{% else %}<div class="stats-overview__metrics stats-overview__metrics--four"><a href="/memories/activity-journal?source=live"><span>{{ tr(request, 'stats.overview.activity.tool_turns', 'Turns mit Werkzeugen') }}</span><strong data-locale-value="integer">{{ format_integer(overview.activity.turns) }}</strong><small>{{ format_integer(overview.activity.corrections) }} {{ tr(request, 'stats.overview.activity.corrected', 'mit Korrektur') }}</small></a><a href="/jobs/panel?status=done"><span>{{ tr(request, 'stats.overview.activity.jobs_done', 'Jobs abgeschlossen') }}</span><strong data-locale-value="integer">{{ format_integer(overview.activity.jobs_done) }}</strong><small>{{ format_integer(overview.activity.jobs_cancelled) }} {{ tr(request, 'stats.overview.activity.cancelled', 'abgebrochen') }}</small></a><a href="/memories/activity-journal?outcome=error"><span>{{ tr(request, 'stats.overview.activity.error_rate', 'Fehlerquote') }}</span><strong data-locale-value="percent">{{ overview.activity.error_rate }}</strong><small>{{ format_integer(overview.activity.errors) }} {{ tr(request, 'stats.overview.activity.review_entries', 'Einträge prüfen') }}</small></a>{% set top_tool = overview.activity.top_tools[0] if overview.activity.top_tools else none %}<a href="/memories/activity-journal{% if top_tool %}?tool={{ top_tool.name|urlencode }}{% endif %}"><span>{{ tr(request, 'stats.overview.activity.top_tool', 'Meistgenutztes Werkzeug') }}</span><strong>{{ top_tool.name if top_tool else tr(request, 'stats.overview.activity.none', 'Noch keines') }}</strong><small>{% if top_tool %}{{ format_integer(top_tool.count) }} {{ tr(request, 'stats.overview.activity.calls', 'Aufrufe') }}{% endif %}</small></a></div><div class="stats-overview__activity-foot"><span>{{ tr(request, 'stats.overview.activity.connections', 'Häufige Verbindungen') }}: {% for row in overview.activity.connections %}<a href="/memories/activity-journal?connection={{ row.name|urlencode }}">{{ row.name }}</a>{% if not loop.last %}, {% endif %}{% else %}{{ tr(request, 'stats.overview.activity.none', 'Noch keine') }}{% endfor %}</span>{% if overview.activity.latest %}<span>{{ tr(request, 'stats.overview.activity.latest', 'Zuletzt aktiv') }}: {{ overview.activity.latest|local_relative_time(request) }}</span>{% endif %}</div>{% endif %}
+  </section>
 
-      <section class="stat-card">
-        <h2>{{ tr(request, 'stats.chat_tokens_by_model', 'ChatLLM tokens by model') }}</h2>
-        {% if stats.chat_tokens_by_model %}
-          <ul class="stats-list">
-            {% for model, tokens in stats.chat_tokens_by_model.items() %}
-              <li><span>{{ model }}</span><strong>{{ tokens }}</strong></li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p>{{ tr(request, 'stats.no_data', 'No data yet.') }}</p>
-        {% endif %}
-      </section>
-
-      <section class="stat-card">
-        <h2>{{ tr(request, 'stats.web_llm_usage', 'Web-LLM & native search') }}</h2>
-        <ul class="stats-list">
-          <li><span>{{ tr(request, 'stats.llm_requests_main', 'Main-LLM requests') }}</span><strong>{{ stats.get('llm_requests_by_role', {}).get('main', 0) }}</strong></li>
-          <li><span>{{ tr(request, 'stats.llm_requests_web', 'Web-LLM requests') }}</span><strong>{{ stats.get('llm_requests_by_role', {}).get('web', 0) }}</strong></li>
-          <li><span>{{ tr(request, 'stats.native_search_uses', 'Native search uses') }}</span><strong>{{ stats.get('native_web_search_uses', 0) }}</strong></li>
-          <li><span>{{ tr(request, 'stats.native_search_cost', 'Native search cost') }}</span><strong>${{ '%.6f'|format(stats.get('native_web_search_cost_usd', 0.0)) }}</strong></li>
-          {% if stats.get('native_web_search_unpriced_requests', 0) %}
-          <li><span>{{ tr(request, 'stats.native_search_unpriced', 'Unpriced Web-LLM requests') }}</span><strong>{{ stats.get('native_web_search_unpriced_requests', 0) }}</strong></li>
-          {% endif %}
-        </ul>
-      </section>
-
-      <section class="stat-card">
-        <h2>{{ tr(request, 'stats.embed_tokens_by_model', 'Embedding tokens by model') }}</h2>
-        {% if stats.embedding_tokens_by_model %}
-          <ul class="stats-list">
-            {% for model, tokens in stats.embedding_tokens_by_model.items() %}
-              <li><span>{{ model }}</span><strong>{{ tokens }}</strong></li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p>{{ tr(request, 'stats.no_data', 'No data yet.') }}</p>
-        {% endif %}
-      </section>
-    </div>
-  </details>
-
-  <details class="stats-details" id="stats-pricing-details">
-    <summary>{{ tr(request, 'stats.more_costs', 'More Info / Details: Costs & Pricing') }}</summary>
-    {% include "_stats_pricing_panel.html" %}
-  </details>
-
-  <details class="stats-details">
-    <summary>{{ tr(request, 'stats.more_sources', 'More Info / Details: Price sources') }}</summary>
-    <div class="stats-details-content">
-      <section class="stat-card">
-        <h2>{{ tr(request, 'stats.price_sources', 'Price sources') }}</h2>
-        {% if pricing_meta.source_rows %}
-          <ul class="stats-list">
-            {% for row in pricing_meta.source_rows %}
-              <li>
-                <span>
-                  [{{ row.kind }}] {{ row.model }} · {{ row.rate }} · {{ tr(request, 'stats.verified', 'verified') }}: {{ row.verified_at }}
-                  {% if row.source_url %}
-                    · <a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer">{{ row.source_name }}</a>
-                  {% else %}
-                    · {{ row.source_name }}
-                  {% endif %}
-                </span>
-              </li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p>{{ tr(request, 'stats.no_sources', 'No price sources configured yet.') }}</p>
-        {% endif %}
-      </section>
-    </div>
-  </details>
-
+  <section class="stats-overview__section" aria-labelledby="stats-resource-title" data-stats-section="resources">
+    <div class="stats-overview__section-head"><div><p class="stats-overview__eyebrow">{{ tr(request, 'stats.overview.resources.question', 'Ressourcen') }}</p><h2 id="stats-resource-title">{{ tr(request, 'stats.overview.resources.title', 'Speicher und Wachstum') }}</h2></div><a class="ui-secondary-action" href="/config/backup">{{ tr(request, 'stats.overview.resources.backup', 'Backup öffnen') }}</a></div>
+    <div class="stats-overview__resource-grid"><article><span>{{ tr(request, 'stats.overview.resources.ram', 'ARIA-Arbeitsspeicher') }}</span><strong data-locale-value="bytes">{{ overview.resources.rss_label }}</strong><small data-locale-value="percent">{{ overview.resources.rss_percent_label }} {{ tr(request, 'stats.overview.resources.system_ram', 'des Systems') }}</small></article><article><span>Qdrant</span><strong data-locale-value="bytes">{{ overview.resources.qdrant_label }}</strong><small data-locale-value="integer">{{ format_integer(overview.resources.qdrant_collections) }} Collections</small></article>{% for row in overview.resources.rows %}<article><span>{% if row.name == 'journal' %}{{ tr(request, 'stats.overview.resources.journal', 'Journal') }}{% elif row.name == 'jobs' %}{{ tr(request, 'stats.overview.resources.jobs', 'Jobs') }}{% elif row.name == 'traces' %}{{ tr(request, 'stats.overview.resources.traces', 'Traces') }}{% else %}{{ tr(request, 'stats.overview.resources.documents', 'Dokumente') }}{% endif %}</span><strong data-locale-value="bytes">{{ row.size }}</strong><small>{% if overview.resources.growth_ready %}+{{ row.growth }} {{ tr(request, 'stats.overview.resources.growth', 'in 30 Tagen') }}{% else %}{{ tr(request, 'stats.overview.resources.growth_waiting', 'Wachstum: noch keine Daten seit') }} {{ overview.resources.growth_since }}{% endif %}</small></article>{% endfor %}</div><p class="stats-overview__resource-links"><a href="/config/logs">{{ tr(request, 'stats.overview.resources.hygiene', 'Datenhygiene und Aufbewahrung') }}</a><span>·</span><a href="/memories/maintenance">{{ tr(request, 'stats.overview.resources.maintenance', 'Gedächtnis-Wartung') }}</a></p>
+  </section>
 </main>
 <script>
-  (function () {
-    function openTargetDetails() {
-      if (!window.location.hash) {
-        return;
-      }
-      var targetId = window.location.hash.slice(1);
-      if (!targetId) {
-        return;
-      }
-      var target = document.getElementById(targetId);
-      if (!target) {
-        return;
-      }
-      var details = target.tagName === "DETAILS" ? target : target.closest("details");
-      if (details) {
-        details.open = true;
-      }
-      window.setTimeout(function () {
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 0);
+(() => {
+  const loadBlock = async (block, force = false) => {
+    const container = block.querySelector("[data-stats-block-content]");
+    if (!container || (!force && (block.dataset.loaded === "true" || block.dataset.loading === "true"))) return;
+    const loading = container.querySelector("[data-stats-block-loading]");
+    const error = container.querySelector("[data-stats-block-error]");
+    const result = container.querySelector("[data-stats-block-result]");
+    block.dataset.loading = "true";
+    loading.hidden = false;
+    error.hidden = true;
+    try {
+      const response = await fetch(container.dataset.statsBlockUrl, {
+        credentials: "same-origin",
+        headers: {"Accept": "text/html"},
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      result.innerHTML = await response.text();
+      block.dataset.loaded = "true";
+    } catch (_error) {
+      error.hidden = false;
+    } finally {
+      loading.hidden = true;
+      block.dataset.loading = "false";
     }
-
-    window.addEventListener("hashchange", openTargetDetails);
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", openTargetDetails);
-    } else {
-      openTargetDetails();
-    }
-  })();
+  };
+  document.querySelectorAll("[data-stats-check-block]").forEach((block) => {
+    block.addEventListener("toggle", () => {
+      if (block.open) loadBlock(block);
+    });
+    block.querySelector("[data-stats-block-retry]")?.addEventListener("click", () => loadBlock(block, true));
+  });
+  document.querySelectorAll('.stats-overview__issues a[href^="#stats-check-"]').forEach((link) => {
+    link.addEventListener("click", async (event) => {
+      const targetId = link.getAttribute("href").slice(1);
+      const block = Array.from(document.querySelectorAll("[data-stats-check-block]")).find((item) => targetId.startsWith(`stats-check-${item.dataset.statsCheckBlock}-`));
+      if (!block) return;
+      event.preventDefault();
+      block.open = true;
+      await loadBlock(block);
+      document.getElementById(targetId)?.scrollIntoView({behavior: "smooth", block: "center"});
+    });
+  });
+})();
 </script>
+{% endblock %}
+
+{% block page_statistics %}
+<details class="ui-info-panel stats-overview__tech" data-ui-technical-content><summary class="ui-info-panel__summary"><span class="ui-info-panel__marker">i</span><span><strong>{{ tr(request, 'stats.overview.technical.title', 'Technik') }}</strong><small>{{ tr(request, 'stats.overview.technical.summary', 'Release, Registry, Starttest, Modelle, Preise und Rohdiagnosen') }}</small></span></summary><div class="ui-info-panel__content stats-overview__tech-grid"><dl><div><dt>Release</dt><dd>{{ technical.release.label or technical.release.version }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.modules', 'Module') }}</dt><dd>{{ technical.module_count }} · {{ technical.dependency_count }} {{ tr(request, 'stats.overview.technical.dependencies', 'interne Abhängigkeiten') }} · {{ technical.external_count }} {{ tr(request, 'stats.overview.technical.boundaries', 'externe Grenzen') }} · {{ technical.migration_count }} {{ tr(request, 'stats.overview.technical.migrations', 'Migrationskandidaten') }}</dd></div><div><dt>Native Tools</dt><dd>{{ technical.native_tool_count }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.preflight', 'Starttest') }}</dt><dd>{{ technical.preflight.status or 'n/a' }}</dd></div></dl><dl><div><dt>{{ tr(request, 'stats.overview.technical.chat_model', 'Chat-Modell') }}</dt><dd>{{ technical.chat_model }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.chat_api', 'Chat-API-Basis') }}</dt><dd>{{ technical.chat_api_base or '—' }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.web_model', 'Web-/Suchmodell') }}</dt><dd>{{ technical.web_model or '—' }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.web_api', 'Web-/Such-API-Basis') }}</dt><dd>{{ technical.web_api_base or '—' }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.embedding_model', 'Embedding-Modell') }}</dt><dd>{{ technical.embedding_model }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.embedding_api', 'Embedding-API-Basis') }}</dt><dd>{{ technical.embedding_api_base or '—' }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.gateway_mode', 'Gateway-Modus') }}</dt><dd>{{ technical.gateway_mode }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.usage_meter', 'Gemeinsamer Usage-Meter') }}</dt><dd>{{ tr(request, 'common.yes', 'Ja') if technical.usage_meter_shared else tr(request, 'common.no', 'Nein') }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.token_log', 'Token-Protokoll') }}</dt><dd>{{ tr(request, 'common.enabled', 'Aktiv') if technical.token_tracking_enabled else tr(request, 'common.disabled', 'Inaktiv') }}{% if technical.token_log %} · <code>{{ technical.token_log }}</code>{% endif %}</dd></div></dl><dl><div><dt>{{ tr(request, 'stats.overview.technical.web_requests', 'Web-LLM-Anfragen') }}</dt><dd>{{ technical.web_llm_requests }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.native_searches', 'Native Suchen') }}</dt><dd>{{ technical.native_search_uses }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.native_search_cost', 'Kosten nativer Suchen') }}</dt><dd>{{ technical.native_search_cost_usd }}</dd></div><div><dt>{{ tr(request, 'stats.overview.technical.unpriced_searches', 'Unbepreiste native Suchen') }}</dt><dd>{{ technical.native_search_unpriced_requests }}</dd></div>{% if overview.usage.drivers %}<div><dt>{{ tr(request, 'stats.overview.technical.source_keys', 'Nutzungsquellen') }}</dt><dd>{% for row in overview.usage.drivers %}<code>{{ row.key }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</dd></div>{% endif %}</dl><details class="stats-overview__pricing"><summary>{{ tr(request, 'stats.overview.technical.pricing', 'Preisverwaltung') }}</summary><p>{{ tr(request, 'stats.overview.technical.pricing_hint', 'Preisformen bleiben über die technischen Verwaltungsaktionen erreichbar.') }}</p>{% include "_stats_pricing_panel.html" %}</details></div></details>
+{% endblock %}
+
+{% block page_danger %}
+{% if reset_done is not none %}<div class="alert ok">{{ tr(request, 'stats.overview.reset.done', 'Die lokale Nutzungsperiode wurde zurückgesetzt.') }} {{ reset_done }}</div>{% endif %}{% if reset_error %}<div class="alert err">{{ reset_error }}</div>{% endif %}
+{% if request.state.can_access_advanced_config %}<details class="ui-danger-zone stats-overview__danger"><summary><strong>{{ tr(request, 'stats.overview.reset.zone', 'Gefahrenzone') }}</strong><span>{{ tr(request, 'stats.overview.reset.summary', 'Lokale Nutzungsperiode zurücksetzen') }}</span></summary><div class="ui-danger-zone__body"><p>{{ tr(request, 'stats.overview.reset.body', 'Archiviert den lokalen Nutzungslog und startet die sichtbare Periode neu. Erinnerungen, Dokumente und Verbindungen bleiben erhalten.') }}</p><form method="post" action="{{ module_route_path('stats_ui', '/stats/reset') }}"><label for="stats-reset-confirm">{{ tr(request, 'stats.overview.reset.confirm', 'Zur Bestätigung RESET eingeben') }}</label><input id="stats-reset-confirm" name="confirm_text" type="text" autocomplete="off" required pattern="RESET"><button class="danger-btn ui-danger-action" type="submit">{{ tr(request, 'stats.overview.reset.action', 'Nutzungsperiode zurücksetzen') }}</button></form></div></details>{% endif %}
 {% endblock %}

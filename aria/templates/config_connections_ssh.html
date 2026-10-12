@@ -1,159 +1,77 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/" ~ connection_page_type ~ "_page.html" %}
+{% from "_connection_clarity.html" import connection_inventory, connection_settings, connection_test_action, connection_danger_zone with context %}
+{% from "_ui_clarity.html" import ui_action_card with context %}
+{% block page_body %}
 {% set ssh_save_path = required_module_route_path('ssh_admin_ui', '/config/connections/save') %}
+{% set ssh_test_path = required_module_route_path('ssh_admin_ui', '/config/connections/test') %}
 {% set ssh_key_exchange_path = required_module_route_path('ssh_admin_ui', '/config/connections/key-exchange') %}
 {% set ssh_keygen_path = required_module_route_path('ssh_admin_ui', '/config/connections/keygen') %}
 {% set ssh_meta_endpoint = required_module_route_path('ssh_admin_ui', '/config/connections/ssh/suggest-metadata') %}
-<main class="config-layout">
+<main class="config-layout config-domain-layout connection-clarity-layout ui-clarity-stack connection-{{ connection_page_type }}" data-ui-page-type="{{ connection_page_type }}">
   {% include "_connection_page_intro.html" %}
-  {% include "_connection_mode_nav.html" %}
+  {% if connection_page_type == 'overview' %}
+  {% call connection_inventory(tr(request, connection_status_block.title_key, connection_status_block.title), tr(request, connection_status_block.hint_key, connection_status_block.hint), true) %}
+    {% if connection_status_block.rows %}<div class="connection-status-grid">{% for item in connection_status_block.rows %}
+      <article class="connection-test-card connection-profile-card status-{{ item.status }}{% if item.selected %} current-profile{% endif %}" data-edit-url="{{ item.edit_url }}" tabindex="0">
+        <div class="connection-test-head"><span class="health-lamp status-{{ item.status }}"></span><strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}<span class="status-chip status-{{ item.status }}">{% if item.status == 'ok' %}{{ tr(request, 'config_conn.status_reachable', 'Erreichbar') }}{% elif item.status == 'error' %}{{ tr(request, 'config_conn.status_problem', 'Problem') }}{% else %}{{ tr(request, 'config_conn.status_not_checked', 'Nicht geprüft') }}{% endif %}</span>{% if item.selected %}<span class="connection-current-badge">{{ tr(request, 'config_conn.current', 'Aktuell') }}</span>{% endif %}</div>
+        <small class="connection-status-target">{{ item.target }}</small>{% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
+        {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request, 'config_conn.last_success', 'Letzter Erfolg') }}: {{ item.last_success_at|replace('T', ' ') }}</small>{% endif %}<small>{{ item.message }}</small>
+        <div class="connection-profile-actions">{% if item.edit_url %}<a class="connection-profile-edit-link" href="{{ item.edit_url }}">{{ tr(request, 'config_conn.open_profile', 'Öffnen') }}</a>{% endif %}<form method="post" action="{{ ssh_test_path }}"><input type="hidden" name="connection_ref" value="{{ item.ref }}"><button type="submit" class="ui-secondary-action">{{ tr(request, 'config_conn.test_profile', 'Testen') }}</button></form></div>
+      </article>{% endfor %}</div>{% else %}<p class="hint-text">{{ tr(request, connection_status_block.empty_key, connection_status_block.empty_text) }}</p>{% endif %}
+  {% endcall %}
+  {% endif %}
 
-  <details class="config-card config-section-details" open>
-    <summary class="config-section-summary">
-      <div class="config-section-heading">
-        <div class="config-section-title-row">
-          <h3>{{ tr(request, connection_status_block.title_key, connection_status_block.title) }}</h3>
-          {% if connection_status_block.rows %}<span class="config-section-count">{{ connection_status_block.rows|length }}</span>{% endif %}
-        </div>
-        <span class="config-section-desc">{{ tr(request, connection_status_block.hint_key, connection_status_block.hint) }}</span>
-      </div>
-    </summary>
-    <div class="config-section-content">
-      {% if connection_status_block.rows %}
-      <div class="connection-status-grid">
-        {% for item in connection_status_block.rows %}
-        <article class="connection-test-card connection-profile-card status-{{ item.status }}{% if item.selected %} current-profile{% endif %}" data-edit-url="{{ item.edit_url }}" tabindex="0">
-          <div class="connection-test-head"><span class="health-lamp status-{{ item.status }}"></span><strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}{% if item.selected %}<span class="connection-current-badge">{{ tr(request, 'config_conn.current', 'Current') }}</span>{% endif %}</div>
-          <small class="connection-status-target">{{ item.target }}</small>
-          {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
-          {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request, 'config_conn.last_success', 'Last success') }}: {{ item.last_success_at|replace('T', ' ') }}</small>{% endif %}
-          <small>{{ item.message }}</small>
-          {% if item.edit_url %}<a class="button-link subtle-link connection-profile-edit-link ui-action-link" href="{{ item.edit_url }}">{{ tr(request, 'config_conn.edit_profile', 'Editieren') }}</a>{% endif %}
-        </article>
-        {% endfor %}
-      </div>
-      {% else %}
-      <div class="skill-summary"><span>{{ tr(request, connection_status_block.empty_key, connection_status_block.empty_text) }}</span></div>
-      {% endif %}
-    </div>
-  </details>
+  {% if connection_page_type == 'create' %}
+  {% call connection_settings(tr(request, 'config_conn.create_new_title', 'Neue Verbindung erfassen'), tr(request, 'config_conn.create_new_subtitle', 'Die Felder starten leer und erzeugen ein neues Profil.'), 'connection-settings-create') %}
+    <form method="post" action="{{ ssh_save_path }}" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      {% set schema_fields = ssh_new_base_form_fields %}{% include "_connection_schema_fields.html" %}
+      <div class="connection-form-grid"><div><label for="login_user_inline_new">{{ tr(request, 'config_conn.login_user', 'Anmeldenutzer für den Schlüsselaustausch (optional, sonst Profilnutzer)') }}</label><input id="login_user_inline_new" name="login_user" type="text" value="" placeholder="z. B. root"></div><div class="connection-password-block"><label for="login_password_inline_new">{{ tr(request, 'config_conn.login_password', 'Anmeldepasswort für den Schlüsselaustausch') }}</label><input id="login_password_inline_new" name="login_password" type="password" autocomplete="current-password" placeholder="einmalig für den Schlüsselaustausch"></div></div>
+      <small class="hint-text">{{ tr(request, 'config_conn.password_hint', 'Ohne Passwort wird nur das Profil gespeichert. ARIA führt weiterhin den automatischen Verbindungstest aus und zeigt das Ergebnis an.') }}</small>
+      <label class="inline-check" for="run_key_exchange_new"><input id="run_key_exchange_new" type="checkbox" name="run_key_exchange" value="1" checked>{{ tr(request, 'config_conn.run_key_exchange', 'Schlüsselaustausch direkt nach dem Speichern ausführen (Standard)') }}</label>
+      <details class="skill-details" open><summary>{{ tr(request, 'config_conn.security_and_advanced', 'Sicherheit und erweiterte Optionen') }}</summary><div class="skill-details-content">{% set schema_fields = ssh_new_advanced_form_fields %}{% include "_connection_schema_fields.html" %}{% set guardrail_field_id = 'guardrail_ref_new' %}{% set selected_guardrail_ref = '' %}{% include "_connection_guardrail_select.html" %}</div></details>
+      <label class="inline-check ssh-create-mirror-check" for="create_matching_sftp_new"><input id="create_matching_sftp_new" type="checkbox" name="create_matching_sftp" value="1">{{ tr(request, 'config_conn.ssh_create_matching_sftp', 'Gleich auch ein passendes SFTP-Profil anlegen') }}</label>
+      <small class="hint-text">{{ tr(request, 'config_conn.ssh_create_matching_sftp_hint', 'Erzeugt beim Speichern zusätzlich ein SFTP-Profil mit Host, Nutzer, Port und SSH-Schlüssel. Wenn die Referenz auf -ssh endet, wird automatisch -sftp daraus.') }}</small>
+      {% set meta_prefix = 'ssh_new' %}{% set meta_llm_kind = 'ssh' %}{% set meta_llm_endpoint = ssh_meta_endpoint %}{% set meta_llm_source_fields = ['host', 'user', 'port', 'service_url'] %}{% set meta_show_service_url_field = true %}{% set meta_values = {} %}{% include "_connection_metadata_fields.html" %}
+      <button type="submit" class="ui-primary-action">{{ tr(request, 'config_conn.save_profile', 'Profil speichern') }}</button>
+    </form>
+  {% endcall %}
+  {% elif connection_page_type == 'detail' and selected_ref %}
+  {% call connection_settings(tr(request, 'config_conn.edit_existing_title', 'Verbindung bearbeiten'), tr(request, 'config_conn.edit_existing_profile_hint', 'Host, Nutzer, Schlüssel, Freigabeliste, Schutzregel und Metadaten dieses SSH-Profils.'), 'manage-existing') %}
+    {% set selected_guardrail_ref = selected.guardrail_ref %}{% include "_connection_guardrail_summary.html" %}
+    <form method="post" action="{{ ssh_save_path }}" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="{{ selected_ref }}">
+      {% set schema_fields = ssh_edit_base_form_fields %}{% include "_connection_schema_fields.html" %}
+      <details class="skill-details" open><summary>{{ tr(request, 'config_conn.security_and_advanced', 'Sicherheit und erweiterte Optionen') }}</summary><div class="skill-details-content">{% set schema_fields = ssh_edit_advanced_form_fields %}{% include "_connection_schema_fields.html" %}{% set guardrail_field_id = 'guardrail_ref_edit' %}{% set selected_guardrail_ref = selected.guardrail_ref %}{% include "_connection_guardrail_select.html" %}</div></details>
+      {% set meta_prefix = 'ssh_edit' %}{% set meta_llm_kind = 'ssh' %}{% set meta_llm_action_separate = true %}{% set meta_llm_endpoint = ssh_meta_endpoint %}{% set meta_llm_source_fields = ['host', 'user', 'port', 'service_url'] %}{% set meta_show_service_url_field = true %}{% set meta_values = selected %}{% include "_connection_metadata_fields.html" %}
+      <button type="submit" class="ui-primary-action">{{ tr(request, 'config_conn.save_profile', 'Profil speichern') }}</button>
+    </form>
+  {% endcall %}
+  {% endif %}
+  <details id="create-new" hidden></details>
 
-  <details id="manage-existing" class="config-card config-section-details" {% if connection_mode != 'create' and selected_ref %}open{% endif %}>
-    <summary class="config-section-summary">
-      <div class="config-section-heading">
-        <div class="config-section-title-row">
-          <h3>{{ tr(request, 'config_conn.edit_existing_profile', 'Bestehendes Profil bearbeiten') }}</h3>
-          {% if selected_ref %}<span class="config-section-count">{{ selected_ref }}</span>{% endif %}
-        </div>
-        <span class="config-section-desc">{{ tr(request, 'config_conn.edit_existing_profile_hint', 'Hier bearbeitest du Host, User, Key, Allowlist, Guardrail und Metadaten des ausgewählten SSH-Profils.') }}</span>
-      </div>
-    </summary>
-    <div class="config-section-content">
-      {% if selected_ref %}
-      {% set selected_guardrail_ref = selected.guardrail_ref %}
-      {% include "_connection_guardrail_summary.html" %}
-      {% if test_status == 'ok' or test_status == 'error' %}<article class="connection-test-card status-{{ test_status }}"><div class="connection-test-head"><span class="health-lamp status-{{ test_status }}"></span><strong>{% if test_status == 'ok' %}{{ tr(request, 'config_conn.test_ok', 'Connection test successful') }}{% else %}{{ tr(request, 'config_conn.test_error', 'Connection test failed') }}{% endif %}</strong></div><small>{% if test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small></article>{% endif %}
-      <form method="post" action="{{ ssh_save_path }}" class="editor-form" autocomplete="off">
-        <input type="hidden" name="original_ref" value="{{ selected_ref }}">
-        {% set schema_fields = ssh_edit_base_form_fields %}
-        {% include "_connection_schema_fields.html" %}
-        <div class="connection-form-grid">
-          <div><label for="login_user_inline_edit">{{ tr(request, 'config_conn.login_user', 'Login user for key exchange (optional, else profile user)') }}</label><input id="login_user_inline_edit" name="login_user" type="text" value="{{ selected.user or '' }}" placeholder="z.B. root"></div>
-          <div class="connection-password-block"><label for="login_password_inline_edit">{{ tr(request, 'config_conn.login_password', 'Login password for key exchange') }}</label><input id="login_password_inline_edit" name="login_password" type="password" autocomplete="current-password" placeholder="einmalig für Key-Exchange"></div>
-        </div>
-        <small class="hint-text">{{ tr(request, 'config_conn.password_hint', 'Without password only the profile is saved. ARIA still runs the automatic connection test and shows the result above.') }}</small>
-        <label class="inline-check" for="run_key_exchange_edit"><input id="run_key_exchange_edit" type="checkbox" name="run_key_exchange" value="1" checked>{{ tr(request, 'config_conn.run_key_exchange', 'Run key exchange directly after save (default)') }}</label>
-        <details class="skill-details" open><summary>{{ tr(request, 'config_conn.security_and_advanced', 'Security & advanced options') }}</summary><div class="skill-details-content">{% set schema_fields = ssh_edit_advanced_form_fields %}{% include "_connection_schema_fields.html" %}{% set guardrail_field_id = 'guardrail_ref_edit' %}{% set selected_guardrail_ref = selected.guardrail_ref %}{% include "_connection_guardrail_select.html" %}</div></details>
-        {% set meta_prefix = 'ssh_edit' %}
-        {% set meta_llm_kind = 'ssh' %}
-        {% set meta_llm_endpoint = ssh_meta_endpoint %}
-        {% set meta_llm_source_fields = ['host', 'user', 'port', 'service_url'] %}
-        {% set meta_show_service_url_field = true %}
-        {% set meta_values = selected %}
-        {% include "_connection_metadata_fields.html" %}
-        <button type="submit">{{ tr(request, 'config_conn.save_profile', 'Save profile') }}</button>
-      </form>
-      <details class="skill-details"><summary>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</summary><div class="skill-details-content"><p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>{% set delete_kind = 'ssh' %}{% set delete_ref = selected_ref %}{% set delete_extra_hint = tr(request, 'config_conn.delete_profile_ssh_hint', 'Local SSH key files are intentionally kept.') %}{% include "_connection_delete_inline.html" %}</div></details>
-      {% else %}
-      <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div><small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
-      {% endif %}
-    </div>
-  </details>
+  {% if connection_page_type == 'detail' and selected_ref %}
+  {% call ui_action_card(tr(request, 'config_conn.meta_llm_action_title', 'Metadaten mit LLM prüfen'), tr(request, 'config_conn.meta_llm_action_desc', 'Erstellt Vorschläge für Titel, Beschreibung, Aliase und Tags; gespeichert wird erst mit „Profil speichern“.')) %}
+    <button type="button" class="ui-secondary-action" data-connection-meta-llm-kind="ssh" data-connection-meta-prefix="ssh_edit" data-connection-meta-endpoint="{{ ssh_meta_endpoint|e }}" data-connection-meta-source-fields="host,user,port,service_url" data-default-label="{{ tr(request, 'config_conn.meta_llm_suggest', 'Check mit LLM') }}" data-loading-label="{{ tr(request, 'config_conn.meta_llm_suggest_loading', 'LLM denkt nach ...') }}">{{ tr(request, 'config_conn.meta_llm_suggest', 'Check mit LLM') }}</button>
+  {% endcall %}
 
-  <details id="create-new" class="config-card config-section-details" {% if connection_mode == 'create' %}open{% endif %}>
-    <summary class="config-section-summary">
-      <div class="config-section-heading">
-        <div class="config-section-title-row">
-          <h3>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h3>
-        </div>
-        <span class="config-section-desc">{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</span>
-      </div>
-    </summary>
-    <div class="config-section-content">
-      <div class="skill-summary connection-flow-note"><strong>{{ tr(request, 'config_conn.recommended_flow', 'Recommended flow') }}</strong><span>{{ tr(request, 'config_conn.recommended_flow_text', '1) Save profile with host/user. 2) Add one-time login password for key exchange if needed. 3) Save. 4) ARIA tests the connection automatically.') }}</span></div>
-      <form method="post" action="{{ ssh_save_path }}" class="editor-form" autocomplete="off">
-        <input type="hidden" name="original_ref" value="">
-        {% set schema_fields = ssh_new_base_form_fields %}
-        {% include "_connection_schema_fields.html" %}
-        <div class="connection-form-grid">
-          <div><label for="login_user_inline_new">{{ tr(request, 'config_conn.login_user', 'Login user for key exchange (optional, else profile user)') }}</label><input id="login_user_inline_new" name="login_user" type="text" value="" placeholder="z.B. root"></div>
-          <div class="connection-password-block"><label for="login_password_inline_new">{{ tr(request, 'config_conn.login_password', 'Login password for key exchange') }}</label><input id="login_password_inline_new" name="login_password" type="password" autocomplete="current-password" placeholder="einmalig für Key-Exchange"></div>
-        </div>
-        <small class="hint-text">{{ tr(request, 'config_conn.password_hint', 'Without password only the profile is saved. ARIA still runs the automatic connection test and shows the result above.') }}</small>
-        <label class="inline-check" for="run_key_exchange_new"><input id="run_key_exchange_new" type="checkbox" name="run_key_exchange" value="1" checked>{{ tr(request, 'config_conn.run_key_exchange', 'Run key exchange directly after save (default)') }}</label>
-        <details class="skill-details" open><summary>{{ tr(request, 'config_conn.security_and_advanced', 'Security & advanced options') }}</summary><div class="skill-details-content">{% set schema_fields = ssh_new_advanced_form_fields %}{% include "_connection_schema_fields.html" %}{% set guardrail_field_id = 'guardrail_ref_new' %}{% set selected_guardrail_ref = '' %}{% include "_connection_guardrail_select.html" %}</div></details>
-        <label class="inline-check ssh-create-mirror-check" for="create_matching_sftp_new"><input id="create_matching_sftp_new" type="checkbox" name="create_matching_sftp" value="1">{{ tr(request, 'config_conn.ssh_create_matching_sftp', 'Gleich auch ein passendes SFTP-Profil anlegen') }}</label>
-        <small class="hint-text">{{ tr(request, 'config_conn.ssh_create_matching_sftp_hint', 'Erzeugt beim Speichern zusaetzlich ein SFTP-Profil mit Host, User, Port und SSH-Key. Wenn der Ref auf -ssh endet, wird automatisch -sftp daraus.') }}</small>
-        {% set meta_prefix = 'ssh_new' %}
-        {% set meta_llm_kind = 'ssh' %}
-        {% set meta_llm_endpoint = ssh_meta_endpoint %}
-        {% set meta_llm_source_fields = ['host', 'user', 'port', 'service_url'] %}
-        {% set meta_show_service_url_field = true %}
-        {% set meta_values = {} %}
-        {% include "_connection_metadata_fields.html" %}
-        <button type="submit">{{ tr(request, 'config_conn.save_profile', 'Save profile') }}</button>
-      </form>
-    </div>
-  </details>
+  {{ connection_test_action(ssh_test_path, selected_ref, tr(request, 'config_conn.ssh_test_action_desc', 'Prüft die gespeicherte SSH-Verbindung mit den aktuellen Schlüssel- und Host-Einstellungen.')) }}
 
-  <details class="config-card config-section-details">
-    <summary class="config-section-summary">
-      <div class="config-section-heading">
-        <div class="config-section-title-row">
-          <h3>{{ tr(request, 'config_conn.tools', 'Tools (fallback)') }}</h3>
-        </div>
-        <span class="config-section-desc">{{ tr(request, 'config_conn.tools_subtitle', 'Only needed if you want to run key exchange later as a separate step.') }}</span>
-      </div>
-    </summary>
-    <div class="config-section-content">
-      <div class="connection-tools-grid">
-        <details class="skill-details"><summary>{{ tr(request, 'config_conn.manual_key_exchange', 'Manual key exchange') }}</summary><div class="skill-details-content"><form method="post" action="{{ ssh_key_exchange_path }}" class="editor-form"><label for="connection_ref_exchange">{{ tr(request, 'config_conn.profile_ref', 'Profile name (ref)') }}</label><input id="connection_ref_exchange" name="connection_ref" type="text" value="{{ selected_ref or '' }}" maxlength="48" required><label for="login_user">{{ tr(request, 'config_conn.login_user', 'Login user for key exchange (optional, else profile user)') }}</label><input id="login_user" name="login_user" type="text" value="{{ selected.user or '' }}" placeholder="z.B. root"><label for="login_password">{{ tr(request, 'config_conn.login_password_plain', 'Login password') }}</label><input id="login_password" name="login_password" type="password" autocomplete="current-password" required><button type="submit">{{ tr(request, 'config_conn.start_key_exchange', 'Start key exchange') }}</button></form></div></details>
-        <details class="skill-details"><summary>{{ tr(request, 'config_conn.manual_key_mgmt', 'Manual key management') }}</summary><div class="skill-details-content"><form method="post" action="{{ ssh_keygen_path }}" class="editor-form"><label for="connection_ref_keygen">{{ tr(request, 'config_conn.profile_for_keygen', 'Profile name for key generation') }}</label><input id="connection_ref_keygen" name="connection_ref" type="text" value="{{ selected_ref or '' }}" maxlength="48" required><label class="inline-check" for="overwrite_key"><input id="overwrite_key" type="checkbox" name="overwrite" value="1">{{ tr(request, 'config_conn.replace_key', 'Replace existing key') }}</label><button type="submit">{{ tr(request, 'config_conn.generate_ssh_key', 'Generate SSH key') }}</button></form><label>{{ tr(request, 'config_conn.public_key_label', 'Public key (for') }} <code>~/.ssh/authorized_keys</code>)</label><pre class="key-preview">{{ public_key or tr(request, 'config_conn.public_key_empty', 'No public key found for this profile yet.') }}</pre></div></details>
-      </div>
-    </div>
-  </details>
+  {% call connection_inventory(tr(request, 'config_conn.ssh_key_info_title', 'Schlüssel und Hostprüfung'), tr(request, 'config_conn.ssh_key_info_desc', 'Öffnet den öffentlichen Schlüssel und die Werkzeuge für den manuellen Schlüsselaustausch.')) %}
+    <p><strong>{{ tr(request, 'config_conn.public_key_label', 'Öffentlicher Schlüssel') }}</strong></p><pre class="key-preview">{{ public_key or tr(request, 'config_conn.public_key_empty', 'Für dieses Profil wurde noch kein öffentlicher Schlüssel gefunden.') }}</pre>
+  {% endcall %}
+  {% endif %}
+
+  {% if connection_page_type == 'detail' and selected_ref %}<section class="config-card connection-key-actions" aria-label="{{ tr(request, 'config_conn.key_actions', 'Schlüsselaktionen') }}">
+    <div class="connection-tools-grid"><details class="skill-details"><summary>{{ tr(request, 'config_conn.manual_key_exchange', 'Manueller Schlüsselaustausch') }}</summary><div class="skill-details-content"><form method="post" action="{{ ssh_key_exchange_path }}" class="editor-form"><label for="connection_ref_exchange">{{ tr(request, 'config_conn.profile_ref', 'Profilname (Referenz)') }}</label><input id="connection_ref_exchange" name="connection_ref" type="text" value="{{ selected_ref }}" maxlength="48" required><label for="login_user">{{ tr(request, 'config_conn.login_user', 'Anmeldenutzer für den Schlüsselaustausch (optional, sonst Profilnutzer)') }}</label><input id="login_user" name="login_user" type="text" value="{{ selected.user or '' }}"><label for="login_password">{{ tr(request, 'config_conn.login_password_plain', 'Anmeldepasswort') }}</label><input id="login_password" name="login_password" type="password" autocomplete="current-password" required><button type="submit">{{ tr(request, 'config_conn.start_key_exchange', 'Schlüsselaustausch starten') }}</button></form></div></details>
+      <details class="skill-details"><summary>{{ tr(request, 'config_conn.manual_key_mgmt', 'Manuelle Schlüsselverwaltung') }}</summary><div class="skill-details-content"><form method="post" action="{{ ssh_keygen_path }}" class="editor-form"><label for="connection_ref_keygen">{{ tr(request, 'config_conn.profile_for_keygen', 'Profilname für die Schlüsselerzeugung') }}</label><input id="connection_ref_keygen" name="connection_ref" type="text" value="{{ selected_ref }}" maxlength="48" required><label class="inline-check" for="overwrite_key"><input id="overwrite_key" type="checkbox" name="overwrite" value="1">{{ tr(request, 'config_conn.replace_key', 'Vorhandenen Schlüssel ersetzen') }}</label><button type="submit">{{ tr(request, 'config_conn.generate_ssh_key', 'SSH-Schlüssel erzeugen') }}</button></form></div></details></div>
+  </section>{% endif %}
+
+  {% if connection_page_type == 'detail' and selected_ref %}
+  {% call connection_danger_zone(tr(request, 'config_conn.delete_profile', 'Verbindung löschen'), tr(request, 'config_conn.delete_profile_hint', 'Löscht dieses Profil einschließlich der Secrets und des Gesundheitsstatus. Lokale SSH-Schlüsseldateien bleiben erhalten.')) %}
+    {% set delete_kind = 'ssh' %}{% set delete_ref = selected_ref %}{% set delete_extra_hint = tr(request, 'config_conn.delete_profile_ssh_hint', 'Lokale SSH-Schlüsseldateien bleiben absichtlich erhalten.') %}{% set delete_inside_danger = true %}{% include "_connection_delete_inline.html" %}
+  {% endcall %}
+  {% elif connection_page_type == 'detail' %}<p class="hint-text">{{ tr(request, 'config_conn.no_profile_loaded_hint', 'Dieses Profil wurde nicht gefunden.') }}</p>{% endif %}
 </main>
-<script>
-(() => {
-  document.querySelectorAll(".connection-profile-card[data-edit-url]").forEach((card) => {
-    const url = card.getAttribute("data-edit-url");
-    if (!url) {
-      return;
-    }
-    card.addEventListener("click", (event) => {
-      if (event.target.closest("a, button, input, select, textarea")) {
-        return;
-      }
-      window.location.assign(url);
-    });
-    card.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") {
-        return;
-      }
-      event.preventDefault();
-      window.location.assign(url);
-    });
-  });
-})();
-</script>
+<script>(() => { document.querySelectorAll(".connection-profile-card[data-edit-url]").forEach((card) => { const url = card.getAttribute("data-edit-url"); if (!url) return; card.addEventListener("click", (event) => { if (!event.target.closest("a, button, input, select, textarea")) window.location.assign(url); }); card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); window.location.assign(url); } }); }); })();</script>
 {% endblock %}

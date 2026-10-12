@@ -3,11 +3,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 
 from aria.modules import module_asset_path, module_template_name
 
@@ -44,6 +46,19 @@ def register_docs_surface_routes(app: FastAPI, deps: DocsSurfaceRouteDeps) -> No
             raise RuntimeError(f"static_help_docs template is not registered: {template_name}")
         return resolved
 
+    def _without_leading_document_title(rendered: Any) -> Markup:
+        html = str(rendered or "")
+        return Markup(re.sub(r"^\s*<h1(?:\s[^>]*)?>.*?</h1>\s*", "", html, count=1, flags=re.DOTALL))
+
+    def _help_sections() -> list[dict[str, Any]]:
+        return [
+            {
+                **group,
+                "docs": [entry for entry in deps.help_doc_catalog if entry.get("group") == group["id"]],
+            }
+            for group in deps.help_doc_groups
+        ]
+
     @app.get("/help", response_class=HTMLResponse)
     async def help_page(request: Request, doc: str = "home") -> HTMLResponse:
         settings = deps.get_settings()
@@ -52,13 +67,7 @@ def register_docs_surface_routes(app: FastAPI, deps: DocsSurfaceRouteDeps) -> No
         selected_doc = deps.help_doc_map.get(doc) or deps.help_doc_catalog[0]
         localized_help_path = deps.localized_doc_path(deps.base_dir, selected_doc["path"], lang)
         help_text = deps.read_doc_text(deps.base_dir, localized_help_path)
-        help_sections = [
-            {
-                **group,
-                "docs": [entry for entry in deps.help_doc_catalog if entry.get("group") == group["id"]],
-            }
-            for group in deps.help_doc_groups
-        ]
+        help_sections = _help_sections()
         return deps.templates.TemplateResponse(
             request=request,
             name=_static_help_docs_template("help.html"),
@@ -70,7 +79,7 @@ def register_docs_surface_routes(app: FastAPI, deps: DocsSurfaceRouteDeps) -> No
                 "selected_doc": selected_doc,
                 "help_path": localized_help_path,
                 "help_text": help_text,
-                "help_html": deps.render_markdown_doc(help_text),
+                "help_html": _without_leading_document_title(deps.render_markdown_doc(help_text)),
             },
         )
 
@@ -107,12 +116,12 @@ def register_docs_surface_routes(app: FastAPI, deps: DocsSurfaceRouteDeps) -> No
             aria_license_text = ""
         license_entries = [
             {
-                "name": "ARIA",
+                "name": "A.R.I.A.",
                 "license": "MIT",
                 "source": "LICENSE",
-                "url": "",
+                "url": "https://github.com/FischermanCH/A.R.I.A./blob/main/LICENSE",
                 "icon": "product",
-                "summary": deps.translate(request, "licenses.aria_summary", "The local project license for ARIA itself."),
+                "summary": deps.translate(request, "licenses.aria_summary", "The local project license for A.R.I.A. itself."),
             },
             {
                 "name": "Qdrant",
@@ -131,6 +140,7 @@ def register_docs_surface_routes(app: FastAPI, deps: DocsSurfaceRouteDeps) -> No
                 "username": username,
                 "license_entries": license_entries,
                 "aria_license_text": aria_license_text,
+                "help_sections": _help_sections(),
             },
         )
 

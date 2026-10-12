@@ -1,0 +1,33 @@
+{% from "_icons.html" import icon %}
+{% set static_help_docs_help_path = module_route_path('static_help_docs', '/help') %}
+{% set static_help_docs_licenses_path = module_route_path('static_help_docs', '/licenses') %}
+{% set help_nav_id = 'help.licenses' if selected_help_doc_id == 'licenses' else ('help.qdrant' if selected_help_doc_id == 'qdrant' else 'help.overview') %}
+<header class="page-head help-page-head" data-ui-section-header="help" data-ui-canonical-nav-id="{{ help_nav_id }}">
+  <div>
+    <p class="section-kicker">{{ tr(request, 'base.nav_help', 'Hilfe') }}</p>
+    <h1>{{ tr(request, 'help.title', 'Hilfe') }}</h1>
+    <p class="ui-page-purpose">{% if selected_help_doc_id == 'licenses' %}{{ tr(request, 'licenses.purpose', 'Hier findest du die Lizenz von A.R.I.A. und die Herkunft zentraler Drittanbieter-Komponenten.') }}{% elif selected_help_doc_id == 'qdrant' %}{{ tr(request, 'help.qdrant_purpose', 'Hier findest du die technische Einordnung von Qdrant in A.R.I.A.') }}{% else %}{{ tr(request, 'help.purpose', 'Wähle ein Thema und öffne die passende Anleitung für deine aktuelle Aufgabe.') }}{% endif %}</p>
+  </div>
+  {% if (selected_help_doc_id == 'licenses' or request.query_params.get('doc')) and selected_help_doc_id != 'home' %}<a class="ui-action-link" data-ui-back-link="true" href="{{ static_help_docs_help_path }}">{{ icon('arrow_left', 'ui-action-icon') }}{{ tr(request, 'help.back_to_overview', 'Hilfe-Übersicht') }}</a>{% endif %}
+</header>
+<nav class="help-doc-inline-nav help-doc-groups" aria-label="{{ tr(request, 'help.toc_label', 'Inhaltsverzeichnis') }}">
+  {% for section in help_sections %}
+  <section class="help-doc-group" aria-labelledby="help-group-{{ section.id }}">
+    <h2 id="help-group-{{ section.id }}">{{ tr(request, section.label_i18n, section.label_default) }}</h2>
+    <div class="help-doc-pill-row">
+      {% for help_doc in section.docs %}
+      <a href="{{ static_help_docs_help_path }}?doc={{ help_doc.id }}" class="help-doc-pill{% if selected_help_doc_id == help_doc.id %} is-active{% endif %}" aria-current="{{ 'page' if selected_help_doc_id == help_doc.id else 'false' }}">
+        <span class="help-doc-pill-icon">{{ icon(help_doc.icon) }}</span>
+        <span>{{ tr(request, help_doc.label_i18n, help_doc.label_default) }}</span>
+      </a>
+      {% endfor %}
+      {% if section.id == 'technical_legal' %}
+      <a href="{{ static_help_docs_licenses_path }}" class="help-doc-pill{% if selected_help_doc_id == 'licenses' %} is-active{% endif %}" aria-current="{{ 'page' if selected_help_doc_id == 'licenses' else 'false' }}">
+        <span class="help-doc-pill-icon">{{ icon('files') }}</span>
+        <span>{{ tr(request, 'base.nav_licenses', 'Lizenzen') }}</span>
+      </a>
+      {% endif %}
+    </div>
+  </section>
+  {% endfor %}
+</nav>

@@ -63,8 +63,13 @@ Chat-Details zeigen Quellen, Collection und Chunk-Referenzen, wenn Dokument-Reca
 - `/memories` fuer den grafischen Gedaechtnis-Browser
 - `/memories/import` fuer neue Dokumente und Memory-Importe
 - `/memories/auto-memory` fuer Auto-Memory und agentisches Lernen
+- `/memories/activity-journal` für kompakte, nutzergetrennte Kurzfassungen abgeschlossener Tool-Aktivitäten und Agent-Jobs
 - `/memories/maintenance` fuer technische Pflege, Rebuilds und interne Lernartefakte
 - `/config/embeddings` fuer Embedding-Modell und Sicherheitsabfrage bei vorhandenem Memory
+
+### Aktivitätsjournal
+
+Das Aktivitätsjournal speichert kurze, redigierte Angaben zu abgeschlossenen Tool-Turns und Agent-Jobs. Roh-Ausgaben, Datei- oder Dokumentinhalte, Bilder, Prompts und Zugangsdaten werden dort nicht abgelegt. ARIA liest das Journal nur auf ausdrücklichen Bedarf über ein nutzergetrenntes Read-only-Tool; es wird nie automatisch in den Prompt eingefügt. Die Aufbewahrung beträgt standardmäßig 90 Tage. Markierte Einträge und ausdrücklich übernommene alte Kontext-Rollups bleiben von der automatischen Bereinigung ausgenommen.
 
 ### Auto-Memory und Lernen
 

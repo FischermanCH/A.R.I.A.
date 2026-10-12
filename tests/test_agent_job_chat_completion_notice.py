@@ -95,13 +95,15 @@ def test_detached_message_has_machine_id_and_clickable_markdown_link(monkeypatch
     assert f'href="/jobs/panel#job-{job_id}"' in rendered
 
 
-def test_job_store_migrates_notified_and_claims_it_once(tmp_path: Path) -> None:
+def test_job_store_terminal_outbox_is_pending_until_delivery_ack(tmp_path: Path) -> None:
     store = AgentJobStore(tmp_path / "agent_jobs.sqlite3")
     store.create(job_id="job", user_id="alice", goal="goal", status="detached")
     store.set_terminal("job", status="done", result="ok")
 
-    assert store.mark_notified("job") is True
-    assert store.mark_notified("job") is False
+    assert store.get_notice("job", "terminal")["delivery_state"] == "pending"
+    assert store.reserve_notice("job", "terminal") is not None
+    assert store.mark_notice_delivered("job", "terminal") is True
+    assert store.mark_notice_delivered("job", "terminal") is False
     assert store.get("job").notified is True
     assert store.get("job").as_dict()["notified"] is True
 
@@ -235,7 +237,10 @@ def test_sync_turn_has_no_notice_and_notifier_failure_does_not_change_status(
 
     record = asyncio.run(failure_scenario())
     assert record.status == "done"
-    assert record.notified is True
+    assert record.notified is False
+    notice = AgentJobStore(tmp_path / "notify-failure" / "data" / "runtime" / "agent_jobs.sqlite3").get_notice(record.job_id, "terminal")
+    assert notice is not None and notice["delivery_state"] == "pending"
+    assert "history unavailable" in notice["last_error"]
 
 
 def test_assistant_notice_history_is_bounded_and_provider_roles_are_normalized(tmp_path: Path) -> None:

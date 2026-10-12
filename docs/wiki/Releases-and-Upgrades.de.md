@@ -20,9 +20,9 @@ cd /opt/aria/aria
 Der normale `aria-stack.sh update` erzeugt nur `aria` neu. Qdrant und alle Volumes bleiben unangetastet.
 Sobald ARIA danach wieder gesund ist, entfernen managed/interne Helper dangling Docker-Image-Layer und alte ungenutzte ARIA-Docker-Images. Container, Volumes, Sidecars und getaggte fremde Images werden nicht bereinigt.
 
-ARIA kann unter `/stats#runtime-health` ein Third-party-Sidecar-Inventar anzeigen, wenn die Runtime Docker-Container-Metadaten sehen darf. Wenn die Runtime Docker nicht sieht, ist das nur informativ; normale Updates lassen Sidecars trotzdem unveraendert.
+ARIA kann unter `/stats#runtime-health` ein Third-party-Sidecar-Inventar anzeigen, wenn die Runtime Docker-Container-Metadaten sehen darf. Wenn die Runtime Docker nicht sieht, ist das nur informativ; normale Updates lassen Sidecars trotzdem unverändert.
 
-Wenn ein Release das Stack-Layout selbst aendert:
+Wenn ein Release das Stack-Layout selbst ändert:
 
 ```bash
 aria-setup upgrade --install-dir /opt/aria/aria
@@ -30,14 +30,14 @@ aria-setup upgrade --install-dir /opt/aria/aria
 
 `update-all` oder `repair` nur verwenden, wenn Release Notes oder Recovery-Hinweise es explizit verlangen.
 
-Nach einem bewussten Sidecar-/Full-Stack-Update kurz pruefen:
+Nach einem bewussten Sidecar-/Full-Stack-Update kurz prüfen:
 
 1. `/health` und `/stats#runtime-health`
-2. `Memory / Qdrant` plus eine Memory- oder Notes-gestuetzte Chatfrage
+2. `Memory / Qdrant` plus eine Memory- oder Notes-gestützte Chatfrage
 3. Provider-/Web-Tooling-Bereitschaft, falls Webantworten aktiviert sind
 4. `/updates`, damit der kontrollierte Update-Pfad weiter erreichbar ist
 
-Managed Installs koennen auch die Browser-Update-Seite unter `/updates` anbieten.
+Managed Installs können auch die Browser-Update-Seite unter `/updates` anbieten.
 
 ## 2. Manuelle Public-Docker-Compose-Installs
 
@@ -53,11 +53,11 @@ Regeln:
 - dasselbe Compose-File behalten
 - denselben Compose-Projektnamen behalten
 - dieselben Volumes behalten
-- Host-seitige Docker-Kommandos nutzen, ausser der Stack enthaelt bewusst den Managed Helper
+- Host-seitige Docker-Kommandos nutzen, ausser der Stack enthält bewusst den Managed Helper
 
 ## 3. Interne lokale TAR-Builds
 
-Dieser Pfad ist fuer interne Alpha-Tests:
+Dieser Pfad ist für interne Alpha-Tests:
 
 - `aria-pull`
 - `docker/update-local-aria.sh`
@@ -77,10 +77,10 @@ Wichtige Befehle:
 
 Sicherheitsverhalten:
 
-- erzeugt nur den ausgewaehlten `aria` Service neu
-- laesst Qdrant und alle Volumes unangetastet
+- erzeugt nur den ausgewählten `aria` Service neu
+- lässt Qdrant und alle Volumes unangetastet
 - aktualisiert Managed-Helper-Dateien aus dem Ziel-Image vor dem ARIA-Recreate
-- prueft den geplanten Host-Port vor dem ARIA-Recreate
+- prüft den geplanten Host-Port vor dem ARIA-Recreate
 - bereinigt dangling Layer und alte ungenutzte ARIA-Images erst nach erfolgreichem Healthcheck
 - bricht sicher ab, wenn ein anderer Prozess oder Container diesen Port belegt
 
@@ -90,7 +90,7 @@ Sicherheitsverhalten:
 - `aria version-check`
 - `/stats` Preflight
 - `/updates` Helper-Status bei Managed Installs
-- harter Browser-Reload nach groesseren UI-/CSS-Updates
+- harter Browser-Reload nach größeren UI-/CSS-Updates
 
 Referenzen:
 

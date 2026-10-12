@@ -1,20 +1,22 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/detail_page.html" %}
+{% block page_body %}
 {% set config_ui_overview_path = module_route_path('config_ui', '/config') %}
 {% set config_ui_llm_debug_clear_path = module_route_path('config_ui', '/config/llm/debug/clear') %}
 <main class="config-layout config-domain-layout config-domain-surface-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
+  <p class="ui-page-purpose">{{ tr(request, 'llm_debug.page_purpose', 'Hier prüfst du redigierte Modellaufrufe, Laufzeiten und Fehler des zentralen LLM-Gateways.') }}</p>
 
   <section class="config-card floating-card config-domain-section">
     <div class="inline-actions routing-index-actions">
-      <a class="button-like" href="{{ config_ui_overview_path }}">{{ tr(request, 'config.back_to_settings', 'Back to settings') }}</a>
+      <a class="button-like" data-ui-back-link="true" href="{{ config_ui_overview_path }}">{{ tr(request, 'config.back_to_settings', 'Back to settings') }}</a>
       <form method="post" action="{{ config_ui_llm_debug_clear_path }}" class="inline-form">
         <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token if request and request.state else '' }}">
         <button type="submit" class="button-like danger-button">{{ tr(request, 'llm_debug.clear', 'Clear debug log') }}</button>
       </form>
     </div>
     <p>{{ tr(request, 'llm_debug.intro', 'Shows the latest redacted LLM gateway calls across workers. Secrets are masked; the local debug file lives under data/runtime, follows the log retention policy, and can be cleared here.') }}</p>
+    <div class="alert note"><strong>{{ tr(request, 'llm_debug.privacy_title', 'Datenschutzhinweis') }}</strong><br>{{ tr(request, 'llm_debug.privacy_notice', 'Bei minimaler Trace-Tiefe werden nur begrenzte Metadaten gespeichert. Im vollständigen Modus können redigierte Prompts und Antworten enthalten sein; die Aufbewahrung folgt den Trace-Einstellungen.') }}</div>
     <small class="stats-health-detail">
       {{ tr(request, 'llm_debug.scope', 'Scope') }}:
       <code>{{ tr(request, 'llm_debug.scope_value', 'central LLMClient gateway, redacted across workers') }}</code>
@@ -31,7 +33,7 @@
   {% endif %}
 
   {% for entry in entries %}
-  <section class="config-card floating-card config-domain-section llm-debug-entry">
+  <section class="config-card floating-card config-domain-section llm-debug-entry" data-ui-user-content data-ui-repeated-item>
     <div class="stats-health-card-head">
       <div class="stats-health-title">
         <span class="health-lamp status-{{ 'error' if entry.error else 'ok' }}"></span>
@@ -57,7 +59,7 @@
     <div class="alert err">{{ entry.error }}</div>
     {% endif %}
 
-    <details class="llm-debug-details" open>
+    <details class="llm-debug-details" data-ui-settings-section="true" data-ui-settings-key="llm-debug-messages-{{ loop.index }}">
       <summary>{{ tr(request, 'llm_debug.messages', 'Messages sent to LLM') }}</summary>
       {% for message in entry.messages %}
       <div class="llm-debug-message">

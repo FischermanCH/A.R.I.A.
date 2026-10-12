@@ -18,7 +18,7 @@ from aria.modules.connection_routing.index import routing_documents_fingerprint
 def _settings() -> Settings:
     return Settings.model_validate(
         {
-            "aria": {"public_url": "http://aria.example.lan:8810"},
+            "aria": {"public_url": "http://aria.example.test:8810"},
             "llm": {"model": "fake"},
             "embeddings": {"model": "embed-small", "api_base": "http://litellm:4000"},
             "memory": {
@@ -29,7 +29,7 @@ def _settings() -> Settings:
             "connections": {
                 "ssh": {
                     "dns-node-01": {
-                        "host": "dns-node-01.lan",
+                        "host": "dns-node-01.example",
                         "user": "root",
                         "description": "Pi-hole DNS server",
                         "tags": ["dns", "pi-hole"],
@@ -310,13 +310,13 @@ def test_routing_admin_testbench_uses_bound_kind_not_free_text_exact_match() -> 
 def test_routing_admin_testbench_auto_reports_inferred_kind_without_using_it_as_authority() -> None:
     settings = Settings.model_validate(
         {
-            "aria": {"public_url": "http://aria.example.lan:8810"},
+            "aria": {"public_url": "http://aria.example.test:8810"},
             "llm": {"model": "fake"},
             "embeddings": {"model": "embed-small", "api_base": "http://litellm:4000"},
             "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
             "connections": {
-                "ssh": {"dns-node-01": {"host": "dns-node-01.lan", "user": "root", "description": "Pi-hole DNS"}},
-                "sftp": {"dns-node-01": {"host": "dns-node-01.lan", "user": "root", "description": "Pi-hole files"}},
+                "ssh": {"dns-node-01": {"host": "dns-node-01.example", "user": "root", "description": "Pi-hole DNS"}},
+                "sftp": {"dns-node-01": {"host": "dns-node-01.example", "user": "root", "description": "Pi-hole files"}},
             },
         }
     )
@@ -386,14 +386,14 @@ def test_routing_admin_testbench_auto_reports_inferred_kind_without_using_it_as_
 def test_routing_admin_testbench_includes_llm_router_dry_run() -> None:
     settings = Settings.model_validate(
         {
-            "aria": {"public_url": "http://aria.example.lan:8810"},
+            "aria": {"public_url": "http://aria.example.test:8810"},
             "llm": {"model": "fake"},
             "embeddings": {"model": "embed-small", "api_base": "http://litellm:4000"},
             "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
             "connections": {
                 "ssh": {
-                    "dns-node-01": {"host": "dns-node-01.lan", "user": "root", "description": "Primary DNS"},
-                    "dns-node-02": {"host": "dns-node-02.lan", "user": "root", "description": "Secondary DNS"},
+                    "dns-node-01": {"host": "dns-node-01.example", "user": "root", "description": "Primary DNS"},
+                    "dns-node-02": {"host": "dns-node-02.example", "user": "root", "description": "Secondary DNS"},
                 }
             },
         }
@@ -480,21 +480,21 @@ def test_routing_admin_testbench_includes_llm_router_dry_run() -> None:
 def test_routing_admin_llm_dry_run_uses_only_bounded_candidates() -> None:
     settings = Settings.model_validate(
         {
-            "aria": {"public_url": "http://aria.example.lan:8810"},
+            "aria": {"public_url": "http://aria.example.test:8810"},
             "llm": {"model": "fake"},
             "embeddings": {"model": "embed-small", "api_base": "http://litellm:4000"},
             "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
             "connections": {
                 "ssh": {
                     "dns-node-01": {
-                        "host": "dns-node-01.lan",
+                        "host": "dns-node-01.example",
                         "user": "root",
                         "description": "Primary DNS",
                         "aliases": ["dns-node-01", "primary dns"],
                         "tags": ["dns", "primary"],
                     },
                     "dns-node-02": {
-                        "host": "dns-node-02.lan",
+                        "host": "dns-node-02.example",
                         "user": "root",
                         "description": "Secondary DNS",
                         "aliases": ["dns-node-02", "secondary dns"],
@@ -582,14 +582,14 @@ def test_routing_admin_llm_dry_run_uses_only_bounded_candidates() -> None:
 def test_routing_admin_includes_action_planner_dry_run() -> None:
     settings = Settings.model_validate(
         {
-            "aria": {"public_url": "http://aria.example.lan:8810"},
+            "aria": {"public_url": "http://aria.example.test:8810"},
             "llm": {"model": "fake"},
             "embeddings": {"model": "embed-small", "api_base": "http://litellm:4000"},
             "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
             "connections": {
                 "ssh": {
                     "dns-node-01": {
-                        "host": "dns-node-01.lan",
+                        "host": "dns-node-01.example",
                         "user": "root",
                         "description": "Primary DNS",
                         "aliases": ["dns-node-01", "primary dns"],

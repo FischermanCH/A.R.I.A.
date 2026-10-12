@@ -62,9 +62,9 @@ def test_connection_status_meta_supports_overrides_and_defaults() -> None:
 
 def test_connection_overview_meta_supports_defaults() -> None:
     mqtt = connection_overview_meta("mqtt")
-    assert mqtt["profiles"]["hint_key"] == "config_conn.mqtt_profiles_hint"
-    assert mqtt["healthy"]["hint_key"] == "config_conn.mqtt_healthy_hint"
-    assert mqtt["issues"]["hint_key"] == "config_conn.mqtt_issue_hint"
+    assert mqtt["profiles"]["hint_key"] == "config_conn.overview_profiles_hint"
+    assert mqtt["healthy"]["hint_key"] == "config_conn.overview_healthy_hint"
+    assert mqtt["issues"]["hint_key"] == "config_conn.overview_issue_hint"
 
 
 def test_connection_chat_emoji_uses_catalog_icons() -> None:

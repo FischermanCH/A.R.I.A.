@@ -97,7 +97,11 @@ async def handle_sftp_save(
         existing_secret_ref = original_ref_clean or ref
         existing_password = store.get_secret(f"connections.sftp.{existing_secret_ref}.password", default="")
         clean_password = str(password).strip() or existing_password
-        clean_key_path = str(key_path).strip()
+        existing_row = rows.get(existing_secret_ref, {})
+        existing_key_path = str(
+            existing_row.get("key_path", "") if isinstance(existing_row, dict) else ""
+        ).strip()
+        clean_key_path = str(key_path).strip() or existing_key_path
         if not clean_password and not clean_key_path:
             raise ConnectionAdminError("sftp_auth_missing")
         selected_guardrail_ref = _validated_guardrail_ref(

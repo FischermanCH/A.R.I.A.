@@ -1,37 +1,37 @@
 # Quick Start
 
-ARIA ist darauf ausgelegt, schnell vom Container zur nutzbaren Web-Oberflaeche zu kommen.
+ARIA ist darauf ausgelegt, schnell vom Container zur nutzbaren Web-Oberfläche zu kommen.
 
 ## Empfohlener Weg
 
 1. mit `aria-setup` oder bewusstem Docker Compose Setup installieren
-2. Web-UI oeffnen
+2. Web-UI öffnen
 3. ersten Bootstrap-User anlegen
 4. Chat-LLM und Embeddings konfigurieren
-5. `/stats` oeffnen und Preflight, Pricing Coverage und Gateway Audit pruefen
+5. `/stats` öffnen und Preflight, Pricing Coverage und Gateway Audit prüfen
 6. erste Connections unter `/connections/types` anlegen
 7. einen einfachen Prompt testen
-8. `/help?doc=chat`, `/help?doc=navigation` und `/help?doc=agentic` oeffnen, wenn du Queue, Menues, Bestaetigungen und Details verstehen willst
+8. `/help?doc=chat`, `/help?doc=navigation` und `/help?doc=agentic` öffnen, wenn du Queue, Menüs, Bestätigungen und Details verstehen willst
 
 ## Sinnvolle erste Prompts
 
 - `ist mein dns server ok`
 - `check mal ob meine server noch genug freien festplatten platz haben`
-- `pruef ob die api erreichbar ist`
-- `mach mir eine zusammenfassung der letzten it-security news`
+- `prüf ob die api erreichbar ist`
+- `fass mir die neuesten IT-Sicherheitsnachrichten zusammen`
 
 ## Erste Alltagsbereiche
 
-- `/notes` fuer Markdown-Notizen
-- `/memories` fuer den grafischen Gedaechtnis-Browser und `/memories/import` fuer Dokumentimporte
-- `/connections/types` fuer externe Systeme
-- `/recipes` fuer den Rezepte-Hub und `/recipes/mine` fuer gespeicherte Rezepte
-- `/config/workbench/routing` fuer Action-/Routing-Dry-runs
+- `/notes` für Markdown-Notizen
+- `/memories` für den grafischen Gedächtnis-Browser und `/memories/import` für Dokumentimporte
+- `/connections/types` für externe Systeme
+- `/recipes` für den Rezepte-Hub und `/recipes/mine` für gespeicherte Rezepte
+- `/config/llm/debug` für Action-/Routing-Dry-runs
 
 ## Deployment-Hinweise
 
 - LAN/VPN wird empfohlen
-- direkter Public-Internet-Betrieb ist fuer die Alpha nicht empfohlen
+- direkter Public-Internet-Betrieb ist für die Alpha nicht empfohlen
 - Managed Installs sollten den Update-Helper nutzen statt beliebige Container manuell zu ersetzen
 - Volumes und Compose-Projektnamen stabil halten
 

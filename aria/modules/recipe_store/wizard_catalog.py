@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -332,12 +333,25 @@ def _sanitize_recipe_type(value: str | None) -> str:
     return key if key in _RECIPE_TYPE_PRESETS else "custom"
 
 
-def _recipe_type_options() -> list[dict[str, str]]:
+def _localized_catalog_entry(entry: dict[str, Any], language: str) -> dict[str, Any]:
+    localized = copy.deepcopy(entry)
+    for field in ("label", "hint", "description", "default_step_name", "name"):
+        key = str(entry.get(f"{field}_key", "") or "").strip()
+        if key:
+            localized[field] = _recipes_routes_text(language, key, str(entry.get(field, "") or ""))
+    return localized
+
+
+def _recipe_type_presets(language: str = "de") -> dict[str, dict[str, Any]]:
+    return {key: _localized_catalog_entry(meta, language) for key, meta in _RECIPE_TYPE_PRESETS.items()}
+
+
+def _recipe_type_options(language: str = "de") -> list[dict[str, str]]:
     return [
         {
             "key": key,
-            "label": str(meta.get("label", key)).strip() or key,
-            "hint": str(meta.get("hint", "")).strip(),
+            "label": str(_localized_catalog_entry(meta, language).get("label", key)).strip() or key,
+            "hint": str(_localized_catalog_entry(meta, language).get("hint", "")).strip(),
         }
         for key, meta in _RECIPE_TYPE_PRESETS.items()
     ]
@@ -347,12 +361,18 @@ def _recipe_type_allowed_steps() -> dict[str, list[str]]:
     return {key: list(values) for key, values in _RECIPE_TYPE_ALLOWED_STEP_TYPES.items()}
 
 
-def _recipe_type_followup_steps() -> dict[str, list[dict[str, Any]]]:
-    return {key: [dict(item) for item in values] for key, values in _RECIPE_TYPE_FOLLOWUP_STEPS.items()}
+def _recipe_type_followup_steps(language: str = "de") -> dict[str, list[dict[str, Any]]]:
+    return {
+        key: [_localized_catalog_entry(item, language) for item in values]
+        for key, values in _RECIPE_TYPE_FOLLOWUP_STEPS.items()
+    }
 
 
-def _recipe_type_connection_choices() -> dict[str, list[dict[str, str]]]:
-    return {key: [dict(item) for item in values] for key, values in _RECIPE_TYPE_CONNECTION_CHOICES.items()}
+def _recipe_type_connection_choices(language: str = "de") -> dict[str, list[dict[str, str]]]:
+    return {
+        key: [_localized_catalog_entry(item, language) for item in values]
+        for key, values in _RECIPE_TYPE_CONNECTION_CHOICES.items()
+    }
 
 
 # Legacy aliases: templates/forms still submit `skill_type` in alpha installs.

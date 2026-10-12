@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "page_types/overview_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% block page_body %}
 {% set connections_status_path = module_route_path('connections_ui_readonly', '/connections/status') %}
 {% set connections_types_path = module_route_path('connections_ui_readonly', '/connections/types') %}
 {% set connections_templates_path = module_route_path('connections_ui_readonly', '/connections/templates') %}

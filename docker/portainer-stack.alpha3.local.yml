@@ -10,6 +10,9 @@ services:
       - "6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
 
 
 
@@ -38,6 +41,9 @@ services:
       - qdrant_storage:/qdrant/storage:ro
     depends_on:
       - qdrant
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
 
   aria-updater:
     image: aria:alpha-local
@@ -77,6 +83,9 @@ services:
       - python
       - -m
       - aria.update_helper
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
 
 volumes:
   qdrant_storage:

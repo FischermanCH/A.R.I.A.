@@ -282,7 +282,7 @@ def register_auth_middleware(app: FastAPI, deps: AuthMiddlewareDeps) -> None:
                             "detail": deps.translate(
                                 request,
                                 "auth.admin_mode_required",
-                                "Erweiterte Ansicht erforderlich. Bitte im Account-Menue aktivieren.",
+                                "Erweiterte Ansicht erforderlich. Bitte im Account-Menü aktivieren.",
                             ),
                         },
                     )
@@ -294,6 +294,10 @@ def register_auth_middleware(app: FastAPI, deps: AuthMiddlewareDeps) -> None:
             "/health",
             "/recipes/import",
             "/config/connections/rss/import-opml",
+            # Multipart bodies are consumed by the middleware parser. This
+            # route validates its CSRF form field itself so FastAPI can still
+            # receive the uploaded backup file.
+            "/config/backup/import",
             "/memories/upload",
         }
         if (

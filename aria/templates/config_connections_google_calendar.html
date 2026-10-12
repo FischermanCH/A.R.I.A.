@@ -1,14 +1,14 @@
-{% extends "base.html" %}
+{% extends "page_types/" ~ connection_page_type ~ "_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% block page_body %}
   {% set google_calendar_save_path = required_module_route_path('google_calendar_ui', '/config/connections/google-calendar/save') %}
-<main class="config-layout">
+<main class="config-layout connection-{{ connection_page_type }}" data-ui-page-type="{{ connection_page_type }}">
   {% set google_calendar_settings_url = "https://calendar.google.com/calendar/u/0/r/settings" %}
   {% include "_connection_page_intro.html" %}
   {% include "_connection_status_block.html" %}
   {% include "_connection_mode_nav.html" %}
 
-  <details id="manage-existing" class="config-card config-section-details connection-mode-card connection-mode-edit" {% if connection_mode != 'create' and selected_google_calendar_ref %}open{% endif %}>
+  {% if connection_page_type == 'detail' %}<details id="manage-existing" class="config-card config-section-details connection-mode-card connection-mode-edit" open>
     <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.edit_existing_title','Bestehendes Profil bearbeiten') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.edit_existing_subtitle','Profilkarte anklicken oder hier das aktuell geladene Profil bearbeiten.') }}</span></span></summary>
     <div class="config-section-content">
     {% if selected_google_calendar_ref %}
@@ -18,7 +18,7 @@
       <small>{% if google_calendar_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
     </article>
     {% endif %}
-    <form method="post" action="{{ google_calendar_save_path }}" class="editor-form" autocomplete="off">
+    <form id="google-calendar-settings-form" method="post" action="{{ google_calendar_save_path }}" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="{{ selected_google_calendar_ref }}">
       {% set schema_fields = google_calendar_edit_form_fields %}
       {% include "_connection_schema_fields.html" %}
@@ -29,6 +29,7 @@
         <button type="submit">{{ tr(request,'config_conn.google_calendar_save_profile','Save Google Calendar profile') }}</button>
       </div>
     </form>
+    {% set secret_rotation_fields = google_calendar_secret_rotation_fields %}{% set secret_rotation_kind = 'google_calendar' %}{% set secret_rotation_ref = selected_google_calendar_ref %}{% include "_connection_secret_rotation.html" %}
     <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
     <p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
     {% set delete_kind = 'google_calendar' %}
@@ -42,7 +43,8 @@
     </div>
   </details>
 
-  <details id="create-new" class="config-card config-section-details connection-mode-card connection-mode-create" {% if connection_mode == 'create' %}open{% endif %}>
+  {% endif %}
+  {% if connection_page_type == 'create' %}<details id="create-new" class="config-card config-section-details connection-mode-card connection-mode-create" open>
     <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</span></span></summary>
     <div class="config-section-content">
     <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
@@ -70,15 +72,15 @@
       </style>
 
       <p style="font-size: 13px; color: var(--color-text-secondary); margin: 0 0 1.25rem;">
-        ARIA liest Google Calendar vorerst bewusst read-only ueber den geheimen iCal-Link. Dafuer brauchst du kein Google-Cloud-Projekt, keinen OAuth-Client, keine Redirect-URL und keinen oeffentlichen Hostnamen.
+        ARIA liest Google Calendar vorerst bewusst read-only über den geheimen iCal-Link. Dafür brauchst du kein Google-Cloud-Projekt, keinen OAuth-Client, keine Redirect-URL und keinen öffentlichen Hostnamen.
       </p>
 
       <div class="sc">
         <div class="sh"><div class="sn">1</div><div class="st">Google Calendar Link kopieren</div></div>
         <ul>
-          <li>Oeffne <a class="act" href="{{ google_calendar_settings_url }}" target="_blank" rel="noopener noreferrer">Google Calendar Einstellungen ↗</a></li>
-          <li>waehle links den gewuenschten Kalender unter <strong>Einstellungen fuer meine Kalender</strong></li>
-          <li>oeffne <strong>Kalender integrieren</strong></li>
+          <li>Öffne <a class="act" href="{{ google_calendar_settings_url }}" target="_blank" rel="noopener noreferrer">Google-Calendar-Einstellungen ↗</a></li>
+          <li>wähle links den gewünschten Kalender unter <strong>Einstellungen für meine Kalender</strong></li>
+          <li>öffne <strong>Kalender integrieren</strong></li>
           <li>kopiere <strong>Geheime Adresse im iCal-Format</strong> und fuege sie unten in ARIA ein</li>
         </ul>
         <div class="warn">Dieser Link ist ein Geheimnis. Wer ihn kennt, kann den Kalender lesen. ARIA speichert ihn deshalb im Secure Store.</div>
@@ -91,7 +93,7 @@
           <li>iCal-Link einfuegen und speichern</li>
           <li>danach kannst du ARIA nach Terminen fragen, z. B. <strong>Was steht heute in meinem Kalender?</strong></li>
         </ul>
-        <div class="note">Dieser Alpha-Pfad ist read-only. Termine erstellen oder bearbeiten kommt spaeter ueber einen separaten OAuth-/Provider-Pfad.</div>
+        <div class="note">Dieser Alpha-Pfad ist read-only. Termine erstellen oder bearbeiten kommt später über einen separaten OAuth-/Provider-Pfad.</div>
       </div>
     </section>
     <form method="post" action="{{ google_calendar_save_path }}" class="editor-form" autocomplete="off">
@@ -106,6 +108,6 @@
       </div>
     </form>
     </div>
-  </details>
+  </details>{% endif %}
 </main>
 {% endblock %}

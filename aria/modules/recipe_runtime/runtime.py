@@ -7,16 +7,9 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 from urllib.request import urlopen
 
-from aria.modules.configuration_foundations.config import RoutingLanguageConfig
 from aria.modules.action_contracts.connection import guardrail_kind_for_capability
 from aria.modules.runtime_guardrails.guardrails import evaluate_guardrail, resolve_guardrail_profile
 from aria.modules.platform_primitives.i18n import I18NStore
-from aria.modules.memory.recall_contract import build_memory_recall_params
-from aria.modules.notes.context import note_context_block
-from aria.modules.notes.context import note_context_detail_lines
-from aria.modules.notes.context import search_note_hits
-from aria.modules.memory.personal import consolidate_personal_claim_batch
-from aria.modules.memory.personal import store_personal_claim
 from aria.modules.recipe_runtime.file_adapters import RecipeFileRuntime
 from aria.modules.recipe_runtime.http import RecipeHttpRuntime
 from aria.modules.recipe_runtime.messaging import RecipeMessagingRuntime
@@ -34,7 +27,6 @@ from aria.modules.recipe_runtime.rss import xml_name as _rss_xml_name
 from aria.modules.recipe_runtime.steps import RecipeStepExecutor
 from aria.modules.recipe_runtime.contracts import is_recipe_intent
 from aria.modules.recipe_runtime.contracts import is_recipe_status_intent
-from aria.modules.recipe_runtime.contracts import recipe_id_from_intent
 from aria.modules.skill_contracts.contracts import SkillResult
 
 
@@ -144,7 +136,6 @@ def _legacy_recipe_dir_for(skills_dir: Path) -> Path:
 
 def _iter_runtime_recipe_manifest_paths(skills_dir: Path) -> list[Path]:
     rows: list[Path] = []
-    seen_ids: set[str] = set()
     for root in (skills_dir, _legacy_recipe_dir_for(skills_dir)):
         if root == skills_dir:
             root.mkdir(parents=True, exist_ok=True)
@@ -153,17 +144,6 @@ def _iter_runtime_recipe_manifest_paths(skills_dir: Path) -> list[Path]:
         for path in sorted(root.glob("*.json")):
             if path.name.startswith("_"):
                 continue
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                rows.append(path)
-                continue
-            recipe_id = sanitize_recipe_id(payload.get("id", "")) if isinstance(payload, dict) else ""
-            dedupe_key = recipe_id or sanitize_recipe_id(path.stem)
-            if dedupe_key and dedupe_key in seen_ids:
-                continue
-            if dedupe_key:
-                seen_ids.add(dedupe_key)
             rows.append(path)
     return rows
 
@@ -270,25 +250,11 @@ class RecipeRuntime:
         self,
         *,
         settings: Any,
-        llm_client: Any,
-        memory_skill_getter: Callable[[], Any],
         execute_custom_ssh_command: SSHExecutor,
-        extract_memory_store_text: Callable[..., str],
-        extract_memory_recall_query: Callable[..., str],
-        facts_collection_for_user: Callable[[str], str],
-        preferences_collection_for_user: Callable[[str], str],
-        normalize_spaces: Callable[[str], str],
         truncate_text: Callable[[str, int], str],
     ) -> None:
         self.settings = settings
-        self.llm_client = llm_client
-        self.memory_skill_getter = memory_skill_getter
         self.execute_custom_ssh_command = execute_custom_ssh_command
-        self.extract_memory_store_text = extract_memory_store_text
-        self.extract_memory_recall_query = extract_memory_recall_query
-        self.facts_collection_for_user = facts_collection_for_user
-        self.preferences_collection_for_user = preferences_collection_for_user
-        self.normalize_spaces = normalize_spaces
         self.truncate_text = truncate_text
         self.file_runtime = RecipeFileRuntime(
             get_connection_profile=self._get_connection_profile,
@@ -551,355 +517,5 @@ class RecipeRuntime:
             row=row, message=message, language=language, user_id=user_id,
             progress_store=RECIPE_PROGRESS_STORE if user_id else None,
         )
-
-    async def _store_explicit_personal_memory(
-        self,
-        *,
-        claims: list[dict[str, Any]],
-        user_id: str,
-        memory_skill: Any,
-        facts_collection: str,
-        preferences_collection: str,
-        language: str,
-        request_id: str = "",
-    ) -> SkillResult:
-        consolidation = await consolidate_personal_claim_batch(
-            claims,
-            llm_client=self.llm_client,
-            user_id=user_id,
-            request_id=request_id,
-        )
-        if not consolidation.get("ok"):
-            return SkillResult(
-                skill_name="personal_memory_capture",
-                content=_recipe_text(
-                    language,
-                    "personal_memory_capture_not_stored",
-                    "I could not derive a safe personal memory from that. Nothing was stored.",
-                ),
-                success=True,
-                metadata={
-                    "direct_chat_response": True,
-                    "personal_claim_results": [],
-                    "capture_stored": False,
-                    "extraction_model": "turn_action_contract",
-                    "extraction_usage": dict(consolidation.get("usage") or {}),
-                    "detail_lines": [
-                        "Routing Debug: personal_memory_capture outcome=not_stored "
-                        "reason=claim_batch_consolidation_failed "
-                        f"input_claims={int(consolidation.get('input_count', 0) or 0)} "
-                        "authority=personal_claim_batch_v1"
-                    ],
-                },
-            )
-        consolidated_claims = list(consolidation.get("claims") or [])
-        claim_results: list[dict[str, Any]] = []
-        for claim in consolidated_claims:
-            claim_result = await store_personal_claim(
-                memory_skill=memory_skill,
-                llm_client=self.llm_client,
-                claim=claim,
-                user_id=user_id,
-                facts_collection=facts_collection,
-                preferences_collection=preferences_collection,
-                request_id=request_id,
-            )
-            claim_results.append(claim_result)
-
-        stored_claims = [row for row in claim_results if row.get("stored")]
-        review_claims = [
-            row
-            for row in claim_results
-            if not row.get("stored") and row.get("claim")
-        ]
-        review_blockers = sorted(
-            {
-                str(blocker)
-                for row in review_claims
-                for blocker in list(row.get("activation_blockers") or [])
-                if str(blocker)
-            }
-        )
-        review_blocker_trace = ",".join(review_blockers) or "other_review_gate"
-        relation_sources = sorted(
-            {
-                str(dict(row.get("relation") or {}).get("source") or "unknown")
-                for row in claim_results
-            }
-        )
-        relation_model_calls = sum(
-            1
-            for row in claim_results
-            if str(dict(row.get("relation") or {}).get("source") or "") == "bounded_llm"
-        )
-        timing_totals = {
-            key: sum(
-                int(dict(row.get("timings") or {}).get(key, 0) or 0)
-                for row in claim_results
-            )
-            for key in ("list_existing_ms", "relation_ms", "store_ms", "total_ms")
-        }
-        capture_runtime_detail = (
-            "Routing Debug: personal_memory_capture_runtime "
-            f"claims={len(claim_results)} relation_model_calls={relation_model_calls} "
-            f"relation_sources={','.join(relation_sources) or '-'} "
-            f"list_existing_ms={timing_totals['list_existing_ms']} "
-            f"relation_ms={timing_totals['relation_ms']} "
-            f"store_ms={timing_totals['store_ms']} total_ms={timing_totals['total_ms']}"
-        )
-        if stored_claims and review_claims:
-            stored_values = [
-                self.normalize_spaces(str((row.get("claim") or {}).get("value") or ""))
-                for row in stored_claims
-            ]
-            review_values = [
-                self.normalize_spaces(str((row.get("claim") or {}).get("value") or ""))
-                for row in review_claims
-            ]
-            return SkillResult(
-                skill_name="personal_memory_capture",
-                content=_recipe_text(
-                    language,
-                    "personal_memory_capture_partial",
-                    "Stored as personal memory: {stored_values}. Captured for review: {review_values}.",
-                    stored_values="; ".join(value for value in stored_values if value),
-                    review_values="; ".join(value for value in review_values if value),
-                ),
-                success=True,
-                metadata={
-                    "direct_chat_response": True,
-                    "personal_claim_results": claim_results,
-                    "review_required": True,
-                    "extraction_model": "turn_action_contract",
-                    "extraction_usage": dict(consolidation.get("usage") or {}),
-                    "detail_lines": [
-                        "Routing Debug: personal_memory_capture outcome=partial "
-                        f"stored={len(stored_claims)} review={len(review_claims)} "
-                        f"blockers={review_blocker_trace} "
-                        f"input_claims={int(consolidation.get('input_count', 0) or 0)} "
-                        f"consolidated_claims={len(consolidated_claims)} authority=personal_claim_v1",
-                        capture_runtime_detail,
-                    ],
-                },
-            )
-        if stored_claims:
-            values = [
-                self.normalize_spaces(str((row.get("claim") or {}).get("value") or ""))
-                for row in stored_claims
-            ]
-            values = [value for value in values if value]
-            return SkillResult(
-                skill_name="personal_memory_capture",
-                content=_recipe_text(
-                    language,
-                    "personal_memory_capture_stored",
-                    "Personal memory stored: {values}",
-                    values="; ".join(values),
-                ),
-                success=True,
-                metadata={
-                    "direct_chat_response": True,
-                    "personal_claim_results": claim_results,
-                    "extraction_model": "turn_action_contract",
-                    "extraction_usage": dict(consolidation.get("usage") or {}),
-                    "detail_lines": [
-                        "Routing Debug: personal_memory_capture outcome=stored "
-                        f"claims={len(stored_claims)} "
-                        f"input_claims={int(consolidation.get('input_count', 0) or 0)} "
-                        f"consolidated_claims={len(consolidated_claims)} authority=personal_claim_v1",
-                        capture_runtime_detail,
-                    ],
-                },
-            )
-        if review_claims:
-            return SkillResult(
-                skill_name="personal_memory_capture",
-                content=_recipe_text(
-                    language,
-                    "personal_memory_capture_review",
-                    "The personal memory was captured for review and is not active yet.",
-                ),
-                success=True,
-                metadata={
-                    "direct_chat_response": True,
-                    "personal_claim_results": claim_results,
-                    "review_required": True,
-                    "extraction_model": "turn_action_contract",
-                    "extraction_usage": dict(consolidation.get("usage") or {}),
-                    "detail_lines": [
-                        "Routing Debug: personal_memory_capture outcome=review "
-                        f"claims={len(review_claims)} blockers={review_blocker_trace} "
-                        "authority=personal_claim_v1",
-                        capture_runtime_detail,
-                    ],
-                },
-            )
-
-        return SkillResult(
-            skill_name="personal_memory_capture",
-            content=_recipe_text(
-                language,
-                "personal_memory_capture_not_stored",
-                "I could not derive a safe personal memory from that. Nothing was stored.",
-            ),
-            success=True,
-            metadata={
-                "direct_chat_response": True,
-                "personal_claim_results": claim_results,
-                "capture_stored": False,
-                "extraction_model": "turn_action_contract",
-                "extraction_usage": dict(consolidation.get("usage") or {}),
-                "detail_lines": [
-                    "Routing Debug: personal_memory_capture outcome=not_stored "
-                    "reason=missing_or_invalid_turn_action_claim "
-                    "authority=personal_claim_v1",
-                    capture_runtime_detail,
-                ],
-            },
-        )
-
-    async def run_skills(
-        self,
-        intents: list[str],
-        message: str,
-        user_id: str,
-        routing_profile: RoutingLanguageConfig,
-        language: str = "de",
-        runtime_recipes: list[dict[str, Any]] | None = None,
-        memory_collection: str | None = None,
-        session_collection: str | None = None,
-        suppress_web_search_note_context: bool = False,
-        query_overrides: dict[str, str] | None = None,
-        context_overrides: dict[str, Any] | None = None,
-    ) -> list[SkillResult]:
-        results: list[SkillResult] = []
-        runtime_recipes = runtime_recipes or []
-        recipes_by_id = {str(row.get("id", "")): row for row in runtime_recipes}
-        query_overrides = query_overrides or {}
-        context_overrides = context_overrides or {}
-
-        for intent in intents:
-            if not is_recipe_intent(str(intent)):
-                continue
-            recipe_id = recipe_id_from_intent(str(intent))
-            row = recipes_by_id.get(recipe_id)
-            if not row:
-                continue
-            steps = row.get("steps", [])
-            if not isinstance(steps, list) or not steps:
-                continue
-            results.append(await self.execute_custom_steps(row=row, message=message, language=language))
-
-        memory_skill = self.memory_skill_getter()
-
-        explicit_store = "memory_store" in intents
-        facts_collection = self.facts_collection_for_user(user_id)
-        preferences_collection = self.preferences_collection_for_user(user_id)
-
-        if explicit_store and memory_skill:
-            action_inputs = context_overrides.get("action_inputs")
-            capture_inputs = (
-                action_inputs.get("personal_memory_capture")
-                if isinstance(action_inputs, dict)
-                else {}
-            )
-            claims = (
-                list(capture_inputs.get("personal_claims") or [])
-                if isinstance(capture_inputs, dict)
-                else []
-            )
-            results.append(
-                await self._store_explicit_personal_memory(
-                    claims=claims,
-                    user_id=user_id,
-                    memory_skill=memory_skill,
-                    facts_collection=facts_collection,
-                    preferences_collection=preferences_collection,
-                    language=language,
-                    request_id=str(context_overrides.get("request_id") or ""),
-                )
-            )
-
-        if "memory_recall" in intents and memory_skill:
-            memory_recall_enabled = bool(context_overrides.get("memory_recall_enabled", True))
-            if not memory_recall_enabled:
-                pass
-            else:
-                recall_query = str(query_overrides.get("memory_recall") or "").strip() or self.extract_memory_recall_query(message, routing_profile)
-                family_base = (facts_collection or memory_collection or session_collection or "").strip()
-                memory_collections = getattr(self.settings.memory, "collections", None)
-                family_defaults = {
-                    "facts": 2,
-                    "preferences": 1,
-                    "sessions": 2,
-                    "knowledge": 2,
-                }
-                merged_top_k = max(
-                    int(self.settings.memory.top_k),
-                    sum(
-                        max(
-                            0,
-                            int(
-                                getattr(
-                                    getattr(memory_collections, name, None),
-                                    "top_k",
-                                    default,
-                                )
-                            ),
-                        )
-                        for name, default in family_defaults.items()
-                    ),
-                )
-                recall_params = build_memory_recall_params(
-                    context_overrides=context_overrides,
-                    user_id=user_id,
-                    collection=family_base,
-                    top_k=int(context_overrides.get("memory_top_k") or merged_top_k),
-                    default_include_documents=True,
-                )
-                recall_result = await memory_skill.execute(
-                    query=recall_query,
-                    params=recall_params,
-                )
-                recall_result.skill_name = "memory_recall"
-                results.append(recall_result)
-
-        notes_query = str(query_overrides.get("notes_search") or "").strip()
-        if notes_query:
-            note_hits = await search_note_hits(
-                base_dir=BASE_DIR,
-                username=user_id,
-                settings=self.settings,
-                query=notes_query,
-                limit=8,
-                allow_markdown_fallback=True,
-            )
-            if note_hits:
-                results.append(
-                    SkillResult(
-                        skill_name="notes_search",
-                        success=True,
-                        content=note_context_block(note_hits, language=language),
-                        metadata={
-                            "detail_lines": [
-                                f"Routing Debug: notes_retrieval query={notes_query}",
-                                *note_context_detail_lines(note_hits, language=language),
-                            ],
-                            "sources": [
-                                {
-                                    "type": "note",
-                                    "title": hit.title,
-                                    "folder": hit.folder,
-                                    "note_id": hit.note_id,
-                                    "snippet": hit.snippet,
-                                }
-                                for hit in note_hits
-                            ],
-                        },
-                    )
-                )
-
-        return results
-
 
 CustomSkillRuntime = RecipeRuntime

@@ -43,7 +43,6 @@ def test_retained_consumers_use_relocated_stored_manifest_view() -> None:
     consumers = (
         "aria/modules/recipes_ui/stored_ui.py",
         "aria/modules/recipes_ui/routes.py",
-        "aria/modules/chat_surface/routes.py",
         "aria/modules/execution_dry_run_payloads/payloads.py",
         "aria/modules/action_planner_templates/recipe_candidates.py",
     )

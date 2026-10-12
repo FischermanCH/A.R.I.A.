@@ -165,7 +165,7 @@ def register_config_access_detail_routes(app: FastAPI, deps: ConfigAccessDetailR
             logical_back_fallback=_config_ui_path("/config/access"),
             page_return_to=_config_ui_path("/config/access"),
             config_nav="access",
-            page_heading=deps.msg(lang, "Security Guardrails", "Security guardrails"),
+            page_heading=deps.msg(lang, "Sicherheitsregeln", "Security guardrails"),
             info=info,
         )
         context.update(

@@ -6,10 +6,15 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from aria.modules import module_route_path, module_template_name
+from aria.modules.connections_ui_readonly.ia_routes import (
+    CONNECTION_REF_QUERY_KEYS,
+    CONNECTION_URL_SEGMENTS,
+    legacy_connection_redirect,
+)
 from aria.modules.sftp_admin_ui.context import register_sftp_connections_detail_route
 from aria.modules.ssh_admin_ui.context import register_ssh_connections_detail_route
 
@@ -64,194 +69,80 @@ class ConnectionDetailRouteDeps:
 
 
 def register_connection_detail_routes(app: FastAPI, deps: ConnectionDetailRouteDeps) -> None:
-    register_ssh_connections_detail_route(
-        app,
-        render_connection_page=deps.render_connection_page,
-        context_builder=deps.build_ssh_connections_context,
-    )
-
-    @app.get("/config/connections/discord", response_class=HTMLResponse)
-    async def config_connections_discord_page(
-        request: Request,
-        saved: int = 0,
-        info: str = "",
-        error: str = "",
-        discord_ref: str = "",
-        discord_test_status: str = "",
-        mode: str = "edit",
-    ) -> HTMLResponse:
-        return deps.render_connection_page(
-            request,
-            kind="discord",
-            saved=saved,
-            info=info,
-            error=error,
-            context_builder=deps.build_discord_connections_context,
-            selected_ref_raw=discord_ref,
-            test_status=discord_test_status,
-            mode=mode,
-        )
-
-    register_sftp_connections_detail_route(
-        app,
-        render_connection_page=deps.render_connection_page,
-        context_builder=deps.build_sftp_connections_context,
-    )
-
-    @app.get("/config/connections/smb", response_class=HTMLResponse)
-    async def config_connections_smb_page(
-        request: Request,
-        saved: int = 0,
-        info: str = "",
-        error: str = "",
-        smb_ref: str = "",
-        smb_test_status: str = "",
-        mode: str = "edit",
-    ) -> HTMLResponse:
-        return deps.render_connection_page(
-            request,
-            kind="smb",
-            saved=saved,
-            info=info,
-            error=error,
-            context_builder=deps.build_smb_connections_context,
-            selected_ref_raw=smb_ref,
-            test_status=smb_test_status,
-            mode=mode,
-        )
-
-    @app.get("/config/connections/webhook", response_class=HTMLResponse)
-    async def config_connections_webhook_page(
-        request: Request,
-        saved: int = 0,
-        info: str = "",
-        error: str = "",
-        webhook_ref: str = "",
-        webhook_test_status: str = "",
-        mode: str = "edit",
-    ) -> HTMLResponse:
-        return deps.render_connection_page(
-            request,
-            kind="webhook",
-            saved=saved,
-            info=info,
-            error=error,
-            context_builder=deps.build_webhook_connections_context,
-            selected_ref_raw=webhook_ref,
-            test_status=webhook_test_status,
-            mode=mode,
-        )
-
     @app.get("/config/connections/email")
     async def config_connections_email_legacy() -> RedirectResponse:
         return RedirectResponse(url=_smtp_ui_route("/config/connections/smtp"), status_code=303)
 
-    @app.get("/config/connections/smtp", response_class=HTMLResponse)
-    async def config_connections_smtp_page(
-        request: Request,
-        saved: int = 0,
-        info: str = "",
-        error: str = "",
-        email_ref: str = "",
-        email_test_status: str = "",
-        mode: str = "edit",
-    ) -> HTMLResponse:
-        return deps.render_connection_page(
-            request,
-            kind="email",
-            saved=saved,
-            info=info,
-            error=error,
-            context_builder=deps.build_email_connections_context,
-            selected_ref_raw=email_ref,
-            test_status=email_test_status,
-            mode=mode,
-        )
+    builders: dict[str, Callable[..., dict[str, Any]]] = {
+        "discord": deps.build_discord_connections_context,
+        "email": deps.build_email_connections_context,
+        "google_calendar": deps.build_google_calendar_connections_context,
+        "http_api": deps.build_http_api_connections_context,
+        "imap": deps.build_imap_connections_context,
+        "mqtt": deps.build_mqtt_connections_context,
+        "sftp": deps.build_sftp_connections_context,
+        "smb": deps.build_smb_connections_context,
+        "ssh": deps.build_ssh_connections_context,
+        "website": deps.build_website_connections_context,
+        "webhook": deps.build_webhook_connections_context,
+    }
+    test_status_keys = {
+        "discord": "discord_test_status",
+        "email": "email_test_status",
+        "google_calendar": "google_calendar_test_status",
+        "http_api": "http_api_test_status",
+        "imap": "imap_test_status",
+        "mqtt": "mqtt_test_status",
+        "sftp": "sftp_test_status",
+        "smb": "smb_test_status",
+        "ssh": "test_status",
+        "website": "website_test_status",
+        "webhook": "webhook_test_status",
+    }
 
-    @app.get("/config/connections/imap", response_class=HTMLResponse)
-    async def config_connections_imap_page(
-        request: Request,
-        saved: int = 0,
-        info: str = "",
-        error: str = "",
-        imap_ref: str = "",
-        imap_test_status: str = "",
-        mode: str = "edit",
-    ) -> HTMLResponse:
-        return deps.render_connection_page(
-            request,
-            kind="imap",
-            saved=saved,
-            info=info,
-            error=error,
-            context_builder=deps.build_imap_connections_context,
-            selected_ref_raw=imap_ref,
-            test_status=imap_test_status,
-            mode=mode,
-        )
+    def _query_int(request: Request, key: str) -> int:
+        try:
+            return int(request.query_params.get(key, "0") or 0)
+        except (TypeError, ValueError):
+            return 0
 
-    @app.get("/config/connections/http-api", response_class=HTMLResponse)
-    async def config_connections_http_api_page(
+    async def _render_rss(
         request: Request,
-        saved: int = 0,
-        info: str = "",
-        error: str = "",
-        http_api_ref: str = "",
-        http_api_test_status: str = "",
-        mode: str = "edit",
+        *,
+        page_type: str,
+        connection_ref: str = "",
     ) -> HTMLResponse:
-        return deps.render_connection_page(
+        saved = _query_int(request, "saved")
+        info = str(request.query_params.get("info", "") or "")
+        error = str(request.query_params.get("error", "") or "")
+        status = str(request.query_params.get("rss_test_status", "") or "")
+        context = deps.base_connections_page_context(
             request,
-            kind="http_api",
-            saved=saved,
-            info=info,
-            error=error,
-            context_builder=deps.build_http_api_connections_context,
-            selected_ref_raw=http_api_ref,
-            test_status=http_api_test_status,
-            mode=mode,
+            saved,
+            info,
+            error,
+            kind="rss",
+            page_type=page_type,
+            connection_ref=connection_ref,
         )
-
-    @app.get("/config/connections/google-calendar", response_class=HTMLResponse)
-    async def config_connections_google_calendar_page(
-        request: Request,
-        saved: int = 0,
-        info: str = "",
-        error: str = "",
-        google_calendar_ref: str = "",
-        google_calendar_test_status: str = "",
-        mode: str = "edit",
-    ) -> HTMLResponse:
-        return deps.render_connection_page(
-            request,
-            kind="google_calendar",
-            saved=saved,
-            info=info,
-            error=error,
-            context_builder=deps.build_google_calendar_connections_context,
-            selected_ref_raw=google_calendar_ref,
-            test_status=google_calendar_test_status,
-            mode=mode,
+        context.update(
+            deps.build_rss_connections_context(
+                connection_ref,
+                status,
+                page_type == "create",
+                str(getattr(request.state, "lang", "de") or "de"),
+            )
         )
-
-    @app.get("/config/connections/rss", response_class=HTMLResponse)
-    async def config_connections_rss_page(
-        request: Request,
-        saved: int = 0,
-        info: str = "",
-        error: str = "",
-        rss_ref: str = "",
-        rss_test_status: str = "",
-        create_new: int = 0,
-        refresh_groups: int = 0,
-        mode: str = "edit",
-    ) -> HTMLResponse:
-        effective_mode = "create" if create_new else mode
-        context = deps.base_connections_page_context(request, saved, info, error, mode=effective_mode)
-        context.update(deps.build_rss_connections_context(rss_ref, rss_test_status, bool(create_new)))
+        if isinstance(context.get("connection_intro"), dict):
+            context["connection_intro"] = dict(context["connection_intro"])
+            context["connection_intro"]["back_url"] = (
+                context.get("connection_overview_url")
+                if page_type in {"create", "detail"}
+                else context.get("return_to") or module_route_path("connections_ui_readonly", "/connections")
+            )
         rss_rows = context.get("rss_status_rows", [])
         cache_path = deps.base_dir / "data" / "runtime" / "rss_groups.json"
-        use_refresh = bool(refresh_groups)
+        use_refresh = bool(_query_int(request, "refresh_groups"))
         rss_groups = None if use_refresh else deps.load_cached_rss_status_groups(cache_path, rss_rows)
         if rss_groups is None:
             rss_groups = await deps.build_rss_status_groups(
@@ -270,48 +161,57 @@ def register_connection_detail_routes(app: FastAPI, deps: ConnectionDetailRouteD
             context=context,
         )
 
-    @app.get("/config/connections/websites", response_class=HTMLResponse)
-    async def config_connections_websites_page(
+    async def _render(
         request: Request,
-        saved: int = 0,
-        info: str = "",
-        error: str = "",
-        website_ref: str = "",
-        website_test_status: str = "",
-        create_new: int = 0,
-        mode: str = "edit",
+        *,
+        kind: str,
+        page_type: str,
+        connection_ref: str = "",
     ) -> HTMLResponse:
+        if kind == "rss":
+            return await _render_rss(request, page_type=page_type, connection_ref=connection_ref)
+        kwargs: dict[str, Any] = {}
+        if kind == "sftp":
+            kwargs["copy_from_ssh_ref"] = str(request.query_params.get("copy_from_ssh_ref", "") or "")
+        if kind == "website":
+            kwargs["create_new"] = page_type == "create"
         return deps.render_connection_page(
             request,
-            kind="website",
-            saved=saved,
-            info=info,
-            error=error,
-            context_builder=deps.build_website_connections_context,
-            selected_ref_raw=website_ref,
-            test_status=website_test_status,
-            create_new=bool(create_new),
-            mode=mode,
+            kind=kind,
+            saved=_query_int(request, "saved"),
+            info=str(request.query_params.get("info", "") or ""),
+            error=str(request.query_params.get("error", "") or ""),
+            context_builder=builders[kind],
+            page_type=page_type,
+            connection_ref=connection_ref,
+            selected_ref_raw=connection_ref,
+            test_status=str(request.query_params.get(test_status_keys[kind], "") or ""),
+            **kwargs,
         )
 
-    @app.get("/config/connections/mqtt", response_class=HTMLResponse)
-    async def config_connections_mqtt_page(
-        request: Request,
-        saved: int = 0,
-        info: str = "",
-        error: str = "",
-        mqtt_ref: str = "",
-        mqtt_test_status: str = "",
-        mode: str = "edit",
-    ) -> HTMLResponse:
-        return deps.render_connection_page(
-            request,
-            kind="mqtt",
-            saved=saved,
-            info=info,
-            error=error,
-            context_builder=deps.build_mqtt_connections_context,
-            selected_ref_raw=mqtt_ref,
-            test_status=mqtt_test_status,
-            mode=mode,
-        )
+    def _register_kind(kind: str, segment: str) -> None:
+        base = f"/config/connections/{segment}"
+
+        async def overview(request: Request) -> Response:
+            ref_key = CONNECTION_REF_QUERY_KEYS[kind]
+            selected_ref = str(request.query_params.get(ref_key, "") or request.query_params.get("ref", "") or "")
+            redirect = legacy_connection_redirect(
+                request,
+                kind=kind,
+                selected_ref=selected_ref,
+                create_requested=bool(_query_int(request, "create_new")),
+            )
+            return redirect or await _render(request, kind=kind, page_type="overview")
+
+        async def create(request: Request) -> HTMLResponse:
+            return await _render(request, kind=kind, page_type="create")
+
+        async def detail(request: Request, connection_ref: str) -> HTMLResponse:
+            return await _render(request, kind=kind, page_type="detail", connection_ref=connection_ref)
+
+        app.add_api_route(base, overview, methods=["GET"], response_class=HTMLResponse, name=f"config_connections_{kind}_overview")
+        app.add_api_route(f"{base}/new", create, methods=["GET"], response_class=HTMLResponse, name=f"config_connections_{kind}_create")
+        app.add_api_route(f"{base}/{{connection_ref}}", detail, methods=["GET"], response_class=HTMLResponse, name=f"config_connections_{kind}_detail")
+
+    for connection_kind, url_segment in CONNECTION_URL_SEGMENTS.items():
+        _register_kind(connection_kind, url_segment)

@@ -175,7 +175,7 @@ def test_base_keeps_active_background_style_without_preloading_it(monkeypatch) -
 
     assert response.status_code == 200
     assert '<link rel="preload" as="image"' not in response.text
-    assert "--background-art: url('/static/background-space-station.webp')" in response.text
+    assert "--background-art: url('/static/background-space-station.webp?v=" in response.text
 
 
 def test_base_does_not_preload_a_background_when_none_is_active(monkeypatch) -> None:

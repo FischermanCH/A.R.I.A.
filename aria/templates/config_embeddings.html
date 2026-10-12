@@ -1,6 +1,7 @@
-{% extends "base.html" %}
+{% extends "page_types/settings_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% from "_ui_clarity.html" import ui_settings_section with context %}
+{% block page_body %}
 {% set config_ui_embeddings_test_path = module_route_path('config_ui', '/config/embeddings/test') %}
 {% set config_ui_embeddings_models_path = module_route_path('config_ui', '/config/embeddings/models') %}
 {% set config_ui_embeddings_profile_load_path = module_route_path('config_ui', '/config/embeddings/profile/load') %}
@@ -10,6 +11,9 @@
 <main class="config-layout config-domain-layout config-domain-surface-layout config-embeddings-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
+  <p class="ui-page-purpose">{{ tr(request, 'config_embed.page_purpose', 'Hier verwaltest du das Embedding-Profil für semantische Suche, Erinnerungen und Dokumente.') }}</p>
+
+  <div class="alert warn embedding-model-warning"><strong>{{ tr(request, 'config_embed.vector_invalidation_warning_title', 'Achtung beim Modellwechsel') }}</strong><br>{{ tr(request, 'config_embed.vector_invalidation_warning', 'Ein anderes Embedding-Modell macht alle bereits gespeicherten Vektoren unbrauchbar. Erinnerungen, Dokumente und Routing-Indizes müssen danach vollständig neu eingebettet beziehungsweise aufgebaut werden.') }}</div>
 
   <section class="floating-card config-domain-section">
     {% with
@@ -98,7 +102,7 @@
           </label>
           <label for="embedding_profile_confirm_phrase">{{ tr(request, 'config_embed.confirm_phrase_label', 'Bestätigungsphrase') }}</label>
           <input id="embedding_profile_confirm_phrase" name="confirm_embedding_phrase" type="text" placeholder="{{ embedding_guard.confirm_phrase }}">
-          <small class="hint-text">{{ tr(request, 'config_embed.confirm_phrase_hint', 'Nur nötig, wenn du wirklich auf einen anderen Embedding-Fingerprint wechselst. Phrase:') }} <code>{{ embedding_guard.confirm_phrase }}</code></small>
+          <small class="hint-text">{{ tr(request, 'config_embed.profile_load_confirm_phrase_hint', 'Nur nötig, wenn das gewählte Profil einen anderen Embedding-Fingerprint verwendet. Phrase:') }} <code>{{ embedding_guard.confirm_phrase }}</code></small>
           {% endif %}
         </form>
       </article>
@@ -121,7 +125,7 @@
     </div>
   </section>
 
-  <section class="floating-card config-domain-section">
+  {% call ui_settings_section(tr(request, 'config_embed.settings_title', 'Embedding-Profil bearbeiten'), tr(request, 'config_embed.settings_desc', 'Provider, Modell und Laufzeitgrenze des aktiven Profils.'), 'embedding-profile-settings', ((embeddings.model or '-') ~ ' · ' ~ embeddings.timeout_seconds ~ ' s')) %}
     <form method="post" action="{{ config_ui_embeddings_save_path }}" class="editor-form">
       <label for="provider-preset">{{ tr(request, 'config_embed.provider_preset', 'Provider preset') }}</label>
       <select id="provider-preset">
@@ -166,7 +170,7 @@
       </label>
       <label for="embedding_confirm_phrase">{{ tr(request, 'config_embed.confirm_phrase_label', 'Bestätigungsphrase') }}</label>
       <input id="embedding_confirm_phrase" name="confirm_embedding_phrase" type="text" placeholder="{{ embedding_guard.confirm_phrase }}">
-      <small class="hint-text">{{ tr(request, 'config_embed.confirm_phrase_hint', 'Nur nötig, wenn du wirklich auf einen anderen Embedding-Fingerprint wechselst. Phrase:') }} <code>{{ embedding_guard.confirm_phrase }}</code></small>
+      <small class="hint-text">{{ tr(request, 'config_embed.settings_confirm_phrase_hint', 'Nur nötig, wenn du das aktive Profil auf einen anderen Embedding-Fingerprint umstellst. Phrase:') }} <code>{{ embedding_guard.confirm_phrase }}</code></small>
       {% endif %}
 
       <div class="inline-actions">
@@ -174,7 +178,7 @@
         <button type="submit" formaction="{{ config_ui_embeddings_profile_save_path }}">{{ tr(request, 'config_embed.save_as_profile', 'Save as profile') }}</button>
       </div>
     </form>
-  </section>
+  {% endcall %}
 </main>
 <script>
   (function () {

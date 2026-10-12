@@ -124,7 +124,7 @@ def native_tool_contributions(runtime_owner: Any) -> tuple[NativeToolBinding, ..
         truncated = len(items) > len(rows) or content_truncated
         payload = {"status": "ok", "memory_context": rows, "selection": {
             "shown": len(rows), "available": len(items), "truncated": truncated,
-            "notice": "gekuerzt: Ergebnisse oder Inhalte sind ausschnittweise" if truncated else "alle ausgewaehlten Treffer sind enthalten",
+            "notice": "gekürzt: Ergebnisse oder Inhalte sind ausschnittweise" if truncated else "alle ausgewählten Treffer sind enthalten",
         }} if rows else {
             "status": "no_memory_context", "memory_context": [],
             "message": "No matching memory context is stored for this user.",

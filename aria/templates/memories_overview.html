@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "page_types/overview_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% block page_body %}
 {% macro overview_section(title, desc, count=None, open=False, section_id='') -%}
   <details class="floating-card config-section-details"{% if section_id %} id="{{ section_id }}"{% endif %}{% if open %} open{% endif %}>
     <summary class="config-section-summary">

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
+from urllib.parse import quote_plus
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from aria.modules.configuration_foundations.config import LLMConfig
@@ -27,18 +28,36 @@ def _require_admin(request: Request) -> None:
 
 
 def register_native_toolcall_selftest_routes(app: FastAPI, deps: NativeToolcallRouteDeps) -> None:
-    @app.get("/config/native-toolcall-selftest", response_class=HTMLResponse)
-    async def native_toolcall_selftest_page(request: Request) -> HTMLResponse:
+    @app.get("/config/native-toolcall-selftest")
+    async def native_toolcall_selftest_page(request: Request) -> RedirectResponse:
         _require_admin(request)
-        return deps.templates.TemplateResponse(request=request, name="native_toolcall_selftest.html", context={"diagnostics": None, "error": ""})
+        return RedirectResponse("/config/llm", status_code=303)
 
-    @app.post("/config/native-toolcall-selftest", response_class=HTMLResponse)
-    async def native_toolcall_selftest_run(request: Request) -> HTMLResponse:
+    async def _run_and_redirect(request: Request) -> RedirectResponse:
         _require_admin(request)
-        diagnostics: dict[str, Any] | None = None
-        error = ""
         try:
-            diagnostics = (await deps.run_selftest(deps.get_llm_config())).as_dict()
+            diagnostics: dict[str, Any] = (await deps.run_selftest(deps.get_llm_config())).as_dict()
+            passed = bool(diagnostics.get("native_tool_call_emitted")) and bool(
+                diagnostics.get("final_answer_correct")
+            )
+            detail = (
+                f"tool={diagnostics.get('tool_name') or '-'}; "
+                f"result={diagnostics.get('tool_result') or '-'}; "
+                f"provider_calls={diagnostics.get('provider_calls') or 0}"
+            )
+            status = "ok" if passed else "error"
         except Exception as exc:
-            error = str(exc) or type(exc).__name__
-        return deps.templates.TemplateResponse(request=request, name="native_toolcall_selftest.html", context={"diagnostics": diagnostics, "error": error})
+            status = "error"
+            detail = str(exc) or type(exc).__name__
+        return RedirectResponse(
+            "/config/llm?selftest_status=" + status + "&selftest_result=" + quote_plus(detail[:800]),
+            status_code=303,
+        )
+
+    @app.post("/config/llm/toolcall-selftest")
+    async def native_toolcall_selftest_run(request: Request) -> RedirectResponse:
+        return await _run_and_redirect(request)
+
+    @app.post("/config/native-toolcall-selftest")
+    async def native_toolcall_selftest_legacy_run(request: Request) -> RedirectResponse:
+        return await _run_and_redirect(request)

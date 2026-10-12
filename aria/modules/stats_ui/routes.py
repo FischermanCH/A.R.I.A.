@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from datetime import timezone
 import inspect
@@ -11,8 +12,9 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote_plus
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.responses import RedirectResponse
 from fastapi.responses import Response
@@ -33,6 +35,7 @@ from aria.modules.connections_catalog.catalog import (
 from aria.modules.connections_runtime_status.runtime import build_settings_connection_status_rows
 from aria.modules.configuration_foundations.config import get_master_key
 from aria.modules.platform_primitives.i18n import I18NStore
+from aria.modules.platform_primitives.display_time import request_display_timezone
 from aria.modules.pipeline_orchestrator.pipeline import Pipeline
 from aria.modules.model_usage_observability.pricing_catalog import build_pricing_catalog_snapshot
 from aria.modules.model_usage_observability.pricing_catalog import resolve_pricing_entry as resolve_catalog_pricing_entry
@@ -49,13 +52,28 @@ from aria.modules.release_update.helper_client import helper_status_visual
 from aria.modules.release_update.helper_client import resolve_update_helper_config
 from aria.modules import module_registry_diagnostics, module_route_path, module_template_name
 from aria.modules.stats_ui.activities import _decorate_activity_rows
+from aria.modules.stats_ui.overview import (
+    StatsActivityAggregation,
+    StatsHealthSnapshot,
+    StatsOverviewSnapshot,
+    StatsResourceSnapshot,
+    StatsUsageAggregation,
+    build_cost_svg_description,
+    format_currency,
+    format_integer,
+    format_local_time,
+    format_relative_time,
+)
+
+
+_STATS_PROCESS_STARTED_AT = datetime.now(timezone.utc).isoformat()
 
 
 PricingResolver = Callable[[dict[str, Any], str], Any | None]
 UsernameResolver = Callable[[Request], str]
 SettingsGetter = Callable[[], Any]
 PipelineGetter = Callable[[], Pipeline]
-PreflightGetter = Callable[[], Any]
+PreflightGetter = Callable[..., Any]
 SecureStoreGetter = Callable[[], Any]
 _STATS_ROUTES_I18N = I18NStore(Path(__file__).resolve().parents[2] / "i18n")
 
@@ -346,7 +364,11 @@ def _build_runtime_memory_meta(language: str) -> dict[str, Any]:
         "total_bytes": total_bytes,
         "total_human": _size_human(total_bytes) if total_bytes > 0 else "-",
         "percent": percent,
-        "percent_label": f"{percent:.1f}%",
+        "percent_label": (
+            f"{percent:.1f}%".replace(".", ",")
+            if str(language).lower().startswith("de")
+            else f"{percent:.1f}%"
+        ),
         "status": status,
     }
 
@@ -738,8 +760,32 @@ def _build_pricing_meta(stats: dict[str, Any], settings: Any, resolve_pricing_en
     )
     estimated_cost_gap_usd = max(0.0, estimated_total_cost_usd - logged_total_cost_usd)
 
+    active_chat_models = {
+        str(getattr(getattr(settings, "llm", object()), "model", "") or "").strip(),
+        str(getattr(getattr(settings, "web_llm", object()), "model", "") or "").strip(),
+    }
+    active_embedding_models = {
+        str(getattr(getattr(settings, "embeddings", object()), "model", "") or "").strip(),
+    }
+    relevant_chat_models = {
+        model for model in (*active_chat_models, *chat_seen) if model
+    }
+    relevant_embedding_models = {
+        model for model in (*active_embedding_models, *embedding_seen) if model
+    }
+    relevant_chat_models.update(
+        model
+        for model, entry in getattr(settings.pricing, "chat_models", {}).items()
+        if _is_manual_pricing_entry(entry)
+    )
+    relevant_embedding_models.update(
+        model
+        for model, entry in getattr(settings.pricing, "embedding_models", {}).items()
+        if _is_manual_pricing_entry(entry)
+    )
+
     source_rows: list[dict[str, Any]] = []
-    for model in sorted(priced_chat_models):
+    for model in sorted(relevant_chat_models):
         entry = _resolve_stats_pricing_entry(getattr(settings.pricing, "chat_models", {}), model, resolve_pricing_entry, getattr(settings.pricing, "model_aliases", {}))
         if entry is None:
             continue
@@ -754,7 +800,7 @@ def _build_pricing_meta(stats: dict[str, Any], settings: Any, resolve_pricing_en
                 "is_manual": _is_manual_pricing_entry(entry),
             }
         )
-    for model in sorted(priced_embedding_models):
+    for model in sorted(relevant_embedding_models):
         entry = _resolve_stats_pricing_entry(
             getattr(settings.pricing, "embedding_models", {}),
             model,
@@ -785,7 +831,12 @@ def _build_pricing_meta(stats: dict[str, Any], settings: Any, resolve_pricing_en
         {"alias": str(alias), "target": str(target)}
         for alias, target in sorted(dict(getattr(settings.pricing, "model_aliases", {}) or {}).items())
         if str(alias).strip() and str(target).strip()
-    ]
+    ][:20]
+    source_rows = source_rows[:20]
+    visible_unpriced_rows = sorted(
+        unpriced_model_rows,
+        key=lambda row: (-int(row.get("tokens", 0) or 0), str(row.get("kind", "")), str(row.get("model", ""))),
+    )[: max(0, 20 - len(source_rows))]
 
     return {
         "last_updated": str(getattr(settings.pricing, "last_updated", "") or "").strip() or "-",
@@ -809,10 +860,7 @@ def _build_pricing_meta(stats: dict[str, Any], settings: Any, resolve_pricing_en
         "unpriced_chat_tokens": unpriced_chat_tokens,
         "unpriced_embedding_tokens": unpriced_embedding_tokens,
         "unpriced_model_tokens": unpriced_model_tokens,
-        "unpriced_model_rows": sorted(
-            unpriced_model_rows,
-            key=lambda row: (-int(row.get("tokens", 0) or 0), str(row.get("kind", "")), str(row.get("model", ""))),
-        ),
+        "unpriced_model_rows": visible_unpriced_rows,
         "has_unpriced_usage": unpriced_model_tokens > 0,
         "estimated_chat_cost_usd_by_model": estimated_chat_cost_by_model,
         "estimated_embedding_cost_usd_by_model": estimated_embedding_cost_by_model,
@@ -823,6 +871,567 @@ def _build_pricing_meta(stats: dict[str, Any], settings: Any, resolve_pricing_en
         "source_rows": source_rows,
         "alias_rows": alias_rows,
         "alias_count": len(alias_rows),
+    }
+
+
+def _stats_check_row(
+    *,
+    key: str,
+    name: str,
+    status: object = "ok",
+    summary: object = "",
+    detail: object = "",
+    stale: bool = False,
+    url: object = "",
+    action: object = "",
+) -> dict[str, Any]:
+    normalized = str(status or "warn").strip().lower()
+    if normalized not in {"ok", "warn", "error"}:
+        normalized = "warn"
+    if stale and normalized == "ok":
+        normalized = "warn"
+    return {
+        "key": str(key),
+        "name": str(name),
+        "status": normalized,
+        "summary": str(summary or "").strip(),
+        "detail": str(detail or "").strip(),
+        "stale": bool(stale),
+        "url": str(url or "").strip(),
+        "action": str(action or "").strip(),
+    }
+
+
+def _stats_check_block(
+    *, key: str, title: str, rows: list[dict[str, Any]], checked_at: str, language: str,
+    timezone_name: str = "UTC",
+) -> dict[str, Any]:
+    ok_count = sum(1 for row in rows if row["status"] == "ok")
+    warn_count = sum(1 for row in rows if row["status"] == "warn")
+    error_count = sum(1 for row in rows if row["status"] == "error")
+    status = "error" if error_count else ("warn" if warn_count else "ok")
+    time_label = ""
+    if checked_at:
+        try:
+            parsed = datetime.fromisoformat(str(checked_at).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            try:
+                parsed = parsed.astimezone(ZoneInfo(timezone_name))
+            except ZoneInfoNotFoundError:
+                parsed = parsed.astimezone(timezone.utc)
+            time_label = parsed.strftime("%H:%M")
+        except ValueError:
+            time_label = ""
+    warning_word = _stats_route_text(language, "check_summary_warning", "warning")
+    error_word = _stats_route_text(language, "check_summary_error", "error")
+    summary = f"{title} · {ok_count} ok · {warn_count} {warning_word} · {error_count} {error_word}"
+    if time_label:
+        summary = f"{summary} · {time_label}"
+    return {
+        "key": key,
+        "title": title,
+        "status": status,
+        "open": False,
+        "ok_count": ok_count,
+        "warn_count": warn_count,
+        "error_count": error_count,
+        "counts": {"ok": ok_count, "warn": warn_count, "error": error_count},
+        "summary": summary,
+        "time_label": time_label,
+        "rows": rows,
+    }
+
+
+def _stats_connection_summary(
+    *, total: int, cached_rows: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Summarize persisted connection checks without probing any connection."""
+
+    configured = max(0, int(total or 0))
+    checked = list(cached_rows or [])[:configured]
+    ok_count = sum(
+        1 for row in checked
+        if str(row.get("status", "") or "").strip().lower() == "ok"
+    )
+    error_count = len(checked) - ok_count
+    return {
+        "total": configured,
+        "ok": ok_count,
+        "error": error_count,
+        "never": max(0, configured - len(checked)),
+    }
+
+
+def _stats_check_block_shells(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep cached header counts while omitting tile bodies from the initial page."""
+
+    shells: list[dict[str, Any]] = []
+    for block in blocks:
+        shell = {key: value for key, value in block.items() if key != "rows"}
+        shell["open"] = False
+        shell["fragment_url"] = f"{_stats_ui_route('/stats').rstrip('/')}/blocks/{block['key']}"
+        shells.append(shell)
+    return shells
+
+
+async def _bounded_stats_live_probe(
+    probe: Any,
+    *,
+    timeout_seconds: float,
+    key: str,
+    name: str,
+    language: str,
+    url: str,
+    action: str = "",
+) -> dict[str, Any]:
+    """Run one fragment-only local probe with an honest, bounded warning result."""
+
+    bounded_timeout = min(3.0, max(0.001, float(timeout_seconds or 3.0)))
+    try:
+        payload = await asyncio.wait_for(probe, timeout=bounded_timeout)
+    except asyncio.TimeoutError:
+        return _stats_check_row(
+            key=key,
+            name=name,
+            status="warn",
+            summary=_stats_route_text(
+                language,
+                "check_live_unreachable",
+                "{name} is currently unavailable.",
+                name=name,
+            ),
+            detail=_stats_route_text(
+                language,
+                "check_live_timeout",
+                "Timeout after {seconds} seconds.",
+                seconds=f"{bounded_timeout:g}",
+            ),
+            url=url,
+            action=action,
+        )
+    except Exception as exc:
+        return _stats_check_row(
+            key=key,
+            name=name,
+            status="warn",
+            summary=_stats_route_text(
+                language,
+                "check_live_unreachable",
+                "{name} is currently unavailable.",
+                name=name,
+            ),
+            detail=str(exc)[:240],
+            url=url,
+            action=action,
+        )
+
+    data = dict(payload or {}) if isinstance(payload, dict) else {}
+    return _stats_check_row(
+        key=key,
+        name=name,
+        status=data.get("status", "warn"),
+        summary=data.get("summary", data.get("message", "")),
+        detail=data.get("detail", data.get("error", "")),
+        url=url,
+        action=action,
+    )
+
+
+def _configured_connection_count(settings: Any) -> int:
+    connections = getattr(settings, "connections", None)
+    if connections is None:
+        return 0
+    try:
+        payload = connections.model_dump()
+    except AttributeError:
+        payload = vars(connections) if hasattr(connections, "__dict__") else {}
+    return sum(len(rows) for rows in payload.values() if isinstance(rows, dict))
+
+
+def _build_stats_check_blocks(
+    *,
+    settings: Any,
+    pipeline: Any,
+    preflight_payload: dict[str, Any],
+    pricing_meta: dict[str, Any],
+    technical_stats: dict[str, Any],
+    release_meta: dict[str, Any],
+    update_status: dict[str, Any],
+    registry_meta: dict[str, Any],
+    base_dir: Path,
+    language: str,
+    timezone_name: str = "UTC",
+) -> list[dict[str, Any]]:
+    """Build the owner checks exclusively from local settings and cached snapshots."""
+
+    checked_at = str(preflight_payload.get("checked_at", "") or _STATS_PROCESS_STARTED_AT)
+    preflight = _build_preflight_meta(
+        dict(preflight_payload or {}), language, _load_active_runtime_profiles(base_dir),
+    )
+    startup_names = {
+        "prompts": _stats_route_text(language, "check_prompts", "Prompt files"),
+        "qdrant": "Qdrant",
+        "llm": _stats_route_text(language, "check_chat_llm", "Chat LLM"),
+        "embeddings": "Embeddings",
+    }
+    expected_models = {
+        "llm": str(getattr(getattr(settings, "llm", object()), "model", "") or "").strip(),
+        "web": str(getattr(getattr(settings, "web_llm", object()), "model", "") or "").strip(),
+        "embeddings": str(getattr(getattr(settings, "embeddings", object()), "model", "") or "").strip(),
+    }
+    startup_rows: list[dict[str, Any]] = []
+    for row in preflight.get("checks", []):
+        check_id = str(row.get("id", "") or "")
+        expected = expected_models.get(check_id, "")
+        actual = str(row.get("detail", "") or "").strip()
+        model_stale = bool(expected and actual and row.get("status") == "ok" and expected != actual)
+        stale = bool(row.get("stale")) or model_stale
+        summary = str(row.get("summary", "") or "")
+        if stale:
+            summary = _stats_route_text(
+                language,
+                "check_stale",
+                "Stale: the startup value differs from the current configuration.",
+            )
+        startup_rows.append(_stats_check_row(
+            key="qdrant_startup" if check_id == "qdrant" else ("chat_llm" if check_id == "llm" else check_id),
+            name=startup_names.get(check_id, check_id or "-"),
+            status=row.get("status", "warn"),
+            summary=summary,
+            detail=actual,
+            stale=stale,
+            url=(
+                "/config/prompts" if check_id == "prompts" else
+                "/config/memory" if check_id == "qdrant" else
+                "/config/llm"
+            ),
+            action=_stats_route_text(language, "check_open_settings", "Open settings"),
+        ))
+    present_startup_keys = {str(row.get("key", "")) for row in startup_rows}
+    for check_id in ("prompts", "qdrant", "llm", "embeddings"):
+        key = "qdrant_startup" if check_id == "qdrant" else ("chat_llm" if check_id == "llm" else check_id)
+        if key in present_startup_keys:
+            continue
+        startup_rows.append(_stats_check_row(
+            key=key,
+            name=startup_names[check_id],
+            status="warn",
+            summary=_stats_route_text(
+                language,
+                "check_startup_result_missing",
+                "No stored result is available for this startup check.",
+            ),
+            url=(
+                "/config/prompts" if check_id == "prompts" else
+                "/config/memory" if check_id == "qdrant" else
+                "/config/llm"
+            ),
+            action=_stats_route_text(language, "check_open_settings", "Open settings"),
+        ))
+    qdrant_start = next((row for row in startup_rows if row["key"] == "qdrant_startup"), None)
+    memory_status = str((qdrant_start or {}).get("status", "warn"))
+    token_tracking = getattr(settings, "token_tracking", object())
+    token_path = _resolve_runtime_path(base_dir, str(getattr(token_tracking, "log_file", "data/logs/tokens.jsonl") or "data/logs/tokens.jsonl"))
+    security = getattr(settings, "security", object())
+    security_enabled = bool(getattr(security, "enabled", True))
+    security_path = _resolve_runtime_path(base_dir, str(getattr(security, "db_path", "data/runtime/security.sqlite3") or "data/runtime/security.sqlite3"))
+    connection_count = _configured_connection_count(settings)
+    cached_connections = _load_cached_stats_connections(
+        base_dir, ttl_seconds=365 * 24 * 60 * 60, language=language,
+    ) or []
+    connection_summary = _stats_connection_summary(
+        total=connection_count,
+        cached_rows=[row for row in cached_connections if isinstance(row, dict)],
+    )
+    connection_status = "error" if connection_summary["error"] else "ok"
+    mcp_configs = dict(getattr(settings, "mcp_servers", {}) or {})
+    enabled_mcp = {name for name, config in mcp_configs.items() if bool(getattr(config, "enabled", False))}
+    manager = getattr(pipeline, "_native_mcp_client", None)
+    try:
+        mcp_statuses = tuple(manager.statuses()) if manager is not None else ()
+    except Exception:
+        mcp_statuses = ()
+    mcp_errors = [row for row in mcp_statuses if str(getattr(row, "server_name", "")) in enabled_mcp and str(getattr(row, "error", "") or "").strip()]
+    mcp_error_names = ", ".join(
+        f"{getattr(row, 'server_name', '')} ({getattr(row, 'error', '')})"
+        for row in mcp_errors
+    )
+    web_model = expected_models["web"] or "-"
+    model_stack_summary = (
+        f"Chat: {expected_models['llm'] or '-'} · "
+        f"Embeddings: {expected_models['embeddings'] or '-'} · Web: {web_model}"
+    )
+    runtime_rows = [
+        _stats_check_row(
+            key="aria_runtime", name="ARIA Runtime", status="ok",
+            summary=_pick_text(language, "Web-App erreichbar.", "Web app reachable."),
+            detail=_stats_route_text(
+                language, "check_log_level", "Log level: {level}",
+                level=str(getattr(getattr(settings, "aria", object()), "log_level", "") or "-"),
+            ),
+            url="/config/operations",
+            action=_stats_route_text(language, "check_open_operations", "Open operations"),
+        ),
+        _stats_check_row(
+            key="model_stack", name=_stats_route_text(language, "check_model_stack", "Model stack"),
+            status="ok" if expected_models["llm"] and expected_models["embeddings"] else "warn",
+            summary=model_stack_summary,
+            detail=_stats_route_text(language, "check_model_stack_detail", "Configured model roles"),
+            url="/config/llm",
+            action=_stats_route_text(language, "check_open_models", "Open model settings"),
+        ),
+        _stats_check_row(
+            key="qdrant_live", name=_stats_route_text(language, "check_memory_live", "Memory / Qdrant (live)"),
+            status=memory_status,
+            summary=str((qdrant_start or {}).get("summary", "") or _stats_route_text(language, "check_live_on_expand", "Live status loads when this section is opened.")),
+            detail=str((qdrant_start or {}).get("detail", "") or ""),
+            url="/config/memory",
+            action=_stats_route_text(language, "check_open_memory", "Open memory settings"),
+        ),
+        _stats_check_row(
+            key="security_store", name=_stats_route_text(language, "check_security_store", "Security store"),
+            status="ok" if (not security_enabled or security_path.exists()) else "warn",
+            summary=(
+                _stats_route_text(language, "check_security_present", "Local security store is present.")
+                if security_path.exists()
+                else _stats_route_text(language, "check_security_missing", "No local security store exists yet.")
+            ),
+            detail="",
+            url="/config/security",
+            action=_stats_route_text(language, "check_open_security", "Open security settings"),
+        ),
+        _stats_check_row(
+            key="logs", name=_stats_route_text(language, "check_logs", "Activity / logs"),
+            status="ok" if bool(getattr(token_tracking, "enabled", True)) else "warn",
+            summary=(
+                _stats_route_text(language, "check_logs_enabled", "Local usage logging is enabled.")
+                if bool(getattr(token_tracking, "enabled", True))
+                else _stats_route_text(language, "check_logs_disabled", "Local usage logging is disabled.")
+            ),
+            detail=_size_human(token_path.stat().st_size) if token_path.exists() else "0 B",
+            url="/config/logs",
+            action=_stats_route_text(language, "check_open_logs", "Open logs"),
+        ),
+        _stats_check_row(
+            key="connections", name=_stats_route_text(language, "check_connections", "Connections"),
+            status=connection_status,
+            summary=_stats_route_text(
+                language,
+                "check_connections_summary",
+                "{total} total · {ok} ok · {error} errors · {never} never checked",
+                **connection_summary,
+            ),
+            detail="",
+            url="/connections/status",
+            action=_stats_route_text(language, "check_open_connections", "Open connections"),
+        ),
+        _stats_check_row(
+            key="mcp_servers", name=_stats_route_text(language, "check_mcp", "MCP-Server"),
+            status="warn" if mcp_errors else "ok",
+            summary=(
+                _stats_route_text(language, "check_mcp_named_errors", "MCP server error: {servers}", servers=mcp_error_names)
+                if mcp_errors
+                else _stats_route_text(language, "check_mcp_count", "{count} MCP servers enabled.", count=len(enabled_mcp))
+            ),
+            detail=mcp_error_names,
+            url=(
+                f"/config/connections/mcp/{getattr(mcp_errors[0], 'server_name', '')}"
+                if len(mcp_errors) == 1 else "/config/connections/mcp"
+            ),
+            action=_stats_route_text(language, "check_open_connection", "Open connection"),
+        ),
+    ]
+
+    model_gateway = _build_model_gateway_meta(technical_stats, settings, pipeline, pricing_meta)
+    validation_issues = int(registry_meta.get("validation_issue_count", 0) or 0)
+    cycles = int(registry_meta.get("dependency_cycle_count", 0) or 0)
+    module_count = int(registry_meta.get("module_count", 0) or 0)
+    release_label = str(release_meta.get("label", "") or release_meta.get("version", "") or "").strip()
+    update_error = str(update_status.get("error", "") or "").strip()
+    cost_status = "ok"
+    if not bool(model_gateway.get("token_tracking_enabled", False)) or not bool(model_gateway.get("usage_meter_shared", False)):
+        cost_status = "error"
+    elif bool(pricing_meta.get("has_estimated_cost_gap", False)):
+        cost_status = "warn"
+    operations_rows = [
+        _stats_check_row(
+            key="release", name=_stats_route_text(language, "check_release", "Release"),
+            status="ok" if release_label else "error",
+            summary=release_label or _stats_route_text(language, "check_release_missing", "Release metadata is missing."),
+            url="/updates",
+            action=_stats_route_text(language, "check_open_updates", "Open updates"),
+        ),
+        _stats_check_row(
+            key="module_registry", name=_stats_route_text(language, "check_registry", "Module registry"),
+            status="ok" if module_count and not validation_issues and not cycles else "error",
+            summary=_stats_route_text(language, "check_registry_summary", "{modules} modules · {issues} issues · {cycles} cycles", modules=module_count, issues=validation_issues, cycles=cycles),
+            url="/config/admin/modules",
+            action=_stats_route_text(language, "check_open_modules", "Open modules"),
+        ),
+        _stats_check_row(
+            key="model_gateway", name=_stats_route_text(language, "check_gateway", "Model gateway / usage meter"),
+            status=model_gateway.get("status", "warn"),
+            summary=_stats_route_text(
+                language,
+                "check_gateway_result_ok" if model_gateway.get("status") == "ok" else "check_gateway_result_problem",
+                "Model clients use the shared usage meter and local token log."
+                if model_gateway.get("status") == "ok"
+                else "At least one model client is not connected to the shared usage meter.",
+            ),
+            detail=_stats_route_text(
+                language,
+                "check_gateway_detail",
+                "Gateway: {mode} · Usage meter: {meter}",
+                mode=_stats_route_text(
+                    language,
+                    "check_gateway_shared" if model_gateway.get("gateway_mode") == "shared" else "check_gateway_split",
+                    "shared" if model_gateway.get("gateway_mode") == "shared" else "split",
+                ),
+                meter=_stats_route_text(
+                    language,
+                    "check_gateway_shared" if model_gateway.get("usage_meter_shared") else "check_gateway_split",
+                    "shared" if model_gateway.get("usage_meter_shared") else "split",
+                ),
+            ),
+            url="/config/llm",
+            action=_stats_route_text(language, "check_open_models", "Open model settings"),
+        ),
+        _stats_check_row(
+            key="pricing", name=_stats_route_text(language, "check_pricing", "Pricing coverage"),
+            status="warn" if bool(pricing_meta.get("has_unpriced_usage")) or bool(model_gateway.get("native_search_unpriced_requests")) else "ok",
+            summary=f"Chat {pricing_meta.get('priced_seen_chat_count', 0)}/{pricing_meta.get('chat_seen_count', 0)} · Embedding {pricing_meta.get('priced_seen_embedding_count', 0)}/{pricing_meta.get('embedding_seen_count', 0)}",
+            url="#stats-pricing-details",
+            action=_stats_route_text(language, "check_open_pricing", "Open prices"),
+        ),
+        _stats_check_row(
+            key="cost_tracking", name=_stats_route_text(language, "check_cost_tracking", "Cost tracking"),
+            status=cost_status,
+            summary=_stats_route_text(language, "check_cost_summary", "Tokens and local cost estimates are recorded."),
+            detail=(
+                f"{format_integer(model_gateway.get('model_total_tokens', 0), language)} tokens · "
+                f"{format_currency(pricing_meta.get('logged_total_cost_usd', 0.0), language)} "
+                f"{_stats_route_text(language, 'check_cost_period_30_days', 'in the last 30 days')}"
+            ),
+            url="/config/logs",
+            action=_stats_route_text(language, "check_open_logs", "Open logs"),
+        ),
+        _stats_check_row(
+            key="routing_index", name=_stats_route_text(language, "check_routing_index", "Routing index"),
+            status=memory_status,
+            summary=_stats_route_text(
+                language,
+                "check_live_on_expand",
+                "Live status loads when this section is opened.",
+            ),
+            url="/config/operations",
+            action=_stats_route_text(language, "check_open_operations", "Open operations"),
+        ),
+        _stats_check_row(
+            key="recipe_memory", name=_stats_route_text(language, "check_recipe_memory", "Recipe memory"),
+            status=memory_status,
+            summary=_stats_route_text(
+                language,
+                "check_live_on_expand",
+                "Live status loads when this section is opened.",
+            ),
+            url="/memories/maintenance",
+            action=_stats_route_text(language, "check_open_memory_maintenance", "Open memory maintenance"),
+        ),
+        _stats_check_row(
+            key="updates", name=_stats_route_text(language, "check_updates", "Update path"),
+            status="warn" if update_error else "ok",
+            summary=(
+                _stats_route_text(language, "check_update_unavailable", "The cached update path currently reports a problem.")
+                if update_error
+                else _stats_route_text(language, "check_update_ready", "The managed update path is available.")
+            ),
+            detail=str(update_status.get("current_label", release_label or "-") or release_label or "-"),
+            url="/updates",
+            action=_stats_route_text(language, "check_open_updates", "Open updates"),
+        ),
+    ]
+
+    return [
+        _stats_check_block(
+            key="startup", title=_stats_route_text(language, "check_block_startup", "Startup checks"),
+            rows=startup_rows, checked_at=checked_at, language=language, timezone_name=timezone_name,
+        ),
+        _stats_check_block(
+            key="runtime", title=_stats_route_text(language, "check_block_runtime", "Runtime & services"),
+            rows=runtime_rows, checked_at=checked_at, language=language, timezone_name=timezone_name,
+        ),
+        _stats_check_block(
+            key="operations", title=_stats_route_text(language, "check_block_operations", "Operations & release"),
+            rows=operations_rows, checked_at=checked_at, language=language, timezone_name=timezone_name,
+        ),
+    ]
+
+
+def _build_stats_health_summary(
+    check_blocks: list[dict[str, Any]],
+    cached_issues: list[dict[str, Any]],
+    *,
+    language: str,
+) -> dict[str, Any]:
+    """Project concrete, actionable owner issues from the passive check rows."""
+
+    rows = [
+        {**row, "_block_key": str(block.get("key", ""))}
+        for block in check_blocks
+        for row in list(block.get("rows", ()))
+    ]
+    issues: list[dict[str, str]] = []
+    cached_connection_issues = [
+        row for row in cached_issues
+        if str(row.get("name", "")) not in {"startup_preflight", "connections_never_checked"}
+    ]
+    for row in cached_connection_issues:
+        issues.append(
+            {
+                "key": f"connection:{row.get('name', '')}",
+                "status": str(row.get("status", "warn") or "warn"),
+                "name": (
+                    _stats_route_text(language, "check_connections", "Connections")
+                    if str(row.get("name", "")) == "connections_never_checked"
+                    else str(row.get("name", "") or _stats_route_text(language, "check_connections", "Connections"))
+                ),
+                "message": str(row.get("message", "") or ""),
+                "url": str(row.get("url", "") or "/connections/status"),
+                "action": _stats_route_text(language, "check_open_connection", "Open connection"),
+            }
+        )
+    for row in rows:
+        if row.get("status") == "ok":
+            continue
+        if row.get("key") == "connections" and cached_connection_issues:
+            continue
+        detail = str(row.get("detail", "") or "").strip()
+        summary = str(row.get("summary", "") or "").strip()
+        message = summary if not detail or detail in summary else f"{summary} · {detail}"
+        issues.append(
+            {
+                "key": str(row.get("key", "")),
+                "status": str(row.get("status", "warn") or "warn"),
+                "name": str(row.get("name", "") or "-"),
+                "message": message,
+                "url": f"#stats-check-{row.get('_block_key', '')}-{row.get('key', '')}",
+                "action": _stats_route_text(language, "check_open", "Open"),
+            }
+        )
+    total = len(rows)
+    ok_count = sum(1 for row in rows if row.get("status") == "ok")
+    status = "error" if any(row["status"] == "error" for row in issues) else ("warn" if issues else "ok")
+    return {
+        "status": status,
+        "issues": issues,
+        "total_count": total,
+        "ok_count": ok_count,
+        "headline": (
+            _stats_route_text(language, "health_all_ok", "Everything is healthy - {count} checks green", count=ok_count)
+            if not issues
+            else _stats_route_text(language, "preflight_attention", "Checks needing attention")
+        ),
     }
 
 
@@ -853,6 +1462,21 @@ def _build_model_gateway_meta(stats: dict[str, Any], settings: Any, pipeline: An
     token_tracking = getattr(settings, "token_tracking", object())
     token_tracking_enabled = bool(getattr(token_tracking, "enabled", False))
     log_file = str(getattr(token_tracking, "log_file", "") or "").strip()
+    web_enabled = bool(getattr(web_config, "enabled", False)) if web_config is not None else False
+    web_model = str(getattr(web_config, "model", "") or "").strip() if web_config is not None else ""
+    chat_api_base = str(getattr(getattr(settings, "llm", object()), "api_base", "") or "").strip()
+    web_api_base = str(getattr(web_config, "api_base", "") or "").strip() if web_config is not None else ""
+    embedding_api_base = str(getattr(getattr(settings, "embeddings", object()), "api_base", "") or "").strip()
+    configured_api_bases = {
+        value for value in (chat_api_base, embedding_api_base, web_api_base if web_enabled else "") if value
+    }
+    web_meter = getattr(web_gateway, "usage_meter", None)
+    usage_meter_shared = (
+        usage_meter is not None
+        and llm_meter is usage_meter
+        and embedding_meter is usage_meter
+        and (not web_enabled or web_meter is usage_meter)
+    )
 
     rows = [
         {
@@ -894,11 +1518,11 @@ def _build_model_gateway_meta(stats: dict[str, Any], settings: Any, pipeline: An
                     "ok"
                     if web_gateway is not None
                     and getattr(web_gateway, "usage_meter", None) is usage_meter
-                    and bool(getattr(web_config, "enabled", False))
+                    and web_enabled
                     and bool(str(getattr(web_config, "capability_verified_at", "") or "").strip())
                     else "warn"
                 ),
-                "detail": str(getattr(web_config, "model", "") or "disabled").strip(),
+                "detail": web_model or "disabled",
             },
         )
 
@@ -908,9 +1532,13 @@ def _build_model_gateway_meta(stats: dict[str, Any], settings: Any, pipeline: An
     return {
         "status": status,
         "chat_model": chat_model or "-",
-        "web_model": str(getattr(web_config, "model", "") or "-").strip(),
+        "web_model": web_model or "-",
         "embedding_model": embedding_model or "-",
-        "usage_meter_shared": usage_meter is not None and llm_meter is usage_meter and embedding_meter is usage_meter,
+        "chat_api_base": chat_api_base or "-",
+        "web_api_base": web_api_base or "-",
+        "embedding_api_base": embedding_api_base or "-",
+        "gateway_mode": "shared" if len(configured_api_bases) <= 1 else "split",
+        "usage_meter_shared": usage_meter_shared,
         "token_tracking_enabled": token_tracking_enabled,
         "log_file": log_file or "-",
         "chat_total_tokens": int(stats.get("chat_total_tokens", 0) or 0),
@@ -920,6 +1548,10 @@ def _build_model_gateway_meta(stats: dict[str, Any], settings: Any, pipeline: An
         "priced_seen_embedding_count": int(pricing_meta.get("priced_seen_embedding_count", 0) or 0),
         "unpriced_model_tokens": int(pricing_meta.get("unpriced_model_tokens", 0) or 0),
         "has_unpriced_usage": bool(pricing_meta.get("has_unpriced_usage")),
+        "web_llm_requests": int(dict(stats.get("llm_requests_by_role", {}) or {}).get("web", 0) or 0),
+        "native_search_uses": int(stats.get("native_web_search_uses", 0) or 0),
+        "native_search_cost_usd": float(stats.get("native_web_search_cost_usd", 0.0) or 0.0),
+        "native_search_unpriced_requests": int(stats.get("native_web_search_unpriced_requests", 0) or 0),
         "rows": rows,
     }
 
@@ -1280,6 +1912,12 @@ async def _build_recipe_experience_memory_meta(settings: Any) -> dict[str, Any]:
             "recent_rows": [],
             "error": str(exc),
         }
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            closed = close()
+            if inspect.isawaitable(closed):
+                await closed
     point_count = sum(int(row.get("points", 0) or 0) for row in collections)
     return {
         "status": "ok" if collections else "warn",
@@ -1290,6 +1928,136 @@ async def _build_recipe_experience_memory_meta(settings: Any) -> dict[str, Any]:
         "recent_rows": sorted(recent_rows, key=lambda row: str(row.get("updated_at", "") or ""), reverse=True)[:5],
         "error": "",
     }
+
+
+async def _build_stats_live_operation_rows(
+    settings: Any, *, language: str,
+) -> dict[str, dict[str, Any]]:
+    """Load the two Qdrant-backed owner checks only for the expanded fragment."""
+
+    routing_name = _stats_route_text(language, "check_routing_index", "Routing index")
+    recipe_name = _stats_route_text(language, "check_recipe_memory", "Recipe memory")
+    open_operations = _stats_route_text(language, "check_open_operations", "Open operations")
+    open_memory = _stats_route_text(language, "check_open_memory_maintenance", "Open memory maintenance")
+
+    async def routing_probe() -> dict[str, Any]:
+        raw = await build_connection_routing_index_status(settings)
+        raw_status = str(raw.get("status", "warn") or "warn")
+        status = raw_status
+        indexed = raw.get("indexed_count")
+        configured = int(raw.get("document_count", 0) or 0)
+        stale_count = max(0, int(indexed or 0) - configured) if indexed is not None else 0
+        if status == "error":
+            status = "warn"
+        if stale_count:
+            status = "warn"
+        detail = str(raw.get("detail", "") or raw.get("error", ""))[:240]
+        if not detail and raw_status != "error":
+            detail = _stats_route_text(
+                language,
+                "check_routing_index_detail",
+                "Collection state read locally from Qdrant.",
+            )
+        if stale_count:
+            detail = _stats_route_text(
+                language,
+                "check_routing_index_stale",
+                "{count} stale entries - rebuild index",
+                count=stale_count,
+            )
+        return {
+            "status": status,
+            "summary": _stats_route_text(
+                language,
+                "check_routing_index_summary",
+                "{indexed}/{configured} connection profiles are indexed.",
+                indexed="-" if indexed is None else int(indexed or 0),
+                configured=configured,
+            ),
+            "detail": detail,
+        }
+
+    async def recipe_probe() -> dict[str, Any]:
+        raw = await _build_recipe_experience_memory_meta(settings)
+        status = str(raw.get("status", "warn") or "warn")
+        if status == "error":
+            status = "warn"
+        return {
+            "status": status,
+            "summary": _stats_route_text(
+                language,
+                "check_recipe_memory_live_summary",
+                "{collections} collections · {points} points",
+                collections=int(raw.get("collection_count", 0) or 0),
+                points=int(raw.get("point_count", 0) or 0),
+            ),
+            "detail": str(raw.get("error", "") or "")[:240],
+        }
+
+    routing_row, recipe_row = await asyncio.gather(
+        _bounded_stats_live_probe(
+            routing_probe(),
+            timeout_seconds=3.0,
+            key="routing_index",
+            name=routing_name,
+            language=language,
+            url="/config/operations",
+            action=open_operations,
+        ),
+        _bounded_stats_live_probe(
+            recipe_probe(),
+            timeout_seconds=3.0,
+            key="recipe_memory",
+            name=recipe_name,
+            language=language,
+            url="/memories/maintenance",
+            action=open_memory,
+        ),
+    )
+    return {"routing_index": routing_row, "recipe_memory": recipe_row}
+
+
+async def _build_stats_live_runtime_rows(
+    settings: Any, *, language: str,
+) -> dict[str, dict[str, Any]]:
+    """Load the single live Qdrant check only for the expanded runtime block."""
+
+    name = _stats_route_text(language, "check_memory_live", "Memory / Qdrant (live)")
+
+    async def qdrant_probe() -> dict[str, Any]:
+        memory = getattr(settings, "memory", object())
+        if not bool(getattr(memory, "enabled", False)):
+            return {
+                "status": "warn",
+                "summary": _stats_route_text(language, "check_memory_disabled", "Memory is disabled."),
+            }
+        client = create_async_qdrant_client(
+            url=str(getattr(memory, "qdrant_url", "") or ""),
+            api_key=str(getattr(memory, "qdrant_api_key", "") or "") or None,
+            timeout=3.0,
+        )
+        try:
+            result = await client.get_collections()
+            count = len(list(getattr(result, "collections", ()) or ()))
+            return {
+                "status": "ok",
+                "summary": _stats_route_text(
+                    language, "check_qdrant_live_ok", "Qdrant reachable ({count} collections).", count=count,
+                ),
+            }
+        finally:
+            close = getattr(client, "close", None)
+            if callable(close):
+                closed = close()
+                if inspect.isawaitable(closed):
+                    await closed
+
+    row = await _bounded_stats_live_probe(
+        qdrant_probe(), timeout_seconds=3.0, key="qdrant_live", name=name,
+        language=language, url="/config/memory",
+        action=_stats_route_text(language, "check_open_memory", "Open memory settings"),
+    )
+    return {"qdrant_live": row}
 
 
 def _build_source_usage_rows(stats: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1623,7 +2391,12 @@ def _pricing_refresh_meta(snapshot: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-def _build_preflight_meta(payload: dict[str, Any], language: str, active_profiles: dict[str, str] | None = None) -> dict[str, Any]:
+def _build_preflight_meta(
+    payload: dict[str, Any],
+    language: str,
+    active_profiles: dict[str, str] | None = None,
+    health_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     active_profiles = active_profiles or {}
     labels = {
         "prompts": _pick_text(language, "Prompt-Dateien", "Prompt files"),
@@ -1659,6 +2432,11 @@ def _build_preflight_meta(payload: dict[str, Any], language: str, active_profile
         "embeddings_empty_vector": lambda row: _pick_text(language, "Embeddings antworten ohne Vektor.", "Embeddings responded without vector."),
         "embeddings_error": lambda row: _pick_text(language, "Embeddings nicht erreichbar.", "Embeddings unavailable."),
     }
+    live_qdrant_status = ""
+    for service in list((health_meta or {}).get("services", ()) or ()):
+        if str(service.get("name") or "").strip() == "Memory / Qdrant":
+            live_qdrant_status = str(service.get("status") or "").strip().lower()
+            break
     checks: list[dict[str, Any]] = []
     for row in list(payload.get("checks", []) or []):
         check_id = str(row.get("id", "")).strip()
@@ -1671,6 +2449,7 @@ def _build_preflight_meta(payload: dict[str, Any], language: str, active_profile
         display_name = labels.get(check_id, check_id or "-")
         if active_profile:
             display_name = f"{display_name} ({active_profile})"
+        disagrees = check_id == "qdrant" and bool(live_qdrant_status) and live_qdrant_status != status
         checks.append(
             {
                 "id": check_id,
@@ -1679,12 +2458,25 @@ def _build_preflight_meta(payload: dict[str, Any], language: str, active_profile
                 "visual_status": "warn" if status == "skipped" else status,
                 "summary": summary,
                 "detail": str(row.get("detail", "")).strip(),
+                "stale": bool(payload.get("stale")) or disagrees,
             }
         )
     overall = str(payload.get("status", "warn")).strip().lower() or "warn"
+    checked_at = str(payload.get("checked_at", "")).strip()
+    checked_at_local = checked_at
+    if checked_at:
+        try:
+            parsed = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            checked_at_local = parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        except ValueError:
+            pass
     return {
         "overall_status": overall,
-        "checked_at": str(payload.get("checked_at", "")).strip(),
+        "checked_at": checked_at,
+        "checked_at_local": checked_at_local,
+        "stale": bool(payload.get("stale")) or any(row["stale"] for row in checks),
         "checks": checks,
         "issue_checks": [row for row in checks if row["status"] not in {"ok"}],
         "ok_count": sum(1 for row in checks if row["status"] == "ok"),
@@ -1806,14 +2598,18 @@ async def _build_health_meta(
     security_status = "ok" if not bool(getattr(settings.security, "enabled", True)) or (security_db.exists() and master_key) else "warn"
     services.append(
         {
-            "name": "Security Store",
+            "name": _pick_text(language, "Sicherheitsspeicher", "Security Store"),
             "status": security_status,
             "summary": _pick_text(
                 language,
-                "Security Store aktiv." if bool(getattr(settings.security, "enabled", True)) else "Security ist deaktiviert.",
+                "Sicherheitsspeicher aktiv." if bool(getattr(settings.security, "enabled", True)) else "Sicherheit ist deaktiviert.",
                 "Security store active." if bool(getattr(settings.security, "enabled", True)) else "Security is disabled.",
             ),
-            "detail": f"db={security_db} · master_key={'ok' if master_key else 'missing'}",
+            "detail": (
+                f"db={security_db} · master_key={'vorhanden' if master_key else 'fehlt'}"
+                if str(language or "de").strip().lower().startswith("de")
+                else f"db={security_db} · master_key={'ok' if master_key else 'missing'}"
+            ),
         }
     )
 
@@ -1875,7 +2671,7 @@ async def _build_health_meta(
     )
     helper_detail = _pick_text(
         language,
-        "Managed-Installationen und interne aria-pull-Setups koennen hier ihren Update-Helper melden.",
+        "Managed-Installationen und interne aria-pull-Setups können hier ihren Update-Helper melden.",
         "Managed installations and internal aria-pull setups can expose their update helper here.",
     )
     if helper_config.enabled:
@@ -1954,6 +2750,13 @@ def register_stats_routes(
     get_runtime_preflight: PreflightGetter,
     get_secure_store: SecureStoreGetter | None = None,
 ) -> None:
+    templates.env.filters.setdefault(
+        "local_relative_time",
+        lambda epoch, request: format_relative_time(
+            float(epoch or 0),
+            "de" if str(getattr(getattr(request, "state", object()), "lang", "de")).lower().startswith("de") else "en",
+        ),
+    )
     def _stats_ui_template(template_name: str) -> str:
         resolved = module_template_name("stats_ui", template_name)
         if resolved is None:
@@ -2111,6 +2914,59 @@ def register_stats_routes(
             status_code=303,
         )
 
+    @app.get("/stats/blocks/{block_id}", response_class=HTMLResponse)
+    async def stats_check_block_fragment(request: Request, block_id: str) -> HTMLResponse:
+        if block_id not in {"startup", "runtime", "operations"}:
+            raise HTTPException(status_code=404, detail="Unknown stats block")
+
+        settings = get_settings()
+        pipeline = get_pipeline()
+        base_dir = _project_root()
+        language = str(
+            getattr(getattr(request, "state", object()), "lang", "")
+            or settings.ui.language
+            or "de"
+        )
+        language = "de" if language.lower().startswith("de") else "en"
+        timezone_name = request_display_timezone(request, settings)
+        try:
+            preflight_payload = get_runtime_preflight(passive=True) or {}
+        except TypeError:
+            preflight_payload = get_runtime_preflight() or {}
+        if inspect.isawaitable(preflight_payload):
+            preflight_payload = await preflight_payload
+        technical_stats = await pipeline.token_tracker.get_stats(days=30)
+        pricing_meta = _build_pricing_meta(technical_stats, settings, resolve_pricing_entry)
+        release_meta = dict(
+            getattr(getattr(request, "state", object()), "release_meta", {})
+            or _build_release_meta(base_dir)
+        )
+        check_blocks = _build_stats_check_blocks(
+            settings=settings,
+            pipeline=pipeline,
+            preflight_payload=preflight_payload if isinstance(preflight_payload, dict) else {},
+            pricing_meta=pricing_meta,
+            technical_stats=technical_stats,
+            release_meta=release_meta,
+            update_status=dict(getattr(getattr(request, "state", object()), "update_status", {}) or {}),
+            registry_meta=module_registry_diagnostics(),
+            base_dir=base_dir,
+            language=language,
+            timezone_name=timezone_name,
+        )
+        block = next(item for item in check_blocks if item["key"] == block_id)
+        if block_id == "runtime":
+            live_rows = await _build_stats_live_runtime_rows(settings, language=language)
+            block["rows"] = [live_rows.get(row["key"], row) for row in block["rows"]]
+        if block_id == "operations":
+            live_rows = await _build_stats_live_operation_rows(settings, language=language)
+            block["rows"] = [live_rows.get(row["key"], row) for row in block["rows"]]
+        return templates.TemplateResponse(
+            request=request,
+            name=_stats_ui_template("_stats_check_block.html"),
+            context={"block": block},
+        )
+
     @app.get('/stats', response_class=HTMLResponse)
     async def stats_page(
         request: Request,
@@ -2121,90 +2977,121 @@ def register_stats_routes(
         settings = get_settings()
         pipeline = get_pipeline()
         base_dir = _project_root()
-        stats = await pipeline.token_tracker.get_stats(days=7)
         username = get_username_from_request(request)
-        pricing_meta = _build_pricing_meta(stats, settings, resolve_pricing_entry)
-        model_gateway = _build_model_gateway_meta(stats, settings, pipeline, pricing_meta)
-        recipe_experience_memory = await _build_recipe_experience_memory_meta(settings)
         language = str(getattr(getattr(request, "state", object()), "lang", "") or settings.ui.language or "de")
-        health_meta = await _build_health_meta(settings, pipeline, language, request, get_secure_store=get_secure_store)
-        preflight_payload = get_runtime_preflight() or {}
+        language = "de" if language.lower().startswith("de") else "en"
+        timezone_name = request_display_timezone(request, settings)
+        try:
+            preflight_payload = get_runtime_preflight(passive=True) or {}
+        except TypeError:
+            # Third-party/test route assemblers may still provide the older
+            # zero-argument snapshot getter. The production getter accepts
+            # passive=True and therefore never refreshes providers here.
+            preflight_payload = get_runtime_preflight() or {}
         if inspect.isawaitable(preflight_payload):
             preflight_payload = await preflight_payload
-        active_profiles = _load_active_runtime_profiles(base_dir)
-        preflight_meta = _build_preflight_meta(
-            preflight_payload if isinstance(preflight_payload, dict) else {},
-            language,
-            active_profiles=active_profiles,
+        token_path = Path(str(getattr(getattr(settings, "token_tracking", object()), "log_file", "data/logs/tokens.jsonl")))
+        if not token_path.is_absolute():
+            token_path = base_dir / token_path
+        def passive_price_lookup(kind: str, model: str) -> Any | None:
+            pricing = getattr(settings, "pricing", None)
+            table = getattr(pricing, "chat_models" if kind == "chat" else "embedding_models", {})
+            return resolve_pricing_entry(table, model)
+
+        usage_overview = StatsUsageAggregation(
+            token_path, timezone_name, passive_price_lookup,
+        ).build(language=language)
+        technical_stats = await pipeline.token_tracker.get_stats(days=30)
+        pricing_meta = _build_pricing_meta(technical_stats, settings, resolve_pricing_entry)
+        health_overview = StatsHealthSnapshot(_stats_connections_cache_path(base_dir)).build(
+            language=language,
+            preflight=preflight_payload if isinstance(preflight_payload, dict) else {},
         )
-        runtime_memory = _build_runtime_memory_meta(language)
-        qdrant_storage = await _build_qdrant_storage_meta(base_dir, settings)
-        routing_index_meta = await build_connection_routing_index_status(settings)
+        journal_enabled = bool(
+            getattr(getattr(settings, "agentic_loop", object()), "activity_journal_enabled", True)
+        )
+        job_store = pipeline.get_agent_job_store() if hasattr(pipeline, "get_agent_job_store") else None
+        activity_overview = StatsActivityAggregation(
+            base_dir / "data" / "runtime" / "activity_journal.sqlite3",
+            job_store,
+            enabled=journal_enabled,
+        ).build(user_id=username, language=language)
+        resources_overview = StatsResourceSnapshot(base_dir).build(language=language)
+        captured_at = max(
+            float(health_overview.get("checked_at") or 0.0),
+            float(resources_overview.get("captured_at") or 0.0),
+        )
         release_meta = dict(getattr(getattr(request, "state", object()), "release_meta", {}) or _build_release_meta(base_dir))
+        registry_meta = module_registry_diagnostics()
         update_status = dict(getattr(getattr(request, "state", object()), "update_status", {}) or {})
-        operator_guardrail = _build_operator_guardrail_meta(
-            release_meta=release_meta,
+        check_blocks = _build_stats_check_blocks(
+            settings=settings,
+            pipeline=pipeline,
+            preflight_payload=preflight_payload if isinstance(preflight_payload, dict) else {},
             pricing_meta=pricing_meta,
-            model_gateway=model_gateway,
-            preflight_meta=preflight_meta,
-            health_meta=health_meta,
+            technical_stats=technical_stats,
+            release_meta=release_meta,
             update_status=update_status,
-            recipe_experience_memory=recipe_experience_memory,
-            module_registry=module_registry_diagnostics(),
+            registry_meta=registry_meta,
+            base_dir=base_dir,
+            language=language,
+            timezone_name=timezone_name,
+        )
+        health_summary = _build_stats_health_summary(
+            check_blocks,
+            list(health_overview.get("issues", ()) or ()),
             language=language,
         )
-        source_usage_rows = _build_source_usage_rows(stats)
-        model_totals = _build_stats_model_totals(stats)
-        activity_data = await pipeline.token_tracker.get_recent_activities(
-            user_id=username,
-            limit=18,
-            kind="all",
-            status="all",
+        health_overview.update(health_summary)
+        overview = StatsOverviewSnapshot(
+            health=health_overview,
+            usage=usage_overview,
+            activity=activity_overview,
+            resources=resources_overview,
+            freshness=format_relative_time(captured_at, language),
+            freshness_absolute=format_local_time(captured_at, language, timezone_name),
         )
-        activity_rows = activity_data.get("rows", [])
-        if not isinstance(activity_rows, list):
-            activity_rows = []
-        activity_data["rows"] = _decorate_activity_rows(activity_rows)
-        connection_status_rows = _load_cached_stats_connections(base_dir, language=language)
-        if connection_status_rows is None:
-            connection_status_rows = build_settings_connection_status_rows(
-                settings,
-                page_probe=True,
-                cached_only_threshold=4,
-                base_dir=base_dir,
-                lang=language,
-            )
-            connection_status_rows = _collapse_large_connection_groups(
-                connection_status_rows,
-                threshold=4,
-                language=language,
-            )
-            connection_status_rows = _attach_connection_edit_urls(connection_status_rows)
-            _save_cached_stats_connections(base_dir, connection_status_rows, language=language)
-        else:
-            connection_status_rows = _attach_connection_edit_urls(connection_status_rows)
+        native_tool_count = 38
+        model_gateway = _build_model_gateway_meta(
+            technical_stats, settings, pipeline, pricing_meta,
+        )
+        technical = {
+            "release": release_meta,
+            "module_count": int(registry_meta.get("module_count", 0) or 0),
+            "dependency_count": int(registry_meta.get("internal_dependency_count", 0) or 0),
+            "external_count": int(registry_meta.get("external_dependency_count", 0) or 0),
+            "migration_count": int(registry_meta.get("legacy_alias_migration_candidate_count", 0) or 0),
+            "native_tool_count": native_tool_count,
+            "chat_model": model_gateway["chat_model"],
+            "chat_api_base": model_gateway["chat_api_base"],
+            "web_model": model_gateway["web_model"],
+            "web_api_base": model_gateway["web_api_base"],
+            "embedding_model": model_gateway["embedding_model"],
+            "embedding_api_base": model_gateway["embedding_api_base"],
+            "gateway_mode": model_gateway["gateway_mode"],
+            "usage_meter_shared": model_gateway["usage_meter_shared"],
+            "token_tracking_enabled": model_gateway["token_tracking_enabled"],
+            "web_llm_requests": model_gateway["web_llm_requests"],
+            "native_search_uses": model_gateway["native_search_uses"],
+            "native_search_cost_usd": format_currency(model_gateway["native_search_cost_usd"], language),
+            "native_search_unpriced_requests": model_gateway["native_search_unpriced_requests"],
+            "preflight": preflight_payload if isinstance(preflight_payload, dict) else {},
+            "token_log": str(token_path),
+        }
         return templates.TemplateResponse(
             request=request,
             name=_stats_ui_template("stats.html"),
             context={
                 'title': settings.ui.title,
-                'stats': stats,
                 'username': username,
+                'overview': overview,
+                'technical': technical,
+                'stats': technical_stats,
                 'pricing_meta': pricing_meta,
-                'model_gateway': model_gateway,
-                'recipe_experience_memory': recipe_experience_memory,
-                'health_meta': health_meta,
-                'preflight_meta': preflight_meta,
-                'runtime_memory': runtime_memory,
-                'qdrant_storage': qdrant_storage,
-                'routing_index_meta': routing_index_meta,
+                'check_blocks': _stats_check_block_shells(check_blocks),
+                'cost_svg_description': build_cost_svg_description(usage_overview, language),
+                'format_integer': lambda value: format_integer(value, language),
                 'release_meta': release_meta,
-                'update_status': update_status,
-                'operator_guardrail': operator_guardrail,
-                'source_usage_rows': source_usage_rows,
-                'model_totals': model_totals,
-                'activities': activity_data,
-                'connection_status_rows': connection_status_rows,
                 'reset_done': reset_done,
                 'reset_archive': reset_archive,
                 'reset_error': reset_error,

@@ -207,12 +207,18 @@ class PipelineRecipeHelpersMixin:
     def _load_recipe_toggles(self) -> dict[str, bool]:
         return load_recipe_toggles(self._config_path)
 
-    def _load_stored_recipe_runtime(self) -> list[dict[str, Any]]:
+    def _refresh_stored_recipe_runtime(self) -> list[dict[str, Any]]:
+        """Refresh the authoritative local manifest snapshot off the turn path."""
+
         rows, cache = load_stored_recipe_runtime(
             skills_dir=self._stored_recipes_dir,
             config_path=self._config_path,
-            cache=self._stored_recipe_cache,
+            # A refresh must observe sanctioned manifest/config changes.  The
+            # Native turn consumes the resulting immutable snapshot and never
+            # walks persistent storage itself.
+            cache={},
         )
+        cache["ready"] = True
         self._stored_recipe_cache = cache
         self._last_stored_recipe_runtime_diagnostics = {
             "loaded": len(rows),
@@ -221,6 +227,19 @@ class PipelineRecipeHelpersMixin:
             "invalid": len(list(cache.get("errors", []) or [])) if isinstance(cache, dict) else 0,
         }
         return rows
+
+    def _stored_recipe_runtime_snapshot(self) -> list[dict[str, Any]]:
+        """Return the current in-memory recipe snapshot without filesystem I/O."""
+
+        cache = self._stored_recipe_cache
+        if not isinstance(cache, dict):
+            return []
+        return list(cache.get("rows", []) or [])
+
+    def _load_stored_recipe_runtime(self) -> list[dict[str, Any]]:
+        """Load current manifests for explicit source-authority consumers."""
+
+        return self._refresh_stored_recipe_runtime()
 
     @staticmethod
     def _should_skip_recipe_auto_memory_persist(intents: list[str]) -> bool:

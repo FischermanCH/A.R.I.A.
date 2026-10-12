@@ -1,113 +1,118 @@
-{% extends "base.html" %}
+{% extends "page_types/tool_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% from "_ui_clarity.html" import ui_info_panel, ui_action_card %}
+{% block page_body %}
 {% set config_backup_export_url = config_backup_export_url if config_backup_export_url is defined else module_route_path('config_backup', '/config/backup/export') %}
 {% set config_backup_import_url = config_backup_import_url if config_backup_import_url is defined else module_route_path('config_backup', '/config/backup/import') %}
-<main class="config-layout config-domain-layout config-domain-surface-layout config-backup-layout">
+<main class="config-layout config-domain-layout config-domain-surface-layout config-backup-layout ui-clarity-stack">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
+  <p class="ui-page-purpose">{{ tr(request, 'config.backup_page_purpose', 'Here you can download a safe configuration backup, restore one, or export your personal memories.') }}</p>
 
-  <section class="floating-card config-domain-section">
-    <p class="section-kicker">{{ tr(request, 'config.transfer_title', 'Import / Export') }}</p>
-    <h1>{{ tr(request, 'config.transfer_heading', 'Import / Export for configuration and memory') }}</h1>
-    <p>
-      {{ tr(request, 'config.transfer_intro', 'Keep configuration backups and user-memory exports in one place so recovery and migration steps stay easier to find.') }}
-    </p>
-    <div class="config-group-grid">
-      <article class="config-group-card">
-        <div class="skill-card-head">
-          <h3>{{ tr(request, 'config.backup_contains_title', 'Included in the backup') }}</h3>
-          <span class="skill-state is-on">{{ tr(request, 'config.backup_safe_label', 'Config only') }}</span>
+  <div class="ui-action-grid">
+    {% call ui_action_card(
+      tr(request, 'config.backup_action_title', 'Back up configuration'),
+      tr(request, 'config.backup_action_desc', 'Downloads one portable configuration file; credentials stay out unless you explicitly encrypt and include them.'),
+      'backup-download',
+      true
+    ) %}
+      <p class="ui-stat-context">{{ tr(request, 'config.backup_summary_included', 'Im Backup enthalten') }}</p>
+      <dl class="ui-info-stats" aria-label="{{ tr(request, 'config.backup_summary_label', 'Backup inventory') }}">
+        <div><dt>{{ tr(request, 'config.backup_summary_secrets', 'Secrets im Backup') }}</dt><dd>{{ backup_summary.secret_count }}</dd></div>
+        <div><dt>{{ tr(request, 'config.backup_summary_users', 'Benutzer im Backup') }}</dt><dd>{{ backup_summary.user_count }}</dd></div>
+        <div><dt>{{ tr(request, 'config.backup_summary_skills', 'Stored recipes') }}</dt><dd>{{ backup_summary.custom_skill_count }}</dd></div>
+        <div><dt>{{ tr(request, 'config.backup_summary_prompts', 'Prompt files') }}</dt><dd>{{ backup_summary.prompt_file_count }}</dd></div>
+      </dl>
+      <form method="post" action="{{ config_backup_export_url }}" class="config-form-grid" id="backup-export-form">
+        <div class="ui-action-options">
+          <label class="checkbox-row" for="backup-bundle-toggle">
+            <input id="backup-bundle-toggle" name="include_secrets" type="checkbox" value="1">
+            {{ tr(request, 'config.backup_include_secrets', 'Include credentials in an encrypted bundle') }}
+          </label>
+          <p class="hint-text">{{ tr(request, 'config.backup_bundle_off_hint', 'Off by default. Without this option, credentials must be entered again after restore.') }}</p>
+          <div id="backup-bundle-fields" class="config-form-grid" hidden>
+            <div class="alert warn">{{ tr(request, 'config.backup_encrypted_warning', 'This file can restore secrets and password hashes. Protect the passphrase and backup carefully; a lost passphrase cannot be recovered.') }}</div>
+            <label for="backup-passphrase">{{ tr(request, 'config.backup_passphrase', 'Passphrase (at least 12 characters)') }}</label>
+            <input id="backup-passphrase" type="password" name="passphrase" minlength="12" autocomplete="new-password" disabled>
+            <label for="backup-passphrase-confirm">{{ tr(request, 'config.backup_passphrase_confirm', 'Repeat passphrase') }}</label>
+            <input id="backup-passphrase-confirm" type="password" name="passphrase_confirm" minlength="12" autocomplete="new-password" disabled>
+          </div>
         </div>
+        <button type="submit" class="ui-primary-action">{{ icon('download', 'ui-action-icon') }}{{ tr(request, 'config.backup_primary_download', 'Download backup') }}</button>
+      </form>
+    {% endcall %}
+
+    {% call ui_action_card(
+      tr(request, 'config.backup_restore_action_title', 'Restore configuration'),
+      tr(request, 'config.backup_restore_action_desc', 'Replaces the active configuration snapshot and stored recipe manifests with the selected backup.'),
+      'backup-restore'
+    ) %}
+      <form method="post" action="{{ config_backup_import_url }}" enctype="multipart/form-data" class="config-form-grid">
+        <input type="hidden" name="return_to" value="{{ return_to or '' }}">
+        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+        <label for="backup_file">{{ tr(request, 'config.backup_file_label', 'Backup file (.json)') }}</label>
+        <input id="backup_file" type="file" name="backup_file" accept="application/json,.json" required>
+        <label for="backup-import-passphrase">{{ tr(request, 'config.backup_import_passphrase', 'Passphrase (only for encrypted backups)') }}</label>
+        <input id="backup-import-passphrase" type="password" name="passphrase" autocomplete="current-password">
+        <p class="hint-text">{{ tr(request, 'config.backup_import_warn', 'Import replaces the active configuration snapshot and stored recipe manifests. Secret-free backups leave existing credentials alone and mark credentials for re-entry.') }}</p>
+        <button type="submit" class="ui-primary-action ui-caution-action">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'config.backup_import_btn', 'Restore backup') }}</button>
+      </form>
+    {% endcall %}
+
+    {% call ui_action_card(
+      tr(request, 'config.memory_export_action_title', 'Export my memories'),
+      tr(request, 'config.memory_export_desc', 'Download the current user memory as JSON for review or migration.'),
+      'memory-export'
+    ) %}
+      <p class="hint-text">{{ tr(request, 'config.memory_export_excludes', 'This is not a restore file for ARIA settings and excludes routing and system collections.') }}</p>
+      <a class="button-like ui-action-link ui-primary-action" href="{{ memory_export_url }}">{{ icon('download', 'ui-action-icon') }}{{ tr(request, 'config.memory_export_btn', 'Download memory export') }}</a>
+    {% endcall %}
+  </div>
+
+  {% call ui_info_panel(
+    tr(request, 'config.backup_scope_info_title', 'Included and not included'),
+    tr(request, 'config.backup_scope_info_summary', 'Open the technical scope of this configuration backup.')
+  ) %}
+    <div class="ui-info-columns">
+      <div>
+        <h3>{{ tr(request, 'config.backup_contains_title', 'Included in the backup') }}</h3>
         <ul class="plain-list">
           <li>{{ tr(request, 'config.backup_contains_config', 'config.yaml and ARIA UI settings') }}</li>
           <li>{{ tr(request, 'config.backup_contains_connections', 'connection profiles and routing metadata from config.yaml') }}</li>
-          <li>{{ tr(request, 'config.backup_contains_secrets', 'secure-store secrets and user accounts') }}</li>
-          <li>{{ tr(request, 'config.backup_contains_connection_secrets', 'connection passwords, tokens, and webhook URLs that live in the secure store') }}</li>
+          <li>{{ tr(request, 'config.backup_contains_secrets', 'No secrets or password hashes by default; credentials must be entered again after restore') }}</li>
+          <li>{{ tr(request, 'config.backup_contains_connection_secrets', 'Optional secrets are included only as a passphrase-encrypted AES-GCM bundle') }}</li>
           <li>{{ tr(request, 'config.backup_contains_skills', 'stored recipes and prompt markdown files') }}</li>
           <li>{{ tr(request, 'config.backup_contains_support', 'error interpreter rules') }}</li>
         </ul>
-      </article>
-      <article class="config-group-card">
-        <div class="skill-card-head">
-          <h3>{{ tr(request, 'config.backup_excludes_title', 'Not included') }}</h3>
-          <span class="skill-state is-off">{{ tr(request, 'config.backup_data_label', 'Data stays out') }}</span>
-        </div>
+      </div>
+      <div>
+        <h3>{{ tr(request, 'config.backup_excludes_title', 'Not included') }}</h3>
         <ul class="plain-list">
-          <li>{{ tr(request, 'config.backup_excludes_memories', 'memories, Qdrant collections, and chat history') }}</li>
+          <li>{{ tr(request, 'config.backup_excludes_memories', 'memories, documents, notes, chats, jobs, and Qdrant data') }}</li>
           <li>{{ tr(request, 'config.backup_excludes_runtime', 'runtime logs, uploads, update state, and Docker stack values') }}</li>
           <li>{{ tr(request, 'config.backup_excludes_ssh_keys', 'local SSH key files under data/ssh_keys are not exported; recreate or rotate them separately if needed') }}</li>
-          <li>{{ tr(request, 'config.backup_excludes_note', 'Use this for configuration recovery, not for full data migration.') }}</li>
+          <li>{{ tr(request, 'config.backup_excludes_note', 'Persistent volumes are not a backup. Use this for configuration recovery, not full data migration.') }}</li>
         </ul>
-      </article>
+      </div>
     </div>
-  </section>
-
-  <section class="floating-card config-domain-section">
-    <div class="config-group-grid">
-      <article class="config-group-card">
-        <div class="skill-card-head">
-          <h3>{{ tr(request, 'config.backup_export_title', 'Export backup file') }}</h3>
-          <span class="skill-state is-on">{{ tr(request, 'config.backup_export_ready', 'Ready') }}</span>
-        </div>
-        <p>{{ tr(request, 'config.backup_export_desc', 'Download a JSON snapshot of your current ARIA configuration. Keep it somewhere safe.') }}</p>
-        <div class="stats-grid compact">
-          <div class="stat-card">
-            <span class="stat-label">{{ tr(request, 'config.backup_summary_secrets', 'Secrets') }}</span>
-            <strong>{{ backup_summary.secret_count }}</strong>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">{{ tr(request, 'config.backup_summary_users', 'Users') }}</span>
-            <strong>{{ backup_summary.user_count }}</strong>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">{{ tr(request, 'config.backup_summary_skills', 'Stored recipes') }}</span>
-            <strong>{{ backup_summary.custom_skill_count }}</strong>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">{{ tr(request, 'config.backup_summary_prompts', 'Prompt files') }}</span>
-            <strong>{{ backup_summary.prompt_file_count }}</strong>
-          </div>
-        </div>
-        <p class="hint-text">{{ tr(request, 'config.backup_export_hint', 'Tip: create a fresh backup before larger upgrades or before importing a file from another instance.') }}</p>
-        <p>
-          <a class="button-like ui-action-link" href="{{ config_backup_export_url }}{% if return_to %}?return_to={{ return_to|urlencode }}{% endif %}">{{ icon('download', 'ui-action-icon') }}{{ tr(request, 'config.backup_export_btn', 'Download config backup') }}</a>
-        </p>
-      </article>
-
-      <article class="config-group-card">
-        <div class="skill-card-head">
-          <h3>{{ tr(request, 'config.memory_export_title', 'Export memory JSON') }}</h3>
-          <span class="skill-state is-on">{{ tr(request, 'config.memory_export_scope', 'Current user') }}</span>
-        </div>
-        <p>{{ tr(request, 'config.memory_export_desc', 'Download the current user memory as JSON. This is useful for review, migration, or a quick semantic-memory backup outside the full config backup flow.') }}</p>
-        <ul class="plain-list">
-          <li>{{ tr(request, 'config.memory_export_contains', 'Includes facts, preferences, day context, documents, and rollup knowledge for the signed-in user.') }}</li>
-          <li>{{ tr(request, 'config.memory_export_excludes', 'Does not create a restore file for full ARIA settings and does not include routing/system collections.') }}</li>
-        </ul>
-        <p class="hint-text">{{ tr(request, 'config.memory_export_hint', 'Use this when you want the semantic memory itself, not the broader ARIA configuration snapshot.') }}</p>
-        <p>
-          <a class="button-like ui-action-link" href="{{ memory_export_url }}">{{ icon('download', 'ui-action-icon') }}{{ tr(request, 'config.memory_export_btn', 'Download memory export') }}</a>
-        </p>
-      </article>
-
-      <article class="config-group-card">
-        <div class="skill-card-head">
-          <h3>{{ tr(request, 'config.backup_import_title', 'Import backup file') }}</h3>
-          <span class="skill-state is-warn">{{ tr(request, 'config.backup_import_careful', 'Overwrite') }}</span>
-        </div>
-        <p>{{ tr(request, 'config.backup_import_desc', 'Restore a previously exported backup file. ARIA will try to roll back to the previous state if the import fails.') }}</p>
-        <div class="alert warn">
-          {{ tr(request, 'config.backup_import_warn', 'Import replaces the active configuration snapshot, secure-store entries, and stored recipe manifests with the contents of the backup file.') }}
-        </div>
-        <form method="post" action="{{ config_backup_import_url }}" enctype="multipart/form-data">
-          <input type="hidden" name="return_to" value="{{ return_to or '' }}">
-          <label for="backup_file">{{ tr(request, 'config.backup_file_label', 'Backup file (.json)') }}</label>
-          <input id="backup_file" type="file" name="backup_file" accept="application/json,.json" required>
-          <button type="submit" class="ui-action-button">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'config.backup_import_btn', 'Restore backup') }}</button>
-        </form>
-      </article>
-    </div>
-  </section>
+  {% endcall %}
 </main>
+<script>
+  (function () {
+    const toggle = document.getElementById('backup-bundle-toggle');
+    const fields = document.getElementById('backup-bundle-fields');
+    if (!toggle || !fields) return;
+    const inputs = Array.from(fields.querySelectorAll('input'));
+    function syncBundleFields() {
+      const enabled = Boolean(toggle.checked);
+      fields.hidden = !enabled;
+      inputs.forEach(function (input) {
+        input.disabled = !enabled;
+        input.required = enabled;
+      });
+    }
+    toggle.addEventListener('change', syncBundleFields);
+    syncBundleFields();
+  })();
+</script>
 {% endblock %}

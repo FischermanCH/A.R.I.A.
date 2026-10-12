@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from aria.modules import module_route_path, module_template_name
+from aria.modules.action_confirmation.ledger import ActionConfirmationLedger
 from aria.modules.config_backup.backup import (
     backup_filename,
     build_config_backup_payload,
@@ -20,7 +22,11 @@ from aria.modules.config_backup.backup import (
     restore_config_backup_payload,
     summarize_config_backup_payload,
 )
+from aria.modules.inbound_event_storage.store import InboundEventStore
 from aria.modules.platform_primitives.i18n import I18NStore
+from aria.modules.native_agent.trace_store import NativeTraceStore
+from aria.modules.native_agent.pending_store import NativePendingStore
+from aria.modules.model_usage_observability.llm_audit import GLOBAL_LLM_AUDIT_LOG
 from aria.modules.system_inventory.admin import rebuild_inventory_index
 
 
@@ -245,14 +251,24 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
         info_message = ""
         if info == "backup_imported":
             info_message = _ops_text(lang, "backup_imported", "Configuration backup restored successfully.")
+        elif info == "backup_imported_needs_secrets":
+            info_message = _ops_text(
+                lang, "backup_imported_needs_secrets",
+                "Configuration restored. Secrets and connection credentials were not in this backup and must be entered again.",
+            )
+        elif info == "backup_imported_legacy_warning":
+            info_message = _ops_text(
+                lang, "backup_imported_legacy_warning",
+                "Legacy plaintext backup restored. Create a new secret-free or encrypted backup now.",
+            )
         context = deps.build_config_page_context(
             request,
             saved=saved,
             error=error,
-            logical_back_fallback=_ops_config_route("/config/operations"),
-            page_return_to=_ops_config_route("/config/operations"),
-            config_nav="operations",
-            page_heading=deps.msg(lang, "Import / Export", "Import / export"),
+            logical_back_fallback=_config_ui_route("/config/access"),
+            page_return_to=_config_ui_route("/config/access"),
+            config_nav="access",
+            page_heading=deps.msg(lang, "Backup & Wiederherstellung", "Backup & restore"),
         )
         context.update(
             {
@@ -290,38 +306,89 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             },
         )
 
+    @app.post("/config/backup/export")
+    async def config_backup_export_encrypted(
+        request: Request,
+        include_secrets: str = Form("0"),
+        passphrase: str = Form(""),
+        passphrase_confirm: str = Form(""),
+    ) -> Response:
+        if not bool(getattr(request.state, "can_access_advanced_config", False)):
+            return RedirectResponse(url=_config_ui_query("/config", error="admin_mode_required"), status_code=303)
+        encrypted = str(include_secrets).strip().lower() in {"1", "true", "on", "yes"}
+        if encrypted and passphrase != passphrase_confirm:
+            return RedirectResponse(
+                url=f"{_config_backup_route('/config/backup')}?error={quote_plus('Passphrases do not match.')}",
+                status_code=303,
+            )
+        raw = deps.read_raw_config()
+        try:
+            payload = build_config_backup_payload(
+                base_dir=deps.base_dir, raw_config=raw,
+                secure_store=deps.get_secure_store(raw),
+                error_interpreter_path=deps.error_interpreter_path,
+                include_secrets=encrypted, passphrase=passphrase,
+            )
+        except ValueError as exc:
+            return RedirectResponse(
+                url=f"{_config_backup_route('/config/backup')}?error={quote_plus(str(exc))}", status_code=303,
+            )
+        return Response(
+            content=json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{backup_filename()}"', "Cache-Control": "no-store"},
+        )
+
     @app.post("/config/backup/import")
     async def config_backup_import(
         request: Request,
         backup_file: UploadFile = File(...),
         return_to: str = Form(""),
+        passphrase: str = Form(""),
+        csrf_token: str = Form(""),
     ) -> RedirectResponse:
         if not bool(getattr(request.state, "can_access_advanced_config", False)):
             return RedirectResponse(url=_config_ui_query("/config", error="admin_mode_required"), status_code=303)
+        expected_csrf = str(getattr(request.state, "csrf_token", "") or "")
+        if expected_csrf and not secrets.compare_digest(str(csrf_token or ""), expected_csrf):
+            return Response(
+                content="CSRF validation failed. Please reload the page.",
+                status_code=403,
+                media_type="text/plain",
+            )
         previous_raw = deps.read_raw_config()
+        rollback_passphrase = secrets.token_urlsafe(32)
         previous_snapshot = build_config_backup_payload(
             base_dir=deps.base_dir,
             raw_config=previous_raw,
             secure_store=deps.get_secure_store(previous_raw),
             error_interpreter_path=deps.error_interpreter_path,
+            include_secrets=True,
+            passphrase=rollback_passphrase,
         )
         rollback_restored = False
         try:
             data = await backup_file.read()
             if not data:
                 raise ValueError(_ops_text(str(getattr(request.state, "lang", "de") or "de"), "backup_file_empty", "Backup file is empty."))
-            payload = parse_config_backup_payload(data)
-            restore_config_backup_payload(
+            payload = parse_config_backup_payload(data, passphrase=passphrase)
+            summary = restore_config_backup_payload(
                 base_dir=deps.base_dir,
                 payload=payload,
                 write_raw_config=deps.write_raw_config,
                 get_secure_store=deps.get_secure_store,
                 error_interpreter_path=deps.error_interpreter_path,
+                passphrase=passphrase,
             )
             deps.refresh_skill_trigger_index()
             deps.reload_runtime()
+            info_code = "backup_imported"
+            if int(summary.get("needs_secret_reentry", 0) or 0):
+                info_code = "backup_imported_needs_secrets"
+            elif int(summary.get("legacy_plaintext_warning", 0) or 0):
+                info_code = "backup_imported_legacy_warning"
             return deps.redirect_with_return_to(
-                f"{_config_backup_route('/config/backup')}?saved=1&info=backup_imported",
+                f"{_config_backup_route('/config/backup')}?saved=1&info={info_code}",
                 request,
                 fallback=_config_ui_route("/config"),
             )
@@ -333,6 +400,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
                     write_raw_config=deps.write_raw_config,
                     get_secure_store=deps.get_secure_store,
                     error_interpreter_path=deps.error_interpreter_path,
+                    passphrase=rollback_passphrase,
                 )
                 deps.refresh_skill_trigger_index()
                 deps.reload_runtime()
@@ -388,6 +456,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
                 "factory_reset": bool(factory_reset),
                 "factory_qdrant": factory_qdrant,
                 "token_tracking": settings.token_tracking,
+                "native_trace": settings.native_trace,
                 "health": health,
             }
         )
@@ -402,18 +471,35 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
         request: Request,
         enabled: str = Form("0"),
         retention_days: int = Form(...),
+        trace_retention_days: int = Form(7),
+        trace_detail_level: str = Form("minimal"),
+        trace_max_mebibytes: int = Form(50),
         return_to: str = Form(""),
     ) -> RedirectResponse:
         try:
             if retention_days < 0:
                 raise ValueError(_ops_text(str(getattr(request.state, "lang", "de") or "de"), "retention_days_min", "retention_days must be >= 0."))
             active = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
+            if trace_retention_days < 1 or trace_retention_days > 365:
+                raise ValueError("trace_retention_days must be between 1 and 365.")
+            if trace_detail_level not in {"minimal", "full"}:
+                raise ValueError("trace_detail_level must be minimal or full.")
+            if trace_max_mebibytes < 1 or trace_max_mebibytes > 4096:
+                raise ValueError("trace_max_mebibytes must be between 1 and 4096.")
             raw = deps.read_raw_config()
             raw.setdefault("token_tracking", {})
             if not isinstance(raw["token_tracking"], dict):
                 raw["token_tracking"] = {}
             raw["token_tracking"]["enabled"] = active
             raw["token_tracking"]["retention_days"] = int(retention_days)
+            raw.setdefault("native_trace", {})
+            if not isinstance(raw["native_trace"], dict):
+                raw["native_trace"] = {}
+            raw["native_trace"].update({
+                "retention_days": int(trace_retention_days),
+                "detail_level": trace_detail_level,
+                "max_mebibytes": int(trace_max_mebibytes),
+            })
             deps.write_raw_config(raw)
             deps.reload_runtime()
             return deps.redirect_with_return_to(
@@ -438,8 +524,46 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             removed = await pipeline.token_tracker.prune_old_entries(
                 int(getattr(settings.token_tracking, "retention_days", 0) or 0)
             )
+            archive_pruner = getattr(pipeline.token_tracker, "prune_archives", None)
+            archive_removed = archive_pruner() if callable(archive_pruner) else {"removed": 0}
+            trace_cfg = getattr(settings, "native_trace", None)
+            trace_removed = NativeTraceStore(
+                deps.base_dir / "data" / "modules" / "native_agent",
+                detail_level=str(getattr(trace_cfg, "detail_level", "minimal") or "minimal"),
+                retention_days=int(getattr(trace_cfg, "retention_days", 7) or 7),
+                max_mebibytes=int(getattr(trace_cfg, "max_mebibytes", 50) or 50),
+            ).sweep()
+            GLOBAL_LLM_AUDIT_LOG.prune_old_entries(30)
+            pending = getattr(pipeline, "_native_pending_store", None)
+            if pending is None:
+                pending = NativePendingStore(
+                    deps.base_dir / "data" / "runtime" / "native_pending_actions.sqlite3"
+                )
+                pipeline._native_pending_store = pending
+            pending.prune_expired()
+            ledger = getattr(pipeline, "_native_confirmation_ledger", None)
+            if ledger is None:
+                ledger = ActionConfirmationLedger(
+                    deps.base_dir / "data" / "runtime" / "action_confirmations.sqlite3"
+                )
+                pipeline._native_confirmation_ledger = ledger
+            ledger.prune_expired()
+            inbound_store = InboundEventStore(
+                deps.base_dir / "data" / "runtime" / "inbound_events.sqlite3"
+            )
+            pipeline._inbound_event_store = inbound_store
+            inbound_store.prune_expired(retention_days=30, max_events_per_source=1000)
+            evidence = getattr(pipeline, "web_evidence_store", None)
+            evidence_removed = await evidence.prune_expired() if evidence is not None else {"removed": 0}
+            removed_total = (
+                int(removed.get("removed", 0) or 0)
+                + int(archive_removed.get("removed", 0) or 0)
+                + int(trace_removed.get("removed_retention", 0) or 0)
+                + int(trace_removed.get("removed_size", 0) or 0)
+                + int(evidence_removed.get("removed", 0) or 0)
+            )
             return deps.redirect_with_return_to(
-                f"{_ops_config_route('/config/logs')}?pruned={int(removed.get('removed', 0) or 0)}",
+                f"{_ops_config_route('/config/logs')}?pruned={removed_total}",
                 request,
                 fallback=_config_ui_route("/config"),
                 return_to=return_to,
@@ -512,13 +636,14 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             removed_qdrant = await deps.clear_qdrant_factory_data(settings.memory)
 
             removed_files = 0
-            for rel_dir in ("data/auth", "data/chat_history", "data/runtime", "data/recipes", "data/ssh_keys"):
+            for rel_dir in (
+                "data/auth", "data/chat_history", "data/runtime", "data/recipes", "data/ssh_keys",
+                "data/notes", "data/modules/native_agent", "data/pricing",
+            ):
                 removed_files += deps.wipe_directory_contents((deps.base_dir / rel_dir).resolve())
 
             logs_dir = (deps.base_dir / "data" / "logs").resolve()
-            for file_name in ("tokens.jsonl", "tokens.jsonl.bak_unknown_cleanup"):
-                with suppress(OSError):
-                    (logs_dir / file_name).unlink()
+            removed_files += deps.wipe_directory_contents(logs_dir)
 
             deps.reload_runtime()
 

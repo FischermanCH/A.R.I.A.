@@ -355,7 +355,7 @@ def test_updates_page_shows_prominent_live_card_while_update_is_running(monkeypa
     response = client.get("/updates")
 
     assert response.status_code == 200
-    assert "Update in progress" in response.text or "Update laeuft gerade" in response.text
+    assert "Update in progress" in response.text or "Update läuft gerade" in response.text
     assert "update-live-card" in response.text
     assert "/updates/status" in response.text
     assert "Request sent to update helper" in response.text or "Anfrage an den Update-Helper gesendet" in response.text
@@ -478,7 +478,7 @@ def test_updates_run_renders_running_wait_page_for_regular_form_posts(monkeypatc
     response = client.post("/updates/run", data={"csrf_token": csrf_token})
 
     assert response.status_code == 200
-    assert "Update in progress" in response.text or "Update laeuft gerade" in response.text
+    assert "Update in progress" in response.text or "Update läuft gerade" in response.text
     assert "/updates/status" in response.text
     assert 'data-health-url="/health"' in response.text
 
@@ -794,7 +794,7 @@ def test_updates_running_page_renders_reconnect_shell(monkeypatch) -> None:
     response = client.get("/updates/running")
 
     assert response.status_code == 200
-    assert "Update in progress" in response.text or "Update laeuft gerade" in response.text
+    assert "Update in progress" in response.text or "Update läuft gerade" in response.text
     assert "/updates/status" in response.text
     assert "/health" in response.text
 
@@ -996,7 +996,7 @@ def test_update_redirect_routes_do_not_keep_hardcoded_release_update_targets() -
     assert [snippet for snippet in blocked if snippet in source] == []
 
 
-def test_stats_page_shows_update_card_and_uses_same_release_label(monkeypatch) -> None:
+def test_stats_page_keeps_release_in_technical_section_without_active_update_lookup(monkeypatch) -> None:
     monkeypatch.setattr(
         main_mod,
         "_read_release_meta",
@@ -1030,12 +1030,12 @@ def test_stats_page_shows_update_card_and_uses_same_release_label(monkeypatch) -
 
     assert response.status_code == 200
     assert "0.1.0-alpha41" in response.text
-    assert "0.1.0-alpha42" in response.text
-    assert "/updates" in response.text
-    assert "aria version-check" in response.text
+    assert "0.1.0-alpha42" not in response.text
+    assert "aria version-check" not in response.text
+    assert 'data-ui-technical-content' in response.text
 
 
-def test_stats_page_includes_update_helper_health_row(monkeypatch) -> None:
+def test_stats_page_does_not_probe_update_helper(monkeypatch) -> None:
     monkeypatch.setattr(
         main_mod,
         "_get_update_status",
@@ -1054,27 +1054,16 @@ def test_stats_page_includes_update_helper_health_row(monkeypatch) -> None:
     )
     monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
     monkeypatch.setattr(stats_routes_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
-    monkeypatch.setattr(
-        stats_routes_mod,
-        "fetch_update_helper_status",
-        lambda _config, timeout=1.2: {  # noqa: ARG005
-            "status": "idle",
-            "visual_status": "ok",
-            "running": False,
-            "reachable": True,
-            "current_step": "",
-            "last_started_at": "",
-            "last_finished_at": "",
-            "last_result": "Update completed successfully.",
-            "last_error": "",
-            "log_tail": [],
-        },
-    )
+    def _unexpected_probe(*_args, **_kwargs):  # noqa: ANN202
+        raise AssertionError("the passive stats GET must not contact the update helper")
+
+    monkeypatch.setattr(stats_routes_mod, "fetch_update_helper_status", _unexpected_probe)
 
     client = TestClient(main_mod.app)
     client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
     response = client.get("/stats")
 
     assert response.status_code == 200
-    assert "Update Helper" in response.text
-    assert "GUI update helper reachable and ready." in response.text or "GUI-Update-Helper erreichbar und bereit." in response.text
+    assert "Update Helper" not in response.text
+    assert "GUI update helper reachable and ready." not in response.text
+    assert "GUI-Update-Helper erreichbar und bereit." not in response.text

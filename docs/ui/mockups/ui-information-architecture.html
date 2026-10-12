@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ARIA UI-Informationsarchitektur – statisches Mockup</title>
+  <link rel="stylesheet" href="../../../aria/static/style.css">
+  <link rel="stylesheet" href="ui-information-architecture.css">
+</head>
+<body data-theme="matrix" data-background="grid-signal">
+  <div class="app-shell ia-shell">
+    <header class="topbar ia-topbar">
+      <div class="brand">
+        <div class="brand-mark"><img src="../../../aria/static/logo-aria-v01.png" alt="ARIA" class="brand-logo"></div>
+        <div class="brand-text"><div class="brand-title-row"><h1>A.R.I.A.</h1><span class="pill brand-admin-pill">Admin aktiv</span></div><p>Adaptive Reasoning &amp; Intelligence Agent</p></div>
+      </div>
+      <nav class="topnav"><span class="pill">Einstellungen</span><span class="pill">Bereiche</span></nav>
+    </header>
+
+    <main class="ia-main">
+      <section class="ia-view" data-view="ssh-overview">
+        <div class="ia-breadcrumbs"><span>Einstellungen</span><span>Verbindungen</span><span>SSH</span></div>
+        <div class="ia-page-head"><div><h2>SSH-Verbindungen</h2><p class="ia-purpose">Hier verwaltest du sichere Zugänge zu entfernten Rechnern und siehst ihren aktuellen Zustand.</p></div><a class="button-like ui-primary-action" href="#">Neue SSH-Verbindung</a></div>
+        <div class="ia-layout">
+          <details class="ui-info-panel"><summary><span class="ui-info-marker">ℹ</span><span><strong>Übersicht</strong><small>3 Profile · 2 erreichbar · 1 zu prüfen</small></span></summary><div class="ui-info-content"><p>Gesundheitswerte sind Momentaufnahmen. Ein Test wird nur über die Detailseite gestartet.</p></div></details>
+          <div class="ia-grid">
+            <article class="ia-profile"><div class="ia-profile-head"><h3>Entwicklungsserver</h3><span class="ia-health"></span></div><p><code>srv-dev02</code></p><small>debdev-srv02 · admin · Port 22</small><a class="ia-back" href="#">Öffnen</a></article>
+            <article class="ia-profile"><div class="ia-profile-head"><h3>Home Assistant</h3><span class="ia-health"></span></div><p><code>home-assistant</code></p><small>ha.internal · aria · Port 22</small><a class="ia-back" href="#">Öffnen</a></article>
+            <article class="ia-profile"><div class="ia-profile-head"><h3>Archivserver</h3><span class="ia-health warn"></span></div><p><code>archive</code></p><small>archive.internal · backup · noch nicht geprüft</small><a class="ia-back" href="#">Öffnen</a></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="ia-view" data-view="ssh-edit" hidden>
+        <div class="ia-breadcrumbs"><span>Einstellungen</span><span>Verbindungen</span><span>SSH</span><span>Entwicklungsserver</span></div>
+        <a class="ia-back" href="#">← Zurück zu SSH-Verbindungen</a>
+        <div class="ia-page-head"><div><h2>Entwicklungsserver</h2><p class="ia-purpose">Hier änderst du dauerhafte Profileinstellungen; Tests und Schlüsseltausch sind getrennte Aktionen.</p></div><span class="status-chip status-ok">Erreichbar</span></div>
+        <div class="ia-layout">
+          <details class="ui-info-panel" open><summary><span class="ui-info-marker">ℹ</span><span><strong>Status und Schlüssel</strong><small>Letzter Test heute, 18:42 Uhr · Fingerprint SHA256:•••7Fx</small></span></summary><div class="ui-info-content"><ul class="ia-info-list"><li>Privater Schlüssel: gesetzt</li><li>Host-Schlüssel: bestätigt</li><li>Schlüsselpfad: systemverwaltet</li></ul></div></details>
+          <section class="ui-settings-section"><div class="ui-section-heading"><h3>Verbindungseinstellungen</h3><p>Host, Nutzer und Laufzeitgrenzen dieses Profils.</p></div><form><div class="ia-fields"><label>Host<input value="debdev-srv02"></label><label>Nutzer<input value="admin"></label><label>Port<input value="22"></label><label>Angezeigter Titel<input value="Entwicklungsserver"></label><label class="wide">Beschreibung<textarea>Interner Entwicklungsserver für kontrollierte Wartungsaufgaben.</textarea></label></div><details><summary>Erweiterte Einstellungen</summary><div class="ia-fields"><label>Zeitüberschreitung<input value="20"></label><label>Host-Schlüsselprüfung<select><option>Neue Schlüssel einmalig akzeptieren</option></select></label><label class="wide">Erlaubte Befehle<textarea>uptime&#10;systemctl status *</textarea></label></div></details><div class="ia-form-actions"><button class="ui-primary-action">Einstellungen speichern</button></div></form></section>
+          <div class="ia-action-row"><section class="ui-action-card"><h3>Verbindung testen</h3><p>Prüft dieses gespeicherte Profil, ohne Einstellungen zu ändern.</p><button class="ui-primary-action">Jetzt testen</button></section><section class="ui-action-card"><h3>Schlüssel neu austauschen</h3><p>Startet einen getrennten, bestätigten Schlüsseltausch.</p><button>Schlüsseltausch öffnen</button></section></div>
+          <section class="ui-danger-zone"><div class="ui-section-heading"><h3>Gefahrenzone</h3><p>Löscht nur dieses SSH-Profil; lokale Schlüsseldateien bleiben erhalten.</p></div><label>Zur Bestätigung <strong>srv-dev02</strong> eingeben<input placeholder="srv-dev02"></label><button class="danger-btn">SSH-Verbindung löschen</button></section>
+        </div>
+      </section>
+
+      <section class="ia-view" data-view="ssh-new" hidden>
+        <div class="ia-breadcrumbs"><span>Einstellungen</span><span>Verbindungen</span><span>SSH</span><span>Neu</span></div>
+        <a class="ia-back" href="#">← Abbrechen und zurück zur Übersicht</a>
+        <div class="ia-page-head"><div><h2>Neue SSH-Verbindung</h2><p class="ia-purpose">Richte ein neues Profil ein; einmalige Zugangsdaten werden nach dem Schlüsseltausch nicht gespeichert oder erneut angezeigt.</p></div></div>
+        <div class="ia-stepper"><div class="ia-step active">1 · Ziel</div><div class="ia-step">2 · Schlüssel</div><div class="ia-step">3 · Prüfen</div></div>
+        <section class="ui-settings-section"><div class="ui-section-heading"><h3>Ziel festlegen</h3><p>Diese Angaben bilden das neue dauerhafte Profil.</p></div><form><div class="ia-fields"><label>Profilname<input value="srv-neu"></label><label>Angezeigter Titel<input value="Neuer Server"></label><label>Host oder IP-Adresse<input value="server.example.local"></label><label>Nutzer<input value="admin"></label><label>Port<input value="22"></label><label>Zeitüberschreitung<input value="20"></label></div><details><summary>Optionale Metadaten</summary><div class="ia-fields"><label class="wide">Beschreibung<textarea></textarea></label><label>Tags<input value="entwicklung"></label><label>Aliase<input value="testserver"></label></div></details><div class="ia-form-actions"><button class="ui-primary-action">Weiter zum Schlüsseltausch</button></div></form></section>
+        <details class="ui-info-panel"><summary><span class="ui-info-marker">ℹ</span><span><strong>Was folgt?</strong><small>Im nächsten Schritt gibst du einmalig das Anmeldepasswort ein oder erzeugst einen Schlüssel.</small></span></summary></details>
+      </section>
+
+      <section class="ia-view" data-view="webhook-edit" hidden>
+        <div class="ia-breadcrumbs"><span>Einstellungen</span><span>Verbindungen</span><span>Webhook</span><span>Build-Benachrichtigung</span></div>
+        <a class="ia-back" href="#">← Zurück zu Webhook-Verbindungen</a>
+        <div class="ia-page-head"><div><h2>Build-Benachrichtigung</h2><p class="ia-purpose">Hier bearbeitest du Ziel und Format dieses Webhooks; ein Test sendet nur über die separate Aktion.</p></div><span class="status-chip status-ok">Bereit</span></div>
+        <div class="ia-layout">
+          <details class="ui-info-panel" open><summary><span class="ui-info-marker">ℹ</span><span><strong>Status</strong><small>Letzter Test erfolgreich · Ziel: hooks.example.net/••••</small></span></summary><div class="ui-info-content"><p>URL-Geheimnisse und Abfrageparameter werden nicht angezeigt.</p></div></details>
+          <section class="ui-settings-section"><div class="ui-section-heading"><h3>Webhook-Einstellungen</h3><p>Dauerhafte Eigenschaften dieses Profils.</p></div><form><div class="ia-fields"><label>Angezeigter Titel<input value="Build-Benachrichtigung"></label><label>Methode<select><option>POST</option></select></label><label>Inhaltstyp<input value="application/json"></label><label>Zeitüberschreitung<input value="10"></label><label class="wide">Beschreibung<textarea>Empfängt abgeschlossene Build-Meldungen.</textarea></label></div><div class="ia-secret-state"><span><strong>Ziel-URL:</strong> gesetzt und geschützt</span><button>Neue URL setzen</button></div><div class="ia-form-actions"><button class="ui-primary-action">Einstellungen speichern</button></div></form></section>
+          <section class="ui-action-card"><h3>Verbindung testen</h3><p>Sendet eine klar gekennzeichnete Testnachricht an diesen Webhook.</p><button class="ui-primary-action">Test senden</button></section>
+          <section class="ui-danger-zone"><div class="ui-section-heading"><h3>Gefahrenzone</h3><p>Entfernt dieses Profil und seine geschützte URL.</p></div><label>Zur Bestätigung <strong>build-hook</strong> eingeben<input></label><button class="danger-btn">Webhook löschen</button></section>
+        </div>
+      </section>
+
+      <section class="ia-view" data-view="llm-settings" hidden>
+        <div class="ia-breadcrumbs"><span>Einstellungen</span><span>KI &amp; Modelle</span><span>LLM-Profile</span></div>
+        <div class="ia-page-head"><div><h2>LLM-Profile</h2><p class="ia-purpose">Hier verwaltest du Modellprofile und weist ihnen getrennt Aufgaben zu.</p></div><a class="button-like ui-primary-action" href="#">Neues Profil</a></div>
+        <div class="ia-settings-tabs"><span class="active">Hauptmodell</span><span>Web</span><span>Profile</span></div>
+        <div class="ia-layout">
+          <section class="ui-settings-section"><div class="ui-section-heading"><h3>Hauptmodell</h3><p>Modell und Grenzen für normale Antworten und Agent-Aufträge.</p></div><form><div class="ia-fields"><label>Profil<select><option>Claude Sonnet · Standard</option></select></label><label>Maximale Ausgabelänge<input value="4096"></label><label>Temperatur<input placeholder="Modellstandard verwenden"></label><label>Zeitüberschreitung<input value="90"></label></div><div class="ia-form-actions"><button class="ui-primary-action">Hauptmodell speichern</button></div></form></section>
+          <section class="ui-action-card"><h3>Profil testen</h3><p>Prüft das ausgewählte Profil mit einer kurzen, kostenpflichtigen Diagnose.</p><button class="ui-primary-action">Test starten</button></section>
+          <details class="ui-info-panel"><summary><span class="ui-info-marker">ℹ</span><span><strong>Aktive Zuordnung</strong><small>Hauptmodell: Claude Sonnet · zuletzt geprüft: noch nie</small></span></summary><div class="ui-info-content"><p>API-Schlüssel werden niemals im Browser angezeigt.</p></div></details>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="ia-review-chip">Statisches Design-Mockup · keine aktive ARIA-Seite</div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const view = params.get("view") || "ssh-overview";
+    const theme = params.get("theme") || "matrix";
+    document.body.dataset.theme = theme;
+    document.querySelectorAll(".ia-view").forEach((node) => { node.hidden = node.dataset.view !== view; });
+    document.title = `ARIA IA · ${view} · ${theme}`;
+  </script>
+</body>
+</html>

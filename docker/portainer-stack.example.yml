@@ -6,6 +6,9 @@ services:
       QDRANT__SERVICE__API_KEY: "${ARIA_QDRANT_API_KEY}"
     volumes:
       - qdrant_storage:/qdrant/storage
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
 
 
 
@@ -19,6 +22,7 @@ services:
     environment:
       ARIA_ARIA_HOST: "0.0.0.0"
       ARIA_ARIA_PORT: "8800"
+      TZ: "${TZ:-UTC}"
       ARIA_LLM_API_BASE: "${ARIA_LLM_API_BASE:-http://host.docker.internal:11434}"
       ARIA_LLM_MODEL: "${ARIA_LLM_MODEL:-ollama_chat/qwen3:8b}"
       ARIA_EMBEDDINGS_API_BASE: "${ARIA_EMBEDDINGS_API_BASE:-http://host.docker.internal:11434}"
@@ -33,6 +37,9 @@ services:
       - qdrant_storage:/qdrant/storage:ro
     depends_on:
       - qdrant
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
 
 volumes:
   qdrant_storage:

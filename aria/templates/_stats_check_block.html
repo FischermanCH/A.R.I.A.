@@ -1,0 +1,14 @@
+<div class="stats-check-grid">
+  {% for row in block.rows %}
+  <article id="stats-check-{{ block.key }}-{{ row.key }}" class="stats-check-tile status-{{ row.status }}" data-stats-check-tile data-stats-check-key="{{ row.key }}">
+    <div class="stats-check-tile__head">
+      <span class="health-lamp status-{{ row.status }}" aria-hidden="true"></span>
+      <strong>{{ row.name }}</strong>
+      {% if row.stale %}<span class="stats-check-tile__stale">{{ tr(request, 'stats.overview.checks.stale', 'veraltet') }}</span>{% endif %}
+    </div>
+    <p>{{ row.summary }}</p>
+    {% if row.detail %}<small>{{ row.detail }}</small>{% endif %}
+    {% if row.url and (row.status != 'ok' or row.key == 'connections') %}<a class="stats-check-tile__action" href="{{ row.url }}">{{ row.action }}</a>{% endif %}
+  </article>
+  {% endfor %}
+</div>

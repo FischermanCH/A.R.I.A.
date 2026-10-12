@@ -3,7 +3,7 @@
     <strong>{{ tr(request, 'config_conn.meta_title', 'Kontext & Metadaten') }}</strong>
     <span>{{ tr(request, 'config_conn.meta_hint', 'Diese Angaben helfen ARIA, Verbindungen natürlicher zu erkennen und später auch modularer zu erweitern.') }}</span>
   </div>
-  {% if meta_llm_kind %}
+  {% if meta_llm_kind and not meta_llm_action_separate %}
   <div class="connection-meta-llm-row{% if meta_show_service_url_field %} with-source-field{% endif %}">
     {% if meta_show_service_url_field %}
     <div class="connection-meta-source-field">
@@ -33,7 +33,7 @@
     </div>
   </div>
   {% if meta_llm_kind == 'ssh' %}
-  <small class="hint-text connection-meta-source-hint">{{ tr(request, 'config_conn.ssh_meta_llm_source_hint', 'Check mit LLM nutzt Host/IP, User, Port und optional diese Service-URL. Fuer reine SSH-Hosts kannst du die Service-URL leer lassen.') }}</small>
+  <small class="hint-text connection-meta-source-hint">{{ tr(request, 'config_conn.ssh_meta_llm_source_hint', 'Die LLM-Prüfung nutzt Host/IP, Nutzer, Port und optional diese Service-URL. Für reine SSH-Hosts kannst du die Service-URL leer lassen.') }}</small>
   {% endif %}
   {% endif %}
 

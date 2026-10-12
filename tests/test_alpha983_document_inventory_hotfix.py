@@ -13,10 +13,9 @@ def _read(path: str) -> str:
 
 
 def test_alpha983_release_metadata_and_hotfix_notes_are_consistent() -> None:
-    assert f'version = "{TARGET}"' in _read("pyproject.toml")
-    assert f'DEFAULT_RELEASE_LABEL = "{TARGET}"' in _read(
-        "aria/modules/release_update/release_meta.py"
-    )
+    current = _read("pyproject.toml").split('version = "', 1)[1].split('"', 1)[0]
+    assert int(current.rsplit("alpha", 1)[1]) >= 983
+    assert f'DEFAULT_RELEASE_LABEL = "{current}"' in _read("aria/modules/release_update/release_meta.py")
     assert TARGET in _read("docs/backlog/alpha-backlog.md")
 
     changelog_en = _read("CHANGELOG.md")

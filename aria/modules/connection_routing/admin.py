@@ -431,6 +431,12 @@ async def build_connection_routing_index_status(
         elif indexed_count < document_count:
             status = "warn"
             message = f"Routing index is incomplete: {indexed_count}/{document_count} profiles indexed."
+        elif indexed_count > document_count:
+            status = "warn"
+            message = (
+                f"Routing index contains {indexed_count - document_count} stale entries; "
+                "rebuild recommended."
+            )
         else:
             status = "ok"
             message = f"Routing index ready: {indexed_count}/{document_count} profiles indexed."
@@ -443,7 +449,7 @@ async def build_connection_routing_index_status(
             indexed_count=indexed_count,
             current_config_hash=current_hash,
             indexed_config_hash=indexed_hash,
-            stale=stale or not bool(indexed_hash),
+            stale=stale or not bool(indexed_hash) or bool(indexed_count is not None and indexed_count != document_count),
         )
     except Exception as exc:
         return _status_payload(

@@ -60,6 +60,7 @@ class DocumentMemoryService:
                     "document_id": document_id,
                     "document_name": str(hit.get("document_name", "")).strip(),
                     "guide_score": float(hit.get("guide_score", 0.0) or 0.0),
+                    "owner_user_id": str(hit.get("owner_user_id", "") or "").strip(),
                 }
         )
         return targets
@@ -188,7 +189,7 @@ class DocumentMemoryService:
             query_result = await self.skill.qdrant.query_points(
                 collection_name=guide_collection,
                 query=vector,
-                query_filter=self.skill._user_filter(user_id),
+                query_filter=None,
                 limit=max(2, int(max_hits)),
             )
         except Exception:
@@ -198,6 +199,17 @@ class DocumentMemoryService:
         seen: set[tuple[str, str]] = set()
         for hit in self.skill._extract_hits(query_result):
             payload = hit.payload or {}
+            payload_owner = str(payload.get("user_id", "") or "").strip()
+            if payload_owner:
+                if not self.skill._payload_user_matches(payload_owner, user_id):
+                    continue
+            elif not self.skill._payload_user_matches(
+                self.skill._document_collection_user_slug(
+                    guide_collection, self.skill.DOCUMENT_GUIDE_PREFIX,
+                ),
+                user_id,
+            ):
+                continue
             if not self.skill._payload_embedding_compatible(payload):
                 continue
             document_id = str(payload.get("document_id", "")).strip()
@@ -217,6 +229,7 @@ class DocumentMemoryService:
                     "collection": target_collection,
                     "guide_score": raw_score,
                     "raw_score": raw_score,
+                    "owner_user_id": payload_owner,
                 }
             )
         rows.sort(key=lambda row: float(row.get("guide_score", 0.0)), reverse=True)
@@ -298,6 +311,7 @@ class DocumentMemoryService:
                 usage_total[key] += int(guide_usage.get(key, 0) or 0)
 
         if points:
+            self.skill._invalidate_document_inventory_cache()
             await self.skill.qdrant.upsert(collection_name=target_collection, points=points)
             if guide_point is not None and guide_collection:
                 try:
@@ -385,6 +399,7 @@ class DocumentMemoryService:
                 points_selector=PointIdsList(points=point_ids),
                 wait=True,
             )
+            self.skill._invalidate_document_inventory_cache()
             await self.skill._delete_document_guide_entries(
                 user_id=clean_user,
                 target_collection=clean_collection,

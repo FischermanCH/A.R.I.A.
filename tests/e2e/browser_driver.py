@@ -117,7 +117,9 @@ class AriaBrowser:
             if not (
                 row.startswith("GET ")
                 and row.endswith("net::ERR_ABORTED")
-                and any(path in row for path in ("/chat/progress:", "/jobs:"))
+                and any(path in row for path in (
+                    "/chat/progress:", "/jobs:", "/updates/status:", "/static/",
+                ))
             )
             if not any(fragment in row for fragment in allow_failed_contains)
         ]

@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "page_types/overview_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% block page_body %}
 {% set initial_message_count = chat_history|length if chat_history else 0 %}
 {% set initial_chat_state = 'compact' if initial_message_count <= 1 else 'expanded' %}
 {% set chat_submit_path = module_route_path('chat_execution_composition', '/chat') %}
@@ -10,48 +10,50 @@
   {% if debug_mode %}
   <div class="chat-meta-header">
     <div class="chat-status-cluster">
-      <span class="chat-status">🗓 {{ tr(request, 'chat.debug_day_context', 'Tages-Kontext') }} <code>{{ active_session_collection }}</code></span>
       <span class="chat-status">🧷 {{ tr(request, 'chat.debug_login_session', 'Login-Session') }} <code>{{ active_session_id }}</code></span>
     </div>
     <small class="hint-text">{{ tr(request, 'chat.debug_day', 'Tag') }}: <code>{{ active_memory_day }}</code> · {{ tr(request, 'chat.debug_role', 'Rolle') }}: <code>{{ auth_role }}</code></small>
   </div>
   {% endif %}
   <div class="chat-box-wrap">
-    <section class="chat-box" id="messages">
+    <section class="chat-box" id="messages" data-chat-user-turns-expected="{{ chat_history | selectattr('role', 'equalto', 'user') | list | length if chat_history else 0 }}">
       {% if chat_history %}
         {% for item in chat_history %}
-        <article class="msg msg-{{ item.role }}"{% if item.agent_job_id %} data-agent-job-id="{{ item.agent_job_id }}" data-agent-job-notice="{{ 'true' if item.agent_job_notice else 'false' }}" data-agent-job-state="{{ item.badge_intent|e }}" data-agent-job-event-key="{{ (item.agent_job_event_key or '')|e }}"{% endif %}>
+        <article class="msg msg-{{ item.role }}" data-ui-user-content{% if item.role == 'user' %} data-chat-user-turn="true"{% endif %}{% if item.agent_job_id %} data-agent-job-id="{{ item.agent_job_id }}" data-agent-job-notice="{{ 'true' if item.agent_job_notice else 'false' }}" data-agent-job-state="{{ item.badge_intent|e }}" data-agent-job-event-key="{{ (item.agent_job_event_key or '')|e }}"{% endif %}>
           {% if item.role == "assistant" %}
-          <div class="msg-text">{{ render_assistant_message_html(item.text) }}</div>
+          <div class="msg-text" data-safe-markdown="true">{{ render_assistant_message_html(item.text) }}</div>
           {% else %}
           <p>{{ item.text }}</p>
           {% endif %}
-          {% if item.role == "assistant" and item.agent_job_id and not item.agent_job_notice %}
+          {% if item.display_timestamp %}<time class="chat-message-time" datetime="{{ item.timestamp|e }}">{{ item.display_timestamp }}</time>{% endif %}
+          {% if item.role == "assistant" and item.agent_job_id and not item.agent_job_notice and item.agent_job_id not in terminal_agent_job_ids %}
           <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ item.agent_job_id|e }}" data-agent-job-event-key="{{ (item.agent_job_event_key or '')|e }}">
-            <button type="button" class="js-agent-job-action" data-agent-job-action="pause">⏸ {{ tr(request, 'agent_jobs.pause', 'Pausieren') }}</button>
+            <button type="button" class="js-agent-job-action ui-secondary-action" data-agent-job-action="pause">⏸ {{ tr(request, 'agent_jobs.pause', 'Pausieren') }}</button>
             <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
-            <button type="button" class="js-agent-job-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
+            <button type="button" class="js-agent-job-action ui-secondary-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
             <span class="stat-sub" data-agent-job-control-status aria-live="polite"></span>
           </div>
+          {% elif item.role == "assistant" and item.agent_job_id and not item.agent_job_notice and item.agent_job_id in terminal_agent_job_ids %}
+          <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ item.agent_job_id|e }}"><a class="ui-secondary-action" href="/jobs/panel#job-{{ item.agent_job_id|urlencode }}">{{ tr(request, 'chat.agent_job_view', 'Job ansehen →') }}</a></div>
           {% elif item.role == "assistant" and item.agent_job_id and item.badge_intent == 'agent_job_budget_reached' %}
           <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ item.agent_job_id|e }}" data-agent-job-event-key="{{ (item.agent_job_event_key or '')|e }}">
-            <button type="button" class="js-agent-job-action" data-agent-job-action="extend">▶ {{ tr(request, 'agent_jobs.extend', 'Weitere {count} Schritte').replace('{count}', '32') }}</button>
-            <button type="button" class="js-agent-job-action" data-agent-job-action="finish">✅ {{ tr(request, 'agent_jobs.finish_now', 'Jetzt abschließen') }}</button>
+            <button type="button" class="js-agent-job-action ui-primary-action" data-agent-job-action="extend">▶ {{ tr(request, 'agent_jobs.extend', 'Weitere {count} Schritte').replace('{count}', '32') }}</button>
+            <button type="button" class="js-agent-job-action ui-secondary-action" data-agent-job-action="finish">✅ {{ tr(request, 'agent_jobs.finish_now', 'Jetzt abschließen') }}</button>
             <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
             <span class="stat-sub" data-agent-job-control-status aria-live="polite"></span>
           </div>
           {% elif item.role == "assistant" and item.agent_job_id and item.badge_intent == 'agent_job_paused' %}
           <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ item.agent_job_id|e }}">
-            <button type="button" class="js-agent-job-action" data-agent-job-action="resume">▶ {{ tr(request, 'agent_jobs.resume', 'Fortsetzen') }}</button>
+            <button type="button" class="js-agent-job-action ui-primary-action" data-agent-job-action="resume">▶ {{ tr(request, 'agent_jobs.resume', 'Fortsetzen') }}</button>
             <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
-            <button type="button" class="js-agent-job-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
+            <button type="button" class="js-agent-job-action ui-secondary-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
           </div>
           {% elif item.role == "assistant" and item.agent_job_id and item.badge_intent == 'agent_job_awaiting_confirmation' %}
           <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ item.agent_job_id|e }}">
-            <button type="button" class="js-agent-job-action" data-agent-job-action="confirm">✅ {{ tr(request, 'agent_jobs.confirm', 'Ausführen') }}</button>
-            <button type="button" class="js-agent-job-action" data-agent-job-action="decline">✖ {{ tr(request, 'agent_jobs.decline', 'Ablehnen') }}</button>
+            <button type="button" class="js-agent-job-action ui-primary-action" data-agent-job-action="confirm">✅ {{ tr(request, 'agent_jobs.confirm', 'Ausführen') }}</button>
+            <button type="button" class="js-agent-job-action ui-secondary-action" data-agent-job-action="decline">✖ {{ tr(request, 'agent_jobs.decline', 'Ablehnen') }}</button>
             <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
-            <button type="button" class="js-agent-job-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
+            <button type="button" class="js-agent-job-action ui-secondary-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
           </div>
           {% endif %}
           {% if item.role == "assistant" %}
@@ -87,14 +89,7 @@
     </button>
   </div>
 
-  <div id="typing-indicator" class="typing-indicator" aria-live="polite" hidden>
-    <div class="thinking-rings" aria-hidden="true">
-      <span class="ring ring-a"></span>
-      <span class="ring ring-b"></span>
-      <span class="ring ring-c"></span>
-    </div>
-    <span id="thinking-text">{{ tr(request, 'chat.thinking', 'ARIA denkt nach...') }}</span>
-  </div>
+  <div id="typing-indicator" class="typing-indicator" aria-live="polite" hidden></div>
 
   <form
     id="chat-form"
@@ -106,73 +101,22 @@
     <div class="composer-row">
       <div class="textarea-wrap">
         <textarea id="message" name="message" placeholder="{{ tr(request, 'chat.placeholder', 'Nachricht eingeben...') }}" required></textarea>
-        <div id="slash-menu" class="slash-menu" hidden></div>
       </div>
       <div class="composer-side">
-        <div class="chat-tools" data-open="false">
-          <div class="chat-tools-head">
-            <button
-              type="button"
-              class="chat-tools-toggle"
-              aria-expanded="false"
-              aria-controls="chat-toolbox-panel"
-              aria-label="{{ tr(request, 'chat.toolbox', 'Tool-Box') }}"
-              title="{{ tr(request, 'chat.toolbox', 'Tool-Box') }}"
-            >
-              <span class="toolbox-summary-label"><span class="toolbox-summary-icon">🧰</span><span class="toolbox-summary-text">{{ tr(request, 'chat.toolbox', 'Tool-Box') }}</span></span>
-            </button>
-            <button
-              id="chat-export-button"
-              type="button"
-              class="chat-export-button"
-              title="{{ tr(request, 'chat.export_chat', 'Chat exportieren') }}"
-              aria-label="{{ tr(request, 'chat.export_chat', 'Chat exportieren') }}"
-            >
-              {{ icon('copy', 'chat-export-icon') }}
-            </button>
-            <span id="chat-export-status" class="chat-export-status" aria-live="polite"></span>
-          </div>
-          <div id="chat-toolbox-panel" class="toolbox-groups" hidden>
-            {% for group in chat_toolbox_groups %}
-            <details class="toolbox-group" {% if group["key"] == "suggested" %}open{% endif %}>
-              <summary class="toolbox-group-title"><span class="toolbox-group-title-main"><span class="toolbox-group-icon">{{ group.get("icon", "•") }}</span>{{ group["title"] }}</span></summary>
-                <div class="toolbox-items">
-                {% for item in group["items"] %}
-                {% if item.get('href') %}
-                <a
-                  class="toolbox-item toolbox-link"
-                  href="{{ item['href'] }}"
-                  title="{{ item['hint'] }}"
-                >
-                  <span class="toolbox-item-title">
-                    <span class="toolbox-item-title-main"><span class="toolbox-item-icon">{{ item['icon'] }}</span>{{ item['label'] }}</span>
-                    {% if item.get('badge') %}<span class="toolbox-item-badge">{{ item['badge'] }}</span>{% endif %}
-                  </span>
-                  <span class="toolbox-item-hint">{{ item['hint'] }}</span>
-                </a>
-                {% else %}
-                <button
-                  type="button"
-                  class="toolbox-item js-toolbox-insert"
-                  data-insert="{{ item['insert'] }}"
-                  title="{{ item['hint'] }}"
-                >
-                  <span class="toolbox-item-title">
-                    <span class="toolbox-item-title-main"><span class="toolbox-item-icon">{{ item['icon'] }}</span>{{ item['label'] }}</span>
-                    {% if item.get('badge') %}<span class="toolbox-item-badge">{{ item['badge'] }}</span>{% endif %}
-                  </span>
-                  <span class="toolbox-item-hint">{{ item['hint'] }}</span>
-                </button>
-                {% endif %}
-                {% endfor %}
-              </div>
-            </details>
-            {% endfor %}
-          </div>
-        </div>
         <div class="composer-actions">
+          <div class="chat-actions-menu">
+            <button id="chat-actions-toggle" class="ui-secondary-action" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="chat-actions-panel" aria-label="{{ tr(request, 'chat.quick_actions', 'Weitere Aktionen') }}">⋯</button>
+            <div id="chat-actions-panel" class="chat-actions-panel" role="menu" hidden>
+              {% for action in chat_quick_actions %}
+              {% if action.href %}<a role="menuitem" href="{{ action.href }}"><span aria-hidden="true">{{ action.icon }}</span>{{ action.label }}</a>
+              {% else %}<button role="menuitem" type="button" data-chat-quick-action="{{ action.action or '' }}" data-insert="{{ action.insert or '' }}"><span aria-hidden="true">{{ action.icon }}</span>{{ action.label }}</button>{% endif %}
+              {% endfor %}
+              <button id="chat-export-button" role="menuitem" type="button">{{ icon('copy', 'chat-export-icon') }}{{ tr(request, 'chat.export_chat', 'Chat exportieren') }}</button>
+            </div>
+          </div>
           <button id="send-btn" type="submit">{{ tr(request, 'chat.send', 'Senden') }}</button>
           <button id="cancel-btn" type="button" class="secondary-btn" data-allow-when-busy="true" hidden>{{ tr(request, 'chat.cancel', 'Abbrechen') }}</button>
+          <span id="chat-export-status" class="chat-export-status" aria-live="polite"></span>
         </div>
       </div>
     </div>
@@ -190,6 +134,13 @@
     </section>
   </form>
 </main>
+{% set layout_debug_enabled = request.query_params.get('layout_debug') == '1' and request.state.can_access_advanced_config %}
+{% if layout_debug_enabled %}
+<aside id="chat-layout-debug" class="chat-layout-debug" data-enabled-by="layout_debug=1" aria-live="polite">
+  <strong>Layout debug</strong>
+  <pre id="chat-layout-debug-values">waiting for viewport…</pre>
+</aside>
+{% endif %}
 <script src="/static/chat-request-deadline.js?v={{ request.state.release_meta.label|urlencode }}"></script>
 <script>
   (function () {
@@ -201,7 +152,7 @@
       cancel: {{ tr(request, 'chat.cancel', 'Abbrechen')|tojson }},
       cancelling: {{ tr(request, 'chat.cancelling', 'Wird abgebrochen...')|tojson }},
       cancelled: {{ tr(request, 'chat.cancelled', 'Anfrage im Browser abgebrochen.')|tojson }},
-      requestTimeout: {{ tr(request, 'chat.request_timeout', 'ARIA hat innerhalb von 90 Sekunden keine Browserantwort erhalten. Die Anfrage wurde beendet. Bei einer Aktion bitte zuerst den Status pruefen, bevor du sie erneut sendest.')|tojson }},
+      requestTimeout: {{ tr(request, 'chat.request_timeout', 'ARIA hat innerhalb von 90 Sekunden keine Browserantwort erhalten. Die Anfrage wurde beendet. Bei einer Aktion bitte zuerst den Status prüfen, bevor du sie erneut sendest.')|tojson }},
       agentJobPause: {{ tr(request, 'agent_jobs.pause', 'Pausieren')|tojson }},
       agentJobResume: {{ tr(request, 'agent_jobs.resume', 'Fortsetzen')|tojson }},
       agentJobCancel: {{ tr(request, 'agent_jobs.cancel', 'Abbrechen')|tojson }},
@@ -283,9 +234,11 @@
       slashStoreCmd: {{ tr(request, 'chat.slash_store_cmd', '/merken')|tojson }},
       slashRecipeCmd: {{ tr(request, 'chat.slash_skill_cmd', '/recipe')|tojson }}
     };
-    const chatCommandEntries = {{ (chat_command_entries or [])|tojson }};
-    const chatCommandGroupTitles = {{ (chat_command_group_titles or {})|tojson }};
     const chatBusyOwner = "chat-request";
+    const chatLanguage = {{ (request.state.lang or 'de')|tojson }};
+    const serverDisplayTimezone = {{ (display_timezone or 'UTC')|tojson }};
+    const displayTimezoneSource = {{ (display_timezone_source or 'fallback_utc')|tojson }};
+    const cssVersion = {{ request.state.release_meta.label|tojson }};
 
     const form = document.getElementById("chat-form");
     const textarea = document.getElementById("message");
@@ -295,11 +248,10 @@
     const jumpToLatestBtn = document.getElementById("jump-to-latest");
     const chatLayout = document.querySelector(".chat-layout");
     const indicator = document.getElementById("typing-indicator");
-    const thinkingText = document.getElementById("thinking-text");
-    const slashMenu = document.getElementById("slash-menu");
-    const chatTools = document.querySelector(".chat-tools");
-    const chatToolsToggle = document.querySelector(".chat-tools-toggle");
-    const chatToolsPanel = document.getElementById("chat-toolbox-panel");
+    let thinkingText = null;
+    const chatActionsMenu = document.querySelector(".chat-actions-menu");
+    const chatActionsToggle = document.getElementById("chat-actions-toggle");
+    const chatActionsPanel = document.getElementById("chat-actions-panel");
     const queuePanel = document.getElementById("chat-queue");
     const queueCount = document.getElementById("chat-queue-count");
     const queueToggle = document.getElementById("chat-queue-toggle");
@@ -329,8 +281,47 @@
       extend: "/extend", finish: "/finish"
     };
     let agentJobPollTimer = null;
+    let keepMessagesPinnedToLatest = true;
 
     const draftStorageKey = "aria_chat_draft_v1";
+
+    function effectiveDisplayTimezone() {
+      if (displayTimezoneSource !== "fallback_utc") return serverDisplayTimezone;
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      } catch (_) {
+        return "UTC";
+      }
+    }
+
+    function formatChatTimestamp(value) {
+      const parsed = new Date(String(value || ""));
+      if (!Number.isFinite(parsed.getTime())) return "";
+      try {
+        const parts = new Intl.DateTimeFormat(chatLanguage.startsWith("de") ? "de-CH" : "en-CA", {
+          timeZone: effectiveDisplayTimezone(),
+          year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", hour12: false,
+        }).formatToParts(parsed).reduce((rows, row) => {
+          rows[row.type] = row.value;
+          return rows;
+        }, {});
+        if (chatLanguage.startsWith("de")) {
+          return `${parts.day}.${parts.month}.${parts.year}, ${parts.hour}:${parts.minute}`;
+        }
+        return `${parts.year}-${parts.month}-${parts.day}, ${parts.hour}:${parts.minute}`;
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function localizeChatTimestamps(root) {
+      const owner = root && root.querySelectorAll ? root : document;
+      owner.querySelectorAll("time.chat-message-time[datetime]").forEach((node) => {
+        const rendered = formatChatTimestamp(node.getAttribute("datetime"));
+        if (rendered) node.textContent = rendered;
+      });
+    }
 
     function noticeStateExists(jobId, state) {
       return Array.from(messages.querySelectorAll(".msg-assistant[data-agent-job-notice='true']"))
@@ -373,7 +364,8 @@
     function jobActionButton(jobId, action, label, icon, danger) {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "js-agent-job-action" + (danger ? " danger-button" : "");
+      const primary = ["extend", "resume", "confirm"].includes(action);
+      button.className = "js-agent-job-action" + (danger ? " danger-button" : primary ? " ui-primary-action" : " ui-secondary-action");
       button.dataset.agentJobId = jobId;
       button.dataset.agentJobAction = action;
       button.textContent = icon + " " + label;
@@ -450,7 +442,15 @@
         if (["running", "detached", "paused", "awaiting_confirmation"].includes(status)) {
           controls.appendChild(jobActionButton(jobId, "correct", uiText.agentJobCorrect, "✏️", false));
         }
-        if (["done", "error", "cancelled"].includes(status)) controls.remove();
+        if (["done", "error", "cancelled"].includes(status)) {
+          controls.replaceChildren();
+          delete controls.dataset.agentJobEventKey;
+          const link = document.createElement("a");
+          link.className = "ui-secondary-action";
+          link.href = "/jobs/panel#job-" + encodeURIComponent(jobId);
+          link.textContent = uiText.agentJobView;
+          controls.appendChild(link);
+        }
       });
       agentJobNoticeNodes(jobId).forEach((notice) => {
         if (["agent_job_paused", "agent_job_budget_reached"].includes(notice.dataset.agentJobState) && status !== "paused") {
@@ -568,6 +568,7 @@
       if (!jobId || agentJobBubbleNodes(jobId).length) return;
       const article = document.createElement("article");
       article.className = "msg msg-assistant";
+      article.dataset.uiUserContent = "";
       article.dataset.agentJobId = jobId;
       article.dataset.agentJobNotice = "false";
       article.dataset.agentJobState = "agent_job_detached";
@@ -583,7 +584,12 @@
       controls.dataset.agentJobControls = "";
       controls.dataset.agentJobId = jobId;
       article.append(body, controls);
+      const timestamp = document.createElement("time");
+      timestamp.className = "chat-message-time";
+      timestamp.dateTime = new Date(Number(job.updated_at || Date.now() / 1000) * 1000).toISOString();
+      article.insertBefore(timestamp, controls);
       messages.appendChild(article);
+      localizeChatTimestamps(article);
       renderAgentJobControls(job);
       updateChatState();
       scrollMessagesToLatest();
@@ -644,6 +650,7 @@
               const noticeHtml = await noticeResponse.text();
               if (noticeHtml.trim() && !noticeEventExists(jobId, eventKey) && !noticeStateExists(jobId, noticeState)) {
                 messages.insertAdjacentHTML("beforeend", noticeHtml);
+                localizeChatTimestamps(messages);
                 updateChatState();
                 scrollMessagesToLatest();
               }
@@ -661,6 +668,7 @@
       exportButton.title = uiText.exportChat;
       exportButton.setAttribute("aria-label", uiText.exportChat);
       if (exportStatus) {
+        exportStatus.textContent = "";
         exportStatus.setAttribute("aria-live", "polite");
       }
     }
@@ -776,6 +784,10 @@
         exportButton.disabled = false;
       }
     }
+
+    window.addEventListener("pageshow", function (event) {
+      if (event.persisted && exportStatus) exportStatus.textContent = "";
+    });
 
     function shortQueueText(text) {
       const clean = String(text || "").replace(/\s+/g, " ").trim();
@@ -1101,13 +1113,34 @@
       if (!root) return;
       const viewport = window.visualViewport;
       const height = viewport && viewport.height ? viewport.height : window.innerHeight;
+      const offsetTop = viewport && Number.isFinite(viewport.offsetTop) ? viewport.offsetTop : 0;
       if (!height) return;
       root.style.setProperty("--aria-visual-viewport-height", Math.round(height) + "px");
+      root.style.setProperty("--aria-visual-viewport-offset-top", Math.max(0, Math.round(offsetTop)) + "px");
+      updateLayoutDiagnostic();
+    }
+
+    function usesPhoneDocumentScroll() {
+      return window.matchMedia("(max-width: 900px), (max-height: 500px)").matches;
+    }
+
+    function latestMessage() {
+      if (!messages) return null;
+      const rows = messages.querySelectorAll(".msg");
+      return rows.length ? rows[rows.length - 1] : null;
     }
 
     function scrollMessagesToLatest() {
       if (!messages) return;
+      keepMessagesPinnedToLatest = true;
       window.requestAnimationFrame(function () {
+        if (usesPhoneDocumentScroll()) {
+          const lastMessage = latestMessage();
+          if (lastMessage) lastMessage.scrollIntoView({ block: "end", behavior: "auto" });
+          if (form) form.scrollIntoView({ block: "end", behavior: "auto" });
+          window.requestAnimationFrame(updateJumpToLatestButton);
+          return;
+        }
         messages.scrollTop = messages.scrollHeight;
         window.requestAnimationFrame(function () {
           messages.scrollTop = messages.scrollHeight;
@@ -1118,6 +1151,13 @@
 
     function messagesAtLatest() {
       if (!messages) return true;
+      if (usesPhoneDocumentScroll()) {
+        const lastMessage = latestMessage();
+        if (!lastMessage) return true;
+        const viewport = window.visualViewport;
+        const viewportBottom = (viewport ? viewport.offsetTop + viewport.height : window.innerHeight);
+        return lastMessage.getBoundingClientRect().bottom <= viewportBottom + 12;
+      }
       return messages.scrollHeight - messages.scrollTop - messages.clientHeight <= 12;
     }
 
@@ -1130,8 +1170,46 @@
 
     function jumpToLatest() {
       if (!messages) return;
+      if (usesPhoneDocumentScroll()) {
+        const lastMessage = latestMessage();
+        if (lastMessage) lastMessage.scrollIntoView({ block: "end", behavior: "smooth" });
+        if (form) form.scrollIntoView({ block: "end", behavior: "smooth" });
+        window.setTimeout(updateJumpToLatestButton, 180);
+        return;
+      }
       messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
       window.setTimeout(updateJumpToLatestButton, 180);
+    }
+
+    function roundedRect(node) {
+      if (!node) return null;
+      const box = node.getBoundingClientRect();
+      return {
+        top: Math.round(box.top), bottom: Math.round(box.bottom),
+        left: Math.round(box.left), right: Math.round(box.right),
+        width: Math.round(box.width), height: Math.round(box.height),
+      };
+    }
+
+    function updateLayoutDiagnostic() {
+      const output = document.getElementById("chat-layout-debug-values");
+      if (!output) return;
+      const viewport = window.visualViewport;
+      output.textContent = JSON.stringify({
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        visualViewport: viewport ? {
+          width: Math.round(viewport.width),
+          height: Math.round(viewport.height),
+          offsetTop: Math.round(viewport.offsetTop),
+        } : null,
+        header: roundedRect(document.querySelector(".topbar")),
+        messages: roundedRect(messages),
+        composer: roundedRect(form),
+        scrollContainer: usesPhoneDocumentScroll() ? "document" : "#messages",
+        userAgent: navigator.userAgent,
+        cssVersion,
+      }, null, 2);
     }
 
     function readCookie(name) {
@@ -1164,8 +1242,28 @@
         cancelBtn.textContent = uiText.cancel;
       }
       form.classList.toggle("is-busy", isBusy);
-      indicator.classList.toggle("htmx-request", isBusy);
-      indicator.hidden = !isBusy;
+      if (isBusy) {
+        if (!indicator.hasChildNodes()) {
+          const rings = document.createElement("div");
+          rings.className = "thinking-rings";
+          rings.setAttribute("aria-hidden", "true");
+          ["ring-a", "ring-b", "ring-c"].forEach(function (name) {
+            const ring = document.createElement("span");
+            ring.className = `ring ${name}`;
+            rings.appendChild(ring);
+          });
+          thinkingText = document.createElement("span");
+          thinkingText.id = "thinking-text";
+          indicator.replaceChildren(rings, thinkingText);
+        }
+        indicator.classList.add("htmx-request");
+        indicator.hidden = false;
+      } else {
+        indicator.classList.remove("htmx-request");
+        indicator.hidden = true;
+        indicator.replaceChildren();
+        thinkingText = null;
+      }
       if (window.ariaSetBusyOwner) {
         window.ariaSetBusyOwner(chatBusyOwner, isBusy, false);
       } else if (isBusy) {
@@ -1177,7 +1275,6 @@
         if (thinkingText) thinkingText.textContent = busyText || uiText.processingMessage;
         sendBtn.textContent = uiText.send;
       } else {
-        if (thinkingText) thinkingText.textContent = uiText.thinking || {{ agent_text(request, 'ARIA denkt nach...')|tojson }};
         sendBtn.textContent = uiText.send;
       }
     }
@@ -1301,120 +1398,16 @@
       localStorage.setItem(draftStorageKey, textarea.value);
     }
 
-    function hideSlashMenu() {
-      slashMenu.hidden = true;
-      slashMenu.innerHTML = "";
-    }
-
-    function hideToolbox() {
-      if (chatTools && chatToolsToggle && chatToolsPanel) {
-        chatTools.dataset.open = "false";
-        chatToolsToggle.setAttribute("aria-expanded", "false");
-        chatToolsPanel.hidden = true;
-        if (typeof chatToolsToggle.blur === "function") {
-          chatToolsToggle.blur();
-        }
-      }
-    }
-
-    function showToolbox() {
-      if (chatTools && chatToolsToggle && chatToolsPanel) {
-        chatTools.dataset.open = "true";
-        chatToolsToggle.setAttribute("aria-expanded", "true");
-        chatToolsPanel.hidden = false;
-      }
-    }
-
-    function toggleToolbox() {
-      if (!chatTools) return;
-      if (chatTools.dataset.open === "true") {
-        hideToolbox();
-      } else {
-        showToolbox();
-      }
-    }
-
-    function slashCatalog() {
-      return Array.isArray(chatCommandEntries) ? chatCommandEntries : [];
-    }
-
-    function applySlashItem(insertText) {
-      if (!insertText) return;
-      if (insertText === "/cls" || insertText === "/clear") {
-        localStorage.removeItem(draftStorageKey);
-        textarea.value = "";
-        clearChatHistory();
-        return;
-      }
-      textarea.value = insertText;
-      persistDraft();
-      textarea.focus();
-      textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
-      hideSlashMenu();
-      hideToolbox();
-    }
-
-    function updateSlashMenu() {
-      const text = String(textarea.value || "").trimStart();
-      if (!text.startsWith("/")) {
-        hideSlashMenu();
-        return;
-      }
-      const query = text.slice(1).toLowerCase();
-      const recipeMode = query.startsWith("recipe") || query.startsWith("rezept") || query.startsWith("skill");
-      let entries = slashCatalog().filter((row) => {
-        const search = (row.label + " " + row.hint + " " + row.insert).toLowerCase();
-        if (recipeMode && row.group !== "skills") return false;
-        return !query || search.includes(query);
-      });
-      if (recipeMode) {
-        entries = entries.slice(0, 20);
-      } else {
-        entries = entries.slice(0, 8);
-      }
-      if (!entries.length) {
-        hideSlashMenu();
-        return;
-      }
-      const groupTitles = chatCommandGroupTitles || {};
-      const grouped = {};
-      entries.forEach((row, idx) => {
-        const key = row.group || "commands";
-        if (!grouped[key]) grouped[key] = [];
-        grouped[key].push({ row, idx });
-      });
-      const order = ["commands", "read", "store", "skills", "admin"];
-      const chunks = [];
-      order.forEach((groupKey) => {
-        const items = grouped[groupKey] || [];
-        if (!items.length) return;
-        chunks.push('<div class="slash-group"><div class="slash-group-title">' + (groupTitles[groupKey] || groupKey) + "</div>");
-        items.forEach(({ row, idx }) => {
-          chunks.push(
-            '<button type="button" class="slash-item" data-idx="' + idx + '">' +
-              '<span class="slash-title"><span class="slash-icon">' + (row.icon || "•") + "</span>" + row.label + "</span>" +
-              '<span class="slash-hint">' + row.hint + "</span>" +
-            "</button>"
-          );
-        });
-        chunks.push("</div>");
-      });
-      slashMenu.innerHTML = chunks.join("");
-      const buttons = slashMenu.querySelectorAll(".slash-item");
-      buttons.forEach((btn) => {
-        btn.addEventListener("click", function () {
-          const idx = Number(btn.getAttribute("data-idx") || "0");
-          if (entries[idx]) {
-            applySlashItem(entries[idx].insert);
-          }
-        });
-      });
-      slashMenu.hidden = false;
+    function setActionsMenu(open) {
+      if (!chatActionsToggle || !chatActionsPanel) return;
+      chatActionsToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      chatActionsPanel.hidden = !open;
+      if (open) chatActionsPanel.querySelector('[role="menuitem"]')?.focus();
     }
 
     function resetMessages() {
       messages.innerHTML = [
-        '<article class="msg msg-assistant">',
+        '<article class="msg msg-assistant" data-ui-user-content>',
         "<p>" + uiText.ready + "</p>",
         "</article>",
       ].join("");
@@ -1443,15 +1436,21 @@
       }
       resetMessages();
       textarea.focus();
-      hideSlashMenu();
     }
 
     function appendUserMessage(text) {
       const article = document.createElement("article");
       article.className = "msg msg-user pending-user";
+      article.dataset.uiUserContent = "";
+      article.dataset.chatUserTurn = "true";
       const p = document.createElement("p");
       p.textContent = text;
       article.appendChild(p);
+      const timestamp = document.createElement("time");
+      timestamp.className = "chat-message-time";
+      timestamp.dateTime = new Date().toISOString();
+      article.appendChild(timestamp);
+      localizeChatTimestamps(article);
       messages.appendChild(article);
       updateChatState();
       scrollMessagesToLatest();
@@ -1461,6 +1460,7 @@
     function appendErrorMessage(text) {
       const article = document.createElement("article");
       article.className = "msg msg-assistant";
+      article.dataset.uiUserContent = "";
       const p = document.createElement("p");
       p.textContent = text;
       article.appendChild(p);
@@ -1472,6 +1472,7 @@
     function appendPendingAssistant(text) {
       const article = document.createElement("article");
       article.className = "msg msg-assistant pending-assistant";
+      article.dataset.uiUserContent = "";
       const p = document.createElement("p");
       p.textContent = text;
       article.appendChild(p);
@@ -1496,6 +1497,14 @@
       const assistants = doc.querySelectorAll(".msg-assistant");
       if (!assistants.length) return null;
       return assistants[assistants.length - 1].outerHTML;
+    }
+
+    function extractUserFromHtml(html) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const users = doc.querySelectorAll(".msg-user[data-chat-user-turn='true']");
+      if (!users.length) return null;
+      return users[users.length - 1].outerHTML;
     }
 
     function appendClientRequestTiming(timing) {
@@ -1531,12 +1540,31 @@
 
     restoreDraft();
     installChatExportControls();
+    localizeChatTimestamps(document);
     updateChatState();
     scrollMessagesToLatest();
     updateJumpToLatestButton();
 
     if (messages) {
-      messages.addEventListener("scroll", updateJumpToLatestButton, { passive: true });
+      messages.addEventListener("scroll", function () {
+        keepMessagesPinnedToLatest = messagesAtLatest();
+        updateJumpToLatestButton();
+      }, { passive: true });
+    }
+    window.addEventListener("scroll", function () {
+      if (!usesPhoneDocumentScroll()) return;
+      keepMessagesPinnedToLatest = messagesAtLatest();
+      updateJumpToLatestButton();
+      updateLayoutDiagnostic();
+    }, { passive: true });
+    if (document.body && window.MutationObserver) {
+      const themeLayoutObserver = new MutationObserver(function (mutations) {
+        const themeChanged = mutations.some(function (mutation) {
+          return mutation.type === "attributes" && mutation.attributeName === "data-theme";
+        });
+        if (themeChanged && keepMessagesPinnedToLatest) scrollMessagesToLatest();
+      });
+      themeLayoutObserver.observe(document.body, { attributes: true, attributeFilter: ["data-theme"] });
     }
     if (jumpToLatestBtn) {
       jumpToLatestBtn.addEventListener("click", jumpToLatest);
@@ -1547,7 +1575,13 @@
 
     textarea.addEventListener("input", function () {
       persistDraft();
-      updateSlashMenu();
+    });
+    textarea.addEventListener("focus", function () {
+      if (!usesPhoneDocumentScroll()) return;
+      window.setTimeout(function () {
+        form.scrollIntoView({ block: "end", behavior: "smooth" });
+        updateLayoutDiagnostic();
+      }, 80);
     });
     function injectTemplate(value) {
       if (!value) return;
@@ -1557,39 +1591,58 @@
       persistDraft();
       textarea.focus();
       textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
-      updateSlashMenu();
     }
 
-    document.querySelectorAll(".js-toolbox-insert").forEach((btn) => {
-      btn.addEventListener("click", function () {
-        injectTemplate(String(btn.getAttribute("data-insert") || ""));
-      });
-    });
-
-    if (chatToolsToggle) {
-      chatToolsToggle.addEventListener("click", function (event) {
+    if (chatActionsToggle) {
+      chatActionsToggle.addEventListener("click", function (event) {
         event.preventDefault();
         event.stopPropagation();
-        toggleToolbox();
+        setActionsMenu(chatActionsToggle.getAttribute("aria-expanded") !== "true");
+      });
+      chatActionsToggle.addEventListener("keydown", function (event) {
+        if (event.key === "ArrowDown") { event.preventDefault(); setActionsMenu(true); }
       });
     }
+    chatActionsPanel?.addEventListener("click", function (event) {
+      const item = event.target.closest('[role="menuitem"]');
+      if (!item || item.tagName === "A" || item.id === "chat-export-button") return;
+      const action = item.dataset.chatQuickAction;
+      if (action === "clear") {
+        localStorage.removeItem(draftStorageKey);
+        textarea.value = "";
+        void clearChatHistory();
+      } else if (item.dataset.insert) {
+        injectTemplate(item.dataset.insert);
+      }
+      setActionsMenu(false);
+    });
+    chatActionsPanel?.addEventListener("keydown", function (event) {
+      const items = Array.from(chatActionsPanel.querySelectorAll('[role="menuitem"]'));
+      const index = items.indexOf(document.activeElement);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setActionsMenu(false);
+        chatActionsToggle?.focus();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        items[(index + direction + items.length) % items.length]?.focus();
+      }
+    });
 
     textarea.addEventListener("keydown", function (event) {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         form.requestSubmit();
       } else if (event.key === "Escape") {
-        hideSlashMenu();
-        hideToolbox();
+        setActionsMenu(false);
+        textarea.focus();
       }
     });
 
     function handleOutsideInteractions(event) {
-      if (chatTools && chatTools.dataset.open === "true" && !chatTools.contains(event.target)) {
-        hideToolbox();
-      }
-      if (!slashMenu.hidden && !slashMenu.contains(event.target) && event.target !== textarea) {
-        hideSlashMenu();
+      if (chatActionsToggle?.getAttribute("aria-expanded") === "true" && !chatActionsMenu?.contains(event.target)) {
+        setActionsMenu(false);
       }
     }
 
@@ -1647,7 +1700,6 @@
             textarea.value = "";
             localStorage.removeItem(draftStorageKey);
           }
-          hideSlashMenu();
         }
         return;
       }
@@ -1678,7 +1730,7 @@
         timeoutMs: chatRequestDeadlineMs,
       });
       let requestTimedOut = false;
-      let responseReceived = false;
+      let responseCompleted = false;
 
       try {
         const formData = new URLSearchParams();
@@ -1702,7 +1754,6 @@
           signal: currentRequestController.signal,
           credentials: "same-origin",
         });
-        responseReceived = true;
         if (!requestLifecycle.checkpoint("headers")) {
           throw new Error(uiText.requestTimeout);
         }
@@ -1733,13 +1784,20 @@
           throw new Error(uiText.requestTimeout);
         }
         const assistantHtml = extractAssistantFromHtml(html);
+        const userHtml = extractUserFromHtml(html);
         if (!requestLifecycle.checkpoint("dom")) {
           throw new Error(uiText.requestTimeout);
         }
-        pendingUserNode.classList.remove("pending-user");
+        if (userHtml) {
+          pendingUserNode.insertAdjacentHTML("afterend", userHtml);
+          pendingUserNode.remove();
+        } else {
+          pendingUserNode.classList.remove("pending-user");
+        }
         if (assistantHtml) {
           pendingAssistantNode.insertAdjacentHTML("beforebegin", assistantHtml);
           pendingAssistantNode.remove();
+          localizeChatTimestamps(messages);
           if (options && options.routedActionPending) {
             if (assistantHtml.indexOf("routed_action_invalid_token") >= 0) {
               markPendingConfirmationExpired(String(options.routedActionPending || ""));
@@ -1751,6 +1809,7 @@
           }
           appendClientRequestTiming(requestLifecycle.snapshot());
           scheduleAgentJobPoll();
+          responseCompleted = true;
         } else {
           pendingAssistantNode.remove();
           appendErrorMessage(uiText.parseError);
@@ -1761,7 +1820,7 @@
         pendingAssistantNode.remove();
         pendingUserNode.classList.remove("pending-user");
         const userCancelled = err && err.name === "AbortError" && !requestTimedOut;
-        const recovered = !userCancelled && (requestTimedOut || !responseReceived)
+        const recovered = !userCancelled && (requestTimedOut || !responseCompleted)
           ? await recoverDetachedAgentJob(message, submittedAtSeconds)
           : false;
         if (recovered) {
@@ -1782,7 +1841,6 @@
         setBusy(false);
         scrollMessagesToLatest();
         textarea.focus();
-        hideSlashMenu();
         if (!requestTimedOut) {
           startNextQueuedPrompt();
         }

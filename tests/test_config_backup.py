@@ -93,8 +93,9 @@ def test_build_config_backup_payload_collects_expected_sections(tmp_path: Path) 
 
     assert payload["schema_version"] == BACKUP_SCHEMA_VERSION
     assert payload["config"]["ui"]["title"] == "Source ARIA"
-    assert payload["secure_store"]["secrets"]["llm.api_key"] == "source-llm-key"
-    assert payload["secure_store"]["users"][0]["username"] == "neo"
+    assert payload["secure_store"]["secrets"] == {}
+    assert payload["secure_store"]["users"] == []
+    assert payload["manifest"]["secrets"] == "excluded"
     assert payload["prompt_files"]["prompts/persona.md"] == "Source persona\n"
     assert payload["support_files"]["config/error_interpreter.yaml"] == "rules: source\n"
     assert payload["stored_recipes"][0]["id"] == "deploy"
@@ -109,6 +110,8 @@ def test_restore_config_backup_payload_replaces_existing_config_snapshot(tmp_pat
         raw_config=source_raw,
         secure_store=source_store,
         error_interpreter_path=source_dir / "config" / "error_interpreter.yaml",
+        include_secrets=True,
+        passphrase="test backup passphrase",
     )
 
     old_raw = {
@@ -139,6 +142,7 @@ def test_restore_config_backup_payload_replaces_existing_config_snapshot(tmp_pat
         write_raw_config=_write_target_raw,
         get_secure_store=_get_target_store,
         error_interpreter_path=target_dir / "config" / "error_interpreter.yaml",
+        passphrase="test backup passphrase",
     )
 
     restored = yaml.safe_load((target_dir / "config" / "config.yaml").read_text(encoding="utf-8"))
@@ -286,10 +290,11 @@ def test_config_backup_page_includes_memory_export_hub_entry(tmp_path: Path) -> 
     response = client.get("/config/backup")
 
     assert response.status_code == 200
-    assert "Import / Export" in response.text
+    assert "Backup &amp; restore" in response.text
     assert "/memories/export?type=all&amp;sort=updated_desc" in response.text
     assert "Download memory export" in response.text
-    assert 'href="/config/backup/export' in response.text
+    assert 'action="/config/backup/export"' in response.text
+    assert 'id="backup-bundle-toggle"' in response.text
     assert 'action="/config/backup/import"' in response.text
     template = Path("aria/templates/config_backup.html").read_text(encoding="utf-8")
     assert "module_route_path('config_backup', '/config/backup/export')" in template
@@ -321,6 +326,7 @@ def test_config_backup_import_route_restores_backup_and_redirects(tmp_path: Path
 
     response = client.post(
         "/config/backup/import",
+        data={"csrf_token": "test-csrf"},
         files={"backup_file": ("aria-config-backup.json", json.dumps(payload).encode("utf-8"), "application/json")},
         follow_redirects=False,
     )
@@ -360,11 +366,13 @@ def test_config_backup_import_redirect_fallbacks_use_registry_route_readpoints(m
 
     success = client.post(
         "/config/backup/import",
+        data={"csrf_token": "test-csrf"},
         files={"backup_file": ("aria-config-backup.json", json.dumps(payload).encode("utf-8"), "application/json")},
         follow_redirects=False,
     )
     error = client.post(
         "/config/backup/import",
+        data={"csrf_token": "test-csrf"},
         files={"backup_file": ("aria-config-backup.json", b"", "application/json")},
         follow_redirects=False,
     )
@@ -390,6 +398,7 @@ def test_config_backup_import_redirect_fallback_fails_closed_without_config_owne
     with pytest.raises(RuntimeError, match="config_ui route is not registered: /config"):
         client.post(
             "/config/backup/import",
+            data={"csrf_token": "test-csrf"},
             files={"backup_file": ("aria-config-backup.json", b"", "application/json")},
             follow_redirects=False,
         )

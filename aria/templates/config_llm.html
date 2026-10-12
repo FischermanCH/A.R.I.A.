@@ -1,6 +1,7 @@
-{% extends "base.html" %}
+{% extends "page_types/settings_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% from "_ui_clarity.html" import ui_action_card, ui_settings_section with context %}
+{% block page_body %}
 {% set config_ui_llm_test_path = module_route_path('config_ui', '/config/llm/test') %}
 {% set config_ui_llm_models_path = module_route_path('config_ui', '/config/llm/models') %}
 {% set config_ui_llm_profile_delete_path = module_route_path('config_ui', '/config/llm/profile/delete') %}
@@ -10,13 +11,10 @@
 <main class="config-layout config-domain-layout config-domain-surface-layout config-llm-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
+  <p class="ui-page-purpose">{{ tr(request, 'config_llm.page_purpose', 'Hier ordnest du Aufgaben deinen Modellprofilen zu und verwaltest Provider, Modelle und Laufzeitgrenzen.') }}</p>
   {% with help_doc='pricing' %}{% include "_context_help.html" %}{% endwith %}
 
-  <section class="floating-card config-domain-section llm-assignment-section">
-    <div>
-      <h2>{{ tr(request, 'config_llm.assignment_title', 'Model assignment') }}</h2>
-      <p class="hint-text">{{ tr(request, 'config_llm.assignment_intro', 'Both roles use ordinary saved LLM profiles. The Main model handles normal conversations; the Web model answers current public questions with native Web search.') }}</p>
-    </div>
+  {% call ui_settings_section(tr(request, 'config_llm.assignment_title', 'Model assignment'), tr(request, 'config_llm.assignment_intro', 'Both roles use ordinary saved LLM profiles.'), 'llm-assignment', (tr(request, 'config_llm.main_role', 'Main model') ~ ': ' ~ (main_llm_runtime.model or '-') ~ ' · ' ~ llm.max_tokens ~ ' Tokens · ' ~ llm.timeout_seconds ~ ' s')) %}
 
     {% if test_status == 'ok' or test_status == 'error' %}
     <article class="connection-test-card status-{{ test_status }}">
@@ -107,13 +105,17 @@
         </div>
       </form>
     </div>
-  </section>
+  {% endcall %}
 
-  <section class="floating-card config-domain-section llm-profiles-section">
-    <div>
-      <h2>{{ tr(request, 'config_llm.profiles_title', 'Manage profiles') }}</h2>
-      <p class="hint-text">{{ tr(request, 'config_llm.profiles_intro', 'A profile stores provider access and model parameters. Editing or saving a profile does not change the Main or Web assignment above.') }}</p>
-    </div>
+  {% call ui_action_card(tr(request, 'config_llm.toolcall_selftest_title', 'Tool-Calling testen'), tr(request, 'config_llm.toolcall_selftest_hint', 'Prüft das konfigurierte Hauptmodell mit genau einem kleinen, deterministischen Dummy-Tool-Rundlauf.'), 'llm-toolcall-selftest') %}
+    <form method="post" action="/config/llm/toolcall-selftest" class="editor-form compact-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit" class="ui-secondary-action">{{ tr(request, 'config_llm.toolcall_selftest_button', 'Tool-Calling testen') }}</button>
+    </form>
+    {% if selftest_status %}<div class="alert {{ 'ok' if selftest_status == 'ok' else 'err' }}">{{ selftest_result }}</div>{% endif %}
+  {% endcall %}
+
+  {% call ui_settings_section(tr(request, 'config_llm.profiles_title', 'Manage profiles'), tr(request, 'config_llm.profiles_intro', 'A profile stores provider access and model parameters.'), 'llm-profiles', (edit_llm_profile ~ ' · ' ~ (llm.model or '-') ~ ' · ' ~ llm.max_tokens ~ ' Tokens')) %}
 
     <div class="llm-profile-list" aria-label="{{ tr(request, 'config_llm.profile_list', 'Saved LLM profiles') }}">
       {% for profile in profile_rows %}
@@ -218,7 +220,7 @@
         <div class="inline-actions"><button type="submit">{{ tr(request, 'config_llm.connection_test', 'Test connection') }}</button></div>
       </form>
     </div>
-  </section>
+  {% endcall %}
 </main>
 <script>
   (function () {

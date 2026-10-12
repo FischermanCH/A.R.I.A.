@@ -176,6 +176,8 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
         info: str = "",
         test_status: str = "",
         edit_profile: str = "",
+        selftest_status: str = "",
+        selftest_result: str = "",
     ) -> HTMLResponse:
         settings = deps.get_settings()
         deps.set_logical_back_url(request)
@@ -248,6 +250,8 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
                 "error_message": error,
                 "info_message": deps.format_config_info_message(lang, info),
                 "test_status": str(test_status or "").strip().lower(),
+                "selftest_status": str(selftest_status or "").strip().lower(),
+                "selftest_result": str(selftest_result or "").strip()[:800],
                 "config_nav": "intelligence",
                 "config_page_heading": deps.msg(lang, "KI-Modelle", "AI models"),
                 "page_return_to": deps.config_surface_path(

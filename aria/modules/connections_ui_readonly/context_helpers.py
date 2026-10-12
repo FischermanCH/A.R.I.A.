@@ -248,7 +248,12 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             placeholders={"connection_ref": "z.B. alerts"},
             required_fields={"timeout_seconds"},
             secrets_with_hints={"webhook_url": "The webhook URL is stored in the secure store and never written into config.yaml. Leave it empty to keep the existing secret."},
-            ordered_fields=["timeout_seconds", "webhook_url"],
+            ordered_fields=["timeout_seconds"],
+        )
+        context["discord_secret_rotation_fields"] = _build_schema_form_fields(
+            kind="discord", values={}, prefix="discord_rotate", ref_value="", include_ref=False,
+            secrets_with_hints={"webhook_url": "The old webhook URL is never displayed."},
+            ordered_fields=["webhook_url"],
         )
         context["discord_new_form_fields"] = _build_schema_form_fields(
             kind="discord",
@@ -341,7 +346,11 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             placeholders={"connection_ref": "z.B. team-share", "host": "nas.example.local", "share": "documents", "user": "backup", "root_path": "/"},
             required_fields={"host", "share", "port", "user", "timeout_seconds"},
             secrets_with_hints={"password": "The password is stored in the secure store and never written into config.yaml."},
-            ordered_fields=["host", "share", "port", "user", "timeout_seconds", "root_path", "password"],
+            ordered_fields=["host", "share", "port", "user", "timeout_seconds", "root_path"],
+        )
+        context["smb_secret_rotation_fields"] = _build_schema_form_fields(
+            kind="smb", values={}, prefix="smb_rotate", ref_value="", include_ref=False,
+            secrets_with_hints={"password": "The old password is never displayed."}, ordered_fields=["password"],
         )
         context["smb_new_form_fields"] = _build_schema_form_fields(
             kind="smb",
@@ -399,7 +408,11 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             required_fields={"timeout_seconds", "method", "content_type"},
             select_options={"method": ["POST", "PUT", "PATCH"]},
             secrets_with_hints={"url": "The webhook URL is stored in the secure store, not in config.yaml."},
-            ordered_fields=["timeout_seconds", "method", "content_type", "url"],
+            ordered_fields=["timeout_seconds", "method", "content_type"],
+        )
+        context["webhook_secret_rotation_fields"] = _build_schema_form_fields(
+            kind="webhook", values={}, prefix="webhook_rotate", ref_value="", include_ref=False,
+            secrets_with_hints={"url": "The old target URL is never displayed."}, ordered_fields=["url"],
         )
         context["webhook_new_form_fields"] = _build_schema_form_fields(
             kind="webhook",
@@ -457,7 +470,11 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             required_fields={"smtp_host", "port", "user", "from_email", "timeout_seconds"},
             boolean_defaults={"starttls": True, "use_ssl": False},
             secrets_with_hints={"password": "Password is stored in the secure store, not in config.yaml."},
-            ordered_fields=["smtp_host", "port", "user", "from_email", "to_email", "timeout_seconds", "starttls", "use_ssl", "password"],
+            ordered_fields=["smtp_host", "port", "user", "from_email", "to_email", "timeout_seconds", "starttls", "use_ssl"],
+        )
+        context["email_secret_rotation_fields"] = _build_schema_form_fields(
+            kind="email", values={}, prefix="email_rotate", ref_value="", include_ref=False,
+            secrets_with_hints={"password": "The old password is never displayed."}, ordered_fields=["password"],
         )
         context["email_new_form_fields"] = _build_schema_form_fields(
             kind="email",
@@ -513,7 +530,11 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             required_fields={"host", "port", "user", "mailbox", "timeout_seconds"},
             boolean_defaults={"use_ssl": True},
             secrets_with_hints={"password": "Password is stored in the secure store, not in config.yaml."},
-            ordered_fields=["host", "port", "user", "mailbox", "timeout_seconds", "use_ssl", "password"],
+            ordered_fields=["host", "port", "user", "mailbox", "timeout_seconds", "use_ssl"],
+        )
+        context["imap_secret_rotation_fields"] = _build_schema_form_fields(
+            kind="imap", values={}, prefix="imap_rotate", ref_value="", include_ref=False,
+            secrets_with_hints={"password": "The old password is never displayed."}, ordered_fields=["password"],
         )
         context["imap_new_form_fields"] = _build_schema_form_fields(
             kind="imap",
@@ -571,7 +592,11 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             required_fields={"base_url", "health_path", "method", "timeout_seconds"},
             select_options={"method": ["GET", "POST", "HEAD"]},
             secrets_with_hints={"auth_token": "Bearer token is stored in the secure store when provided."},
-            ordered_fields=["base_url", "health_path", "method", "timeout_seconds", "auth_token"],
+            ordered_fields=["base_url", "health_path", "method", "timeout_seconds"],
+        )
+        context["http_api_secret_rotation_fields"] = _build_schema_form_fields(
+            kind="http_api", values={}, prefix="http_api_rotate", ref_value="", include_ref=False,
+            secrets_with_hints={"auth_token": "The old token is never displayed."}, ordered_fields=["auth_token"],
         )
         context["http_api_new_form_fields"] = _build_schema_form_fields(
             kind="http_api",
@@ -652,7 +677,11 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             secrets_with_hints={
                 "ical_url": "Stored in the secure store. Keep this link private.",
             },
-            ordered_fields=["ical_url", "timeout_seconds"],
+            ordered_fields=["timeout_seconds"],
+        )
+        context["google_calendar_secret_rotation_fields"] = _build_schema_form_fields(
+            kind="google_calendar", values={}, prefix="google_calendar_rotate", ref_value="", include_ref=False,
+            secrets_with_hints={"ical_url": "The old calendar URL is never displayed."}, ordered_fields=["ical_url"],
         )
         context["google_calendar_new_form_fields"] = _build_schema_form_fields(
             kind="google_calendar",
@@ -716,9 +745,6 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
                 ],
             ),
         )
-        context["connection_intro"]["back_url"] = _connection_ui_path("rss_ui", "/config/connections/rss")
-        context["connection_intro"]["back_label_key"] = "config_conn.back_to_rss_overview"
-        context["connection_intro"]["back_label"] = "Back to RSS overview"
         context["connection_status_block"] = _build_connection_status_block(
             kind="rss",
             rows=list(context.get("rss_status_rows", [])),
@@ -908,7 +934,11 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             required_fields={"host", "port", "user", "timeout_seconds"},
             boolean_defaults={"use_tls": False},
             secrets_with_hints={"password": "Password is stored in the secure store, not in config.yaml."},
-            ordered_fields=["host", "port", "user", "topic", "timeout_seconds", "use_tls", "password"],
+            ordered_fields=["host", "port", "user", "topic", "timeout_seconds", "use_tls"],
+        )
+        context["mqtt_secret_rotation_fields"] = _build_schema_form_fields(
+            kind="mqtt", values={}, prefix="mqtt_rotate", ref_value="", include_ref=False,
+            secrets_with_hints={"password": "The old password is never displayed."}, ordered_fields=["password"],
         )
         context["mqtt_new_form_fields"] = _build_schema_form_fields(
             kind="mqtt",

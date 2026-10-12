@@ -70,6 +70,7 @@ MODULE_MANIFEST: dict[str, Any] = {
         "/config/embeddings/profile/save",
         "/config/connections/mcp",
         "/config/connections/mcp/save",
+        "/config/connections/mcp/credentials",
         "/config/connections/mcp/master",
         "/config/connections/mcp/reconnect",
         "/config/connections/mcp/delete",

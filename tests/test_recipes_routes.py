@@ -986,7 +986,7 @@ def test_recipes_wizard_defaults_to_simple_mode() -> None:
     assert 'Hauptverbindung wählen' in response.text
     assert 'class="skill-icon-button js-move-step-up"' in response.text
     assert 'aria-label="Move step up"' in response.text
-    assert 'class="skill-action-button skill-add-step-button"' in response.text
+    assert 'class="skill-action-button skill-add-step-button ui-secondary-action"' in response.text
 
 
 def test_recipes_wizard_save_preserves_selected_mode(monkeypatch, tmp_path) -> None:
@@ -1167,7 +1167,7 @@ def test_recipes_wizard_health_check_defaults_apply_in_simple_mode(monkeypatch, 
     assert response.status_code == 303
     saved = json.loads((recipes_dir / "server-check.json").read_text(encoding="utf-8"))
     assert saved["category"] == "monitoring"
-    assert saved["description"] == "Prueft einen Host oder Dienst und liefert einen kurzen Status."
+    assert saved["description"] == "Prüft einen Host oder Dienst und liefert einen kurzen Status."
     assert saved["steps"][0]["type"] == "ssh_run"
     assert saved["steps"][0]["name"] == "Health Check"
     assert saved["steps"][0]["params"]["command"] == "uptime"

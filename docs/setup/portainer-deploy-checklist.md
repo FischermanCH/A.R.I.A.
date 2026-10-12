@@ -69,7 +69,7 @@ Notes:
 
 - `ARIA_QDRANT_API_KEY` must be the same key for both ARIA and Qdrant
 - `ARIA_HTTP_PORT` is the host port for the ARIA web UI
-- `ARIA_PUBLIC_URL` is optional but useful for clear host/link messages; it should match the real browser URL that users open, including an internal LAN URL such as `http://aria.example.lan/`
+- `ARIA_PUBLIC_URL` is optional but useful for clear host/link messages; it should match the real browser URL that users open, including an internal LAN URL such as `http://aria.example.test/`
 
 ## 5. Deploy the stack in Portainer
 

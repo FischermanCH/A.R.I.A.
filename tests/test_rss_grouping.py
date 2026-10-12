@@ -7,7 +7,7 @@ from aria.modules.rss_digest.grouping import load_cached_rss_status_groups
 from aria.modules.rss_digest.grouping import save_cached_rss_status_groups
 
 
-def test_rss_grouping_fallback_uses_technical_host_names() -> None:
+def test_rss_grouping_collects_unassigned_feeds_in_default_group() -> None:
     rows = [
         {
             'ref': 'security-feed',
@@ -25,8 +25,10 @@ def test_rss_grouping_fallback_uses_technical_host_names() -> None:
 
     groups = asyncio.run(build_rss_status_groups(rows))
 
-    names = {item['name'] for item in groups}
-    assert names == {'Example', 'Heise'}
+    assert len(groups) == 1
+    assert groups[0]['name'] == 'Other feeds'
+    assert groups[0]['is_default'] is True
+    assert groups[0]['total'] == 2
 
 
 def test_rss_grouping_prefers_llm_labels_when_available() -> None:

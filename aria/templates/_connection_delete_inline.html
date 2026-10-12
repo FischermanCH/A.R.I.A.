@@ -1,3 +1,6 @@
+{% if not delete_inside_danger|default(false) %}<section class="ui-danger-zone connection-danger-zone" data-ui-pattern="danger">
+<div class="ui-section-heading"><h3>{{ tr(request, 'config_conn.delete_profile', 'Verbindung löschen') }}</h3><p>{{ tr(request, 'config_conn.delete_profile_hint', 'Löscht dieses Profil einschließlich seiner geschützten Zugangsdaten und seines Gesundheitsstatus.') }}</p></div>
+<ul class="ui-danger-consequences"><li>{{ tr(request, 'config_conn.delete_profile_consequence', 'Das Profil steht danach für Chat, Rezepte und Werkzeuge nicht mehr zur Verfügung.') }}</li></ul>{% endif %}
 {% if delete_ref %}
 {% set connections_profiles_delete_path = module_route_path('connections_profiles', '/config/connections/delete') %}
 <form
@@ -22,3 +25,4 @@
   <span>{{ tr(request, 'config_conn.delete_profile_none', 'Lade zuerst ein bestehendes Profil, um es zu löschen.') }}</span>
 </div>
 {% endif %}
+{% if not delete_inside_danger|default(false) %}</section>{% endif %}

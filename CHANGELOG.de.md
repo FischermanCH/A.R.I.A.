@@ -1,5 +1,228 @@
 # Changelog
 
+## 0.1.0-alpha1007 - 2026-10-12
+
+- Die Owner-Statistik wurde nachgeschärft: doppelte Meta-Prüfungen entfernt, lokale Startzeit und lesbare Kostenachsen ergänzt sowie Ressourcenpfade im Container korrigiert.
+- Routing-Rebuilds sind jetzt autoritativ und entfernen veraltete Einträge gelöschter oder umbenannter Verbindungsprofile.
+- Antworten von A.R.I.A. nutzen die volle Chatbreite; die alte Tool-Box wurde durch ein kompaktes, tastaturbedienbares Aktionsmenü ersetzt.
+- Abgeschlossene Agent-Jobs zeigen live und nach dem Neuladen nur noch „Job ansehen“.
+
+## 0.1.0-alpha1006 - 2026-10-12
+
+- Hält alle drei Prüfblöcke auf `/stats` beim ersten Laden geschlossen; gespeicherte Zähler-Pills und die konkrete verlinkte Problemliste bleiben sofort sichtbar.
+- Lädt Prüfkacheln erst beim Öffnen als authentifizierte HTML-Fragmente nach, mit Ladeanzeige, wiederholbarem Fehlerzustand und DOM-Cache für den Seitenaufruf.
+- Hält den ersten Statistik-Aufruf frei von Live-Abfragen an Update-Helfer, Verbindungen, MCP und Qdrant; Verbindungen werden aus gespeichertem Status zusammengefasst und verlinken auf `/connections/status`.
+- Lädt Routing-Index und Rezept-Gedächtnis nur bei Bedarf parallel aus Qdrant, ohne Provider- oder Embedding-Aufruf und mit ehrlichem gelbem Timeout-Zustand nach spätestens drei Sekunden.
+- Aktualisiert die Unterlagen und Demo-Statistikbilder des nächsten Public-Kandidaten. Die veröffentlichte Version bleibt bis zu einer getrennten Freigabe `0.1.0-alpha983`.
+
+## 0.1.0-alpha1005 - 2026-10-12
+
+- Stellt den Funktionsumfang der öffentlichen Alpha983-Statistik im neuen Owner-Layout wieder her: Jede frühere Prüfung und Modellrolle ist zugeordnet oder nachvollziehbar als bewusst entfernt dokumentiert.
+- Bringt auf jeder Prüfkachel sichtbare grüne, gelbe und rote Statusampeln sowie drei Zähler-Pills je Blockkopf zurück; die berechneten Farben werden in allen elf Themes geprüft.
+- Ersetzt abstrakte Zustandsformulierungen durch konkrete benannte Probleme, vollständige ungekürzte Details und Links zur passenden Einstellung; ein gesundes System nennt exakt die Zahl grüner Prüfungen.
+- Zeigt im Technikbereich wieder Chat-, Embedding- und Web-/Suchmodell samt API-Basis je Rolle, Shared-/Split-Gateway, Usage-Meter, Token-Protokoll, Web-Anfragen, native Suchen und deren lokale Kostenabdeckung.
+- Hält `/stats` passiv: Beim Öffnen erfolgen keine Provider-, Verbindungs-, MCP-, Qdrant- oder externen Preislisten-Aufrufe. Public bleibt bis zur separaten Freigabe `0.1.0-alpha983`.
+
+## 0.1.0-alpha1004 - 2026-10-12
+
+- Bringt auf `/stats` drei kompakte, getrennt einklappbare Prüfblöcke zurück: Startprüfung, Laufzeit & Dienste sowie Betrieb & Release. Fehlerfreie Blöcke bleiben geschlossen; Warnungen und Fehler öffnen ihren Block automatisch.
+- Hält die Statistikseite passiv: Sie verwendet ausschließlich bereits lokal vorhandene Start- und Laufzeit-Snapshots. Beim Öffnen erfolgen keine Provider-, Verbindungs-, MCP-, Qdrant- oder externen Preislisten-Aufrufe.
+- Ersetzt den vollständigen LiteLLM-Katalog durch höchstens 20 konfigurierte, manuell bepreiste oder tatsächlich verwendete Modellzeilen; die kompakte Preisverwaltung bleibt erhalten.
+- Entfernt den leeren abgerundeten Statusbalken über der Chat-Eingabe. Dasselbe Element erscheint nur noch, wenn es echten Fortschrittsinhalt trägt.
+- Aktualisiert die Unterlagen und betroffenen Demo-Screenshots des nächsten Public-Kandidaten. Die veröffentlichte Version bleibt bis zu einer getrennten Freigabe `0.1.0-alpha983`.
+
+## 0.1.0-alpha1003 - 2026-10-12
+
+- Ersetzt den verschachtelten Chat-Nachrichten-Scroller auf iPhones durch normales Seitenscrollen, einen strikt einzeiligen Kopf ohne Umbruch und eine Safe-Area-fähige, unten haftende Eingabe für alle Ansichten bis 900 px Breite oder 500 px Höhe.
+- Ergänzt das nur für Admins sichtbare Diagnose-Overlay `?layout_debug=1` mit echten Viewport-Daten, Element-Rechtecken, Scroll-Container, User-Agent und CSS-Version für die Prüfung auf dem Gerät.
+- Wendet den gemeinsamen Anzeige-Zeitzonen-Helfer auf serverseitige und dynamisch eingefügte Chat-Zeitstempel einschließlich Agent-Job-Meldungen an; beim ersten Browser-Aufruf wird der UTC-Fallback lokal korrigiert.
+- Versioniert gerenderte und im Stylesheet referenzierte statische Assets, damit ein aktualisiertes iPhone nicht still altes Chat-CSS oder JavaScript behält.
+- Erweitert WebKit- und Seitenlayout-Gates um 844×390 und 667×320, Tippen/Senden, Kopfzeilen-Geometrie, Overflow-Ahnen und versionierte Assets. Public bleibt bis zur separaten Freigabe Alpha983.
+
+## 0.1.0-alpha1002 - 2026-10-12
+
+- Überarbeitet das Chat-Layout auf iPhones in Safari: kompakter einzeiliger Kopf und Composer, dynamische Visual-Viewport-Nachführung, separat scrollende Nachrichten und reservierter Platz für den Nach-unten-Knopf in Hoch- und Querformat.
+- Ersetzt die ständig sichtbaren Datumsfelder des Aktivitätsjournals durch die eindeutige Zeitraumwahl Alle/Heute/7 Tage/30 Tage/Benutzerdefiniert; Datums-Deep-Links bleiben erhalten.
+- Ergänzt eine gemeinsame Anzeige-Zeitzonenregel für Journal, Agent-Jobs, Statistik, Chat-Zeitstempel und `activity_journal_read`: UI-Einstellung, danach `TZ`, Browser-Zeitzone und UTC.
+- Erweitert WebKit- und Seitenprüfer-Abdeckung um iPhone-Formate, Scrollbarkeit im Querformat, sichtbaren Zeitraumzustand und lokale Tagesgruppierung.
+- Aktualisiert die Unterlagen und betroffenen Screenshots des nächsten Public-Kandidaten von Alpha1001 auf Alpha1002; die Veröffentlichung bleibt separat freizugeben, Public bleibt vorerst Alpha983.
+
+## 0.1.0-alpha1001 - 2026-10-11
+
+- Bereitet den nächsten Public-Release-Kandidaten mit einem nicht blockierenden Native-Rezept-Snapshot vor: Persistente Manifest-Scans laufen in einer providerfreien Startup-Task; der erste Turn wartet höchstens 200 ms und führt den langsamen Dateisystemlauf nie selbst aus.
+- Hält ungefilterte Datumsfelder des Aktivitätsjournals bei Neuladen, Verlauf-Navigation und WebKit-/Safari-artiger Formularwiederherstellung leer; ausdrücklich gesetzte Query-Daten bleiben erhalten.
+- Aktualisiert die isolierte, vollständig synthetische Demo für den Release-Kandidaten und ergänzt eine zweisprachige Dark-/Light-Screenshot-Pipeline mit Prüfungen der gerenderten Seiten, OCR und Repository-Hygiene.
+- Ergänzt eine ehrliche öffentliche Zusammenfassung seit Alpha983, aktualisierte README-/Docker-Hub-Texte, GitHub-Release-Notes und ein nicht veröffentlichendes Alpha1001-Runbook.
+- Die veröffentlichte Version bleibt bis zu einer getrennten Freigabe `0.1.0-alpha983`.
+
+## 0.1.0-alpha1000 - 2026-10-11
+
+- Hält kalte oder nicht erreichbare MCP-Erkennung vollständig aus dem synchronen Turn-Budget heraus und macht den warmen Pfad des deterministischen Rezept-Caches metadatenbasiert.
+- Rendert Ergebnisse von Hintergrund-Jobs mit derselben sicheren Markdown-Pipeline wie der Chat, protokolliert abgekoppelte Jobs genau einmal samt Verbindungskontext und speichert Journal-Kurztexte ohne Markdown-Syntax.
+- Verfeinert die Owner-Statistik mit zusammengeführten Modell-Aliasen, lokalisierten Kostentreibern, einem unten ausgerichteten responsiven Diagramm und nicht veraltenden Neustart-Hinweisen.
+- Belegt die vierstellige Alpha-Sortierung in Update-Erkennung, lokaler TAR-Auswahl, Image-Tags, Retention und Changelog-Auswertung.
+- Die öffentliche Version bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha999 - 2026-10-11
+
+- Ordnet `/stats` nach vier Owner-Fragen neu: Gesundheit, Kosten, Aktivitäten und Ressourcen, mit passiven Cache-Daten, Ortszeit-/Gebietsschema-Formatierung, serverseitigem 30-Tage-Diagramm, einem Technikbereich und abschließender bestätigter Gefahrenzone.
+- Aggregiert den ganzen Kalendermonat aus aktivem und archiviertem Nutzungslog, ergänzt numerische Meter-Werte in nutzergetrennten Journal-Einträgen und hält den Statistik-GET frei von Provider-, Verbindungs-, MCP- und Preislisten-Aufrufen.
+- Ergänzt einen dauerhaften, isolierten `aria-demo`-Compose-Stack auf Port 8090 mit reproduzierbaren erfundenen Daten, dokumentiertem Demo-Login, Start-/Stopp-/Reset-Befehlen und zweisprachigem Sicherheits-Scan aller gerenderten Seiten.
+- Stellt die öffentlichen Alpha982-/Alpha983-Image-TARs wieder her und schützt die Public-TARs Alpha604/Alpha982/Alpha983 dauerhaft vor lokaler Retention.
+- Die öffentliche Version bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha998 - 2026-10-10
+
+- Hält das Chat-Eingabefeld bei langen Verläufen, Neuladen, Polling-Aktualisierungen, mobilen Ansichten und allen elf Themes stets im sichtbaren Viewport; nur die Nachrichtenliste scrollt.
+- Begrenzt breite Markdown-Tabellen in Antworten auf einen eigenen horizontalen Scrollbereich, sodass sie weder die Seite verbreitern noch das Eingabefeld verdrängen.
+- Rendert gespeicherte und per Polling eingefügte Agent-Job-Meldungen über denselben maskierenden Markdown-Renderer wie normale Antworten, einschließlich Tabellen, Fettdruck, Inline- und Codeblöcken sowie Listen.
+- Ergänzt die Seitenprüfer-Regel R31 und einen produktionsnahen Browser-Regressionsfall mit langer Job-Meldung, allen Themes, Desktop- und Mobilformat, Neuladen, Fokus und Senden.
+- Die öffentliche Version bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha997 - 2026-10-10
+
+- Zustellung abgeschlossener Hintergrund-Aufträge mit dauerhafter SQLite-Ausgangsqueue, wiederholbarer Bestätigung, prozessübergreifender Chat-History-Sperre und Nachholen beim Polling sowie Neuladen abgesichert.
+- Auftragsseite mit Ortszeit und relativer Zeit, knappen lokalisierten Schritten, eingeklappten Technikdaten, sicher gerenderten responsiven Markdown-Ergebnissen und kompakten bestätigten Aufräumaktionen überarbeitet.
+- Erneute Übernahme alter Kontext-Rollups bereinigt: genau ein Eintrag je Woche, nur eindeutige Monatsinhalte und Aktualisierung bestehender Importe an Ort und Stelle, ohne Quell-Rollups zu löschen.
+- Journal-Filter und Ortszeitdarstellung verbessert, reine Selbst-Leseeinträge unterdrückt und deterministischen Rezept-Cache ohne Provider- oder Embedding-Aufrufe im Hintergrund vorgewärmt.
+- Symmetrische zweisprachige Seitenprüfung wieder aktiviert und R28–R30 für Rohwerte, Gebietsschema-Formatierung und Formulargeometrie ergänzt; `/stats` besitzt nur die geprüften befristeten Alpha998-Ausnahmen.
+- Die öffentliche Version bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha996 - 2026-10-10
+
+- Ergänzt ein kompaktes nutzergetrenntes Aktivitätsjournal für abgeschlossene Native-Tool-Turns und Agent-Jobs im Endzustand, mit begrenzten redigierten Feldern und fehlerisolierten Abschluss-Hooks.
+- Ergänzt das nur bei Bedarf verwendete Read-only-Tool `activity_journal_read`; das Journal wird nie automatisch in Prompts eingefügt. Die Core-Registry umfasst bei aktivem Journal 38 Tools und bei ausgeschaltetem Journal 37.
+- Ergänzt eine zweisprachige Gedächtnis-Übersichtsseite mit Tagesgruppen, Filtern, Details, JSON-Export, Behalten-/Löschen-Aktionen, einstellbarer Aufbewahrung von 7–365 Tagen und getippter Bestätigung für Bereichslöschungen.
+- Übernimmt alte Kontext-Rollups einschließlich Embedding-Dimensionsvarianten nur nach ausdrücklicher Bestätigung idempotent; eine getrennte nutzerbezogene Löschaktion entfernt niemals nicht übernommene Rollups.
+- Macht Startdiagnosen resilient gegen vorübergehende Container-Startreihenfolgen und aktualisiert veraltete Warn-/Fehler-Snapshots mit nützlichen, redigierten Fehlerdetails.
+
+> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha995 - 2026-10-10
+
+- Friert den stillgelegten Tages-Kontext-Rollup-Schreiber ein: Start und Wartung verdichten, löschen, überschreiben oder betten alte Tages-Kontext- und Rollup-Collections nicht mehr neu ein.
+- Vorhandene Wochen- und Monats-Rollups bleiben über Memory-Recall, Export, Browser-Ansicht und bestätigtes Einzel-Löschen lesbar, einschließlich Collections mit Embedding-Dimensionssuffix.
+- Entfernt die veralteten Rollup-Aktionen und Einstellungen. Alte POST-URLs leiten ohne Datenänderung weiter; die Wartungsseite zeigt bei vorhandenen Daten einen nur lesbaren nutzerbezogenen Rollup-Zähler.
+- Entfernt die tote Session-Collection-Durchreichung im Chat, den ungenutzten Recipe-Skill-Pfad, das synthetische Tages-Recall-Ziel und das stillgelegte Kompressionsmodul. Alte Konfigurationsdateien laden mit einem Info-Loghinweis weiter.
+- Verbleibende Memory-Embedding-Aufrufe werden korrekt im Usage-Meter erfasst; ein isoliertes Neustart-Szenario schützt die Unveränderlichkeit alter Daten.
+
+> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha994 - 2026-10-09
+
+- Stellt das RSS-Verbindungsinventar im neuen Übersichts-Seitentyp wieder her: aufklappbare Kategorien, sichtbare Anzahlen, eine Standardgruppe für nicht zugeordnete Feeds und ein Filter für große Sammlungen.
+- Erweitert den gerenderten Seiten-Prüfer mit R25 auf die englische Oberfläche; deutsche UI-Texte blockieren, Eigennamen und Nutzereingaben bleiben ausgenommen. Mitgelieferte Beispiel-Verbindungen besitzen nun lokalisierte Beschreibungen.
+- Prüft Zurück-Aktionen mit R26 als echte kanonische Links und entfernt über R27 doppelte Anlegen-Aktionen aus Verbindungsübersichten.
+- Verschärft R4: Alle 13 mit Testdaten befüllten Verbindungsarten müssen exakt so viele Inventarkarten rendern wie Einträge vorhanden sind, einschließlich eines RSS-Scale-Fixtures mit 32 Feeds.
+- Lässt den grafischen Gedächtnis-Browser, Tages-Kontext, Kontext-Rollup, Verbindungs-Laufzeit und das Public-Release unverändert.
+
+> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha993 - 2026-10-09
+
+- Definiert Primär-, Sekundär-, Tertiär-, Danger-, Reiter-/Filter-, Chip- und Eingabefeld-Rollen einmal zentral, damit dieselbe Aktion in jedem Theme dieselbe Form und Gewichtung behält.
+- Reduziert alle elf Themes auf Farb-/Schrift-Tokens und dekorative Hintergründe; Theme-spezifische Komponenten-Overrides entfallen, während Palette und Hintergrundcharakter erhalten bleiben.
+- Ergänzt die berechneten Browser-Regeln R19-R24 für Rollensemantik, WCAG-AA-Kontrast, Interaktionszustände und Theme-übergreifend gleiche Geometrie sowie eine visuelle Zwei-Seiten-Selbstprüfung in jedem Theme.
+- Hält den grafischen Gedächtnis-Browser byte-identisch und ändert weder Verhalten noch Routen oder gespeicherte Theme-Auswahlen.
+- Dokumentiert die bereits umgesetzte LICENSE-Korrektur: Lizenzgeber ist jetzt `Fischerman.ch`.
+
+> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha992 - 2026-10-09
+
+- Gibt jeder registrierten Seite genau einen kanonischen Navigations-Elternbereich; Hilfe, Qdrant-Hinweise und Lizenzen teilen nun auch bei zusätzlichen Abkürzungen den Hilfe-Kopf.
+- Verfeinert Verbindungsdetails mit nur einer Beschreibung, einer reinen Textreferenz samt kompakter sicherer Umbenennen-Aktion und genau einer primären Speichern-Aktion je Einstellungsabschnitt.
+- Beruhigt das Persönliche Modell mit echten Filterreitern, kompakten sekundären Korrekturaktionen und kompakt dargestelltem Löschen im Danger-Stil, ohne Claim-Verhalten zu ändern.
+- Härtet den gerenderten Seiten-Prüfer auf R1-R18: effektive Darstellung, Summary-/Body-Dopplungen, unveränderliche Detailkennungen und kanonische Elternbereiche werden geprüft.
+- Ergänzt dauerhafte Regressions-Fixtures und aktualisierte Dark-/Light-Selbstprüfung; der grafische Gedächtnis-Browser bleibt byte-identisch.
+
+> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha991 - 2026-10-09
+
+- Ergänzt je authentifiziertem Seitentyp genau eine vererbte Jinja-Basis (Übersicht, Detail, Neu anlegen, Einstellungen und Werkzeug), damit die Seitenstruktur eine gemeinsame Konstruktionsgrenze besitzt.
+- Ergänzt den gerenderten Seiten-Prüfer R1-R16, eine explizite Ausnahmeliste, Markdown-/JSON-Evidence und die isolierte Selbstprüfung in dunklem und hellem Theme.
+- Verbessert Verbindungsübersichten und -details, hält Verbindungsreferenzen bis zur ausdrücklichen Umbenennen-Aktion schreibgeschützt und blockiert unsichere Umbenennungen bei bekannten Rezeptverweisen.
+- Macht das persönliche Modell mit deutschen Prädikatbezeichnungen, Filterreitern, lokalisierten Statusfeldern und technischen IDs ausschließlich im eingeklappten Expertenbereich lesbarer.
+- Richtet Hilfe und Lizenzen an der gemeinsamen Seitenstruktur, aktuellen Routen, echten Links und dem heutigen Produktverhalten aus.
+
+> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha990 - 2026-10-09
+
+- Richtet Verbindungsübersichten und Modell-Einstellungen an den freigegebenen ARIA-Mockups aus, entfernt den allgemeinen Füllsatz und ergänzt zugängliche, gemerkte Klappbereiche.
+- Macht das Persönliche Modell lesbar und direkt bedienbar; Gedächtnis-Browser, Claim-Routen, Wartung und Datensemantik bleiben erhalten.
+- Ordnet die Hilfe in vier aktuelle Gruppen, integriert den Tool-Calling-Selbsttest in die LLM-Einstellungen und aktualisiert die Hinweise zu Jobs, MCP, Datenschutz und Backups.
+- Schlüsselt die Erst-Turn-Zeit in benannte Stufen auf, macht Rezept-Diagnosen verbindungsbewusst und vermeidet Action-Claim-Fehlalarme bei Beschreibungen bereits gespeicherter Daten.
+- Ergänzt die befüllten Browser-Prüfungen U10-U14 in dunklem und hellem Theme. Die öffentliche Version bleibt auf 0.1.0-alpha983 gepinnt.
+
+## 0.1.0-alpha989
+
+### Einheitliche Informationsarchitektur der Administration
+
+- Das freigegebene Seitenmodell für Übersicht, Neu anlegen, Bearbeiten, Einstellungen und Werkzeuge gilt jetzt für alle 55 Nicht-Memory-Seiten. Verbindungen besitzen stabile Übersichts-, `/new`- und `/<Referenz>`-URLs; alte Query- und Anchor-URLs leiten weiter, ohne Rückmeldungsparameter zu verlieren.
+- Inventar, Neuanlage und Bearbeitung sind für jede Verbindungsart getrennt. Detailseiten zeigen nur den gewählten Eintrag, einmalige Setup-Werte bleiben in der Neuanlage und Zugangsdaten werden über eine eigene Aktion ersetzt, die vorhandene Secrets nie in HTML zurückrendert.
+- Einheitliche Status-Badges, Zweckzeilen und Rücksprünge, themengerechte Formularelemente, lesbare Info-Zusammenfassungen und abschließende Gefahrenzonen mit Folgenliste vereinheitlichen die Oberfläche. Geprüfte deutsche Fallback-Texte verwenden echte Umlaute; Protokollbezeichner und akzeptierte ASCII-Eingabemuster bleiben unverändert.
+- Route- und Redirect-Tests sowie die isolierten Browser-Szenarien U7-U9 prüfen die verschobenen Formulare und erzeugen einen Dunkel-/Hell-Screenshot-Index bei 1280 × 800 für alle 55 Seiten. Die sechs `/memories*`-Templates und ihr Verhalten bleiben unverändert.
+
+> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha988
+
+- Das gemeinsame UI-Klarheitsmuster gilt jetzt für die SSH- und Webhook-Verwaltung: sichtbare Neuanlage, gebündelte Einstellungen, eigener Verbindungstest, Statusinformationen und eine abschließende Gefahrenzone zum Löschen.
+- Geprüfte ASCII-Umschreibungen in deutschen UI-Texten wurden durch echte Umlaute und `ß` ersetzt; ein Katalogtest mit ausdrücklicher Ausnahmeliste verhindert Rückfälle.
+- Die Backup-Zähler benennen nun eindeutig den Inhalt des Backups, die Wiederherstellung ist als Vorsichtsaktion gestaltet und der Logs-Abschnitt beschreibt Aufbewahrung, Statistik und Native-Traces passend.
+- Die isolierten Browser-Szenarien U4-U6 prüfen SSH-/Webhook-Lebenszyklen, die Musterregeln und repräsentative deutsche Oberflächen.
+
+## 0.1.0-alpha987
+
+### Klarere Bedienoberfläche
+
+- Ein gemeinsames UI-Muster trennt gedämpfte einklappbare Informationen, eindeutige Einzelaktionen, Einstellungsabschnitte mit genau einem Speichern-Button und eine abgesetzte Gefahrenzone mit getippter Bestätigung. Ein öffentlicher Leitfaden macht diese Regeln für künftige Seiten und alle ausgelieferten Themes verbindlich.
+- Backup & Wiederherstellung zeigt das secret-freie Herunterladen als erste Hauptaktion. Das verschlüsselte Zugangsdaten-Bundle ist eine ausdrücklich aktivierbare, standardmäßig ausgeschaltete Option; Wiederherstellung und persönlicher Memory-Export sind getrennte Aktionen, technische Details liegen in einem einklappbaren Info-Panel.
+- Logs & Retention trennt Trace-Einstellungen, eine Aufräumaktion, einklappbare Token-Log-Statistik und die abschließende rote Gefahrenzone für Statistik-Reset und Factory Reset. Das Backup-, Restore-, Trace- und Cleanup-Verhalten aus Alpha986 bleibt unverändert.
+- Backup & Wiederherstellung steht nun unter Sicherheit & Zugriff statt Betrieb; `/config/backup` bleibt stabil. Ein isolierter Browser-Audit bei 1280 × 800 erfasst alle authentifizierten UI-Routen für einen späteren eigenen Cleanup-Build. Memory-Seiten wurden nur auditiert und nicht verändert.
+
+> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha986
+
+### Sicherheit und Privatsphaere
+
+- Konfigurations-Backups sind standardmaessig secret-frei: entschluesselte Zugangsdaten und Passwort-Hashes fehlen, sensible Konfig-Felder werden geleert, und ein Manifest nennt Erinnerungen, Dokumente, Notizen, Chats, Jobs, Qdrant-Daten und persistente Volumes ausdruecklich als nicht enthalten. Optional kann ein Administrator ein mit Passphrase, scrypt und AES-256-GCM geschuetztes Zugangsdaten-Bundle beilegen; eine falsche Passphrase scheitert vor dem ersten Restore-Schreibzugriff, waehrend alte Klartext-Backups mit Warnung lesbar bleiben.
+- Native-Agent-Traces verwenden standardmaessig ein minimales Format mit begrenzten Metadaten, Bytezahlen und SHA-256-Fingerprints statt roher Argumente oder Tool-Ausgaben. Einstellbar sind 7/30/90 oder 1–365 Tage, ein Default-Limit von 50 MiB und ein klar gewarnter Vollmodus.
+- Startup- und periodische Retention loeschen abgelaufene Web-Evidence, Pending-Bestaetigungen, Ledger-Claims, LLM-Audit-Zeilen, Inbound-Events und Token-Archive jetzt physisch. Persoenliche Erinnerungen, Dokumente, Notizen und Rezepte werden von diesen Sweeps nie beruehrt.
+
+### Betrieb
+
+- Managed-Stack-Migrationsbackups erhalten Modus 0600 und werden erst nach erfolgreichem Health-Check auf zwei Generationen begrenzt. Ausgelieferte Compose-Dienste rotieren json-file-Logs mit 10 MiB × 3 Dateien.
+- Terminale Agent-Jobs verwerfen Resume-/Korrekturstatus und rohe Schritt-Zusammenfassungen; pro Nutzer bleiben hoechstens 500 Jobs, wobei die aeltesten terminalen Jobs zuerst entfernt werden.
+- Factory Reset umfasst nun auch ARIA-eigene Notizen, Native-Traces, Token-Archive, Pricing-Caches und Runtime-Dateien; Host-Pfade ausserhalb der ARIA-data/config-Mounts bleiben unangetastet.
+
+> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha985
+
+### Behoben
+
+- Dokument-Search-/Answer-Ergebnisse tragen jetzt vollständige, begrenzte Chunk-Auszüge als strukturierte Quellenmetadaten, statt sie aus Zeilen des alten 1.500-Zeichen-Recall-Strings zu rekonstruieren. Mehrzeiliger Text und Unicode bleiben erhalten.
+- Der Dokumentabruf ergänzt für jeden führenden Treffer den Folge-Chunk und bei kurzen oder überschriftenartigen Treffern auch den vorherigen Chunk. Nachbarn stammen ausschließlich aus demselben owner-sichtbaren Dokument und derselben Collection, werden dedupliziert und innerhalb eines begrenzten Tool-Budgets in Lesereihenfolge geliefert.
+- Wiederholte MCP-Discovery-Fehler verwenden jetzt einen serverbezogenen exponentiellen Backoff von 30 Sekunden bis höchstens 10 Minuten. Turns im Backoff-Fenster bleiben nicht-blockierend; explizites Reconnect und erfolgreiche Discovery setzen den Zeitplan zurück, und die Details ordnen MCP- sowie übrige Pre-Loop-Latenz zu.
+
+> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+
+## 0.1.0-alpha984
+
+### Behoben
+
+- Das Dokumentinventar liest jetzt direkt aus dem nutzerbezogenen Guide-Katalog und nutzt einen begrenzten, gecachten Chunk-Fallback nur noch fuer nicht katalogisierte Legacy-Dokument-Collections. Die Details nennen Katalog/Fallback und Aufbauzeit; die Vollstaendigkeitsgrenze von 200 Dokumenten bleibt.
+- Fuer Inventar und Inhaltsabruf ist der gespeicherte Dokument-Owner massgeblich, auch wenn die Collection beliebig benannt wurde. Der Collection-Name gilt nur noch fuer Legacy-Punkte ohne Owner, sodass ein passender fremder Benutzername keine fremden Dokument-Chunks sichtbar macht.
+- Native- und MCP-Tool-Aufrufe liefern begrenzte Wall-Time-Diagnostik, auch ueber pausierte oder abgekoppelte Agent-Jobs hinweg.
+- Connection-gebundene Native Tools akzeptieren exakte konfigurierte Referenzen, Anzeigenamen oder Host/FQDN/IP und frieren vor der Bestaetigung die kanonische Referenz ein. Mehrdeutige und fehlende Namen liefern ehrlich Kandidaten, ohne fuzzy auszufuehren.
+- Behauptete abgeschlossene Aktionen nach ausschliesslich lesenden Tool-Beobachtungen laufen jetzt durch denselben einmaligen Korrektur-/Absage-Guard wie Behauptungen ganz ohne Tools; nur ein erfolgreiches effektvolles Tool autorisiert eine Abschlussbehauptung.
+
+> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+
 ## 0.1.0-alpha983
 
 ### Behoben
@@ -3444,7 +3667,7 @@ Public roll-up release covering the already internally tested `alpha111` to `alp
 - ARIA verwendet für Login-, CSRF- und Session-Cookies jetzt instanzspezifische Cookie-Namen, damit mehrere ARIA-Container auf demselben Host mit unterschiedlichen Ports sich nicht mehr gegenseitig die Browser-Session überschreiben
 
 ### Fixed
-- der automatische Logout nach wenigen Minuten in Multi-Instanz-Setups wurde behoben; Ursache waren kollidierende Cookie-Namen zwischen z. B. `aria.example.lan:8800` und `aria.example.lan:8810`
+- der automatische Logout nach wenigen Minuten in Multi-Instanz-Setups wurde behoben; Ursache waren kollidierende Cookie-Namen zwischen z. B. `aria.example.test:8800` und `aria.example.test:8810`
 - LLM-, Embeddings-, Chat- und Memory-Flows lesen jetzt konsistent die zur aktuellen Instanz gehörenden Cookies, statt versehentlich Session- oder CSRF-Werte einer anderen ARIA-Instanz zu verwenden
 
 ### Security

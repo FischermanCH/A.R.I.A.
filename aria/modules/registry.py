@@ -16,6 +16,7 @@ from aria.modules.action_pending_chat_boundary.manifest import MODULE_MANIFEST a
 from aria.modules.action_planner_result_state.manifest import MODULE_MANIFEST as ACTION_PLANNER_RESULT_STATE_MANIFEST
 from aria.modules.action_planner_templates.manifest import MODULE_MANIFEST as ACTION_PLANNER_TEMPLATES_MANIFEST
 from aria.modules.action_runtime_debug.manifest import MODULE_MANIFEST as ACTION_RUNTIME_DEBUG_MANIFEST
+from aria.modules.activity_journal.manifest import MODULE_MANIFEST as ACTIVITY_JOURNAL_MANIFEST
 from aria.modules.actions.manifest import MODULE_MANIFEST as ACTIONS_MANIFEST
 from aria.modules.agentic_contracts.manifest import MODULE_MANIFEST as AGENTIC_CONTRACTS_MANIFEST
 from aria.modules.agentic_prompt_flow.manifest import MODULE_MANIFEST as AGENTIC_PROMPT_FLOW_MANIFEST
@@ -64,7 +65,6 @@ from aria.modules.memory_admin_ui.manifest import MODULE_MANIFEST as MEMORY_ADMI
 from aria.modules.memory_export.manifest import MODULE_MANIFEST as MEMORY_EXPORT_MANIFEST
 from aria.modules.memory_learning_bridge.manifest import MODULE_MANIFEST as MEMORY_LEARNING_BRIDGE_MANIFEST
 from aria.modules.mcp.manifest import MODULE_MANIFEST as MCP_MANIFEST
-from aria.modules.memory_session_compression.manifest import MODULE_MANIFEST as MEMORY_SESSION_COMPRESSION_MANIFEST
 from aria.modules.model_usage_observability.manifest import MODULE_MANIFEST as MODEL_USAGE_OBSERVABILITY_MANIFEST
 from aria.modules.native_web_llm.manifest import MODULE_MANIFEST as NATIVE_WEB_LLM_MANIFEST
 from aria.modules.model_gateway_clients.manifest import MODULE_MANIFEST as MODEL_GATEWAY_CLIENTS_MANIFEST
@@ -119,6 +119,7 @@ from aria.modules.validation import require_valid_module_registry
 
 
 MODULE_MANIFESTS: dict[str, Mapping[str, Any]] = {
+    str(ACTIVITY_JOURNAL_MANIFEST["id"]): ACTIVITY_JOURNAL_MANIFEST,
     str(ACTION_CONFIRMATION_MANIFEST["id"]): ACTION_CONFIRMATION_MANIFEST,
     str(ACTION_CONTRACTS_MANIFEST["id"]): ACTION_CONTRACTS_MANIFEST,
     str(ACTION_DRAFT_POLICY_MANIFEST["id"]): ACTION_DRAFT_POLICY_MANIFEST,
@@ -179,7 +180,6 @@ MODULE_MANIFESTS: dict[str, Mapping[str, Any]] = {
     str(NATIVE_AGENT_MANIFEST["id"]): NATIVE_AGENT_MANIFEST,
     str(MEMORY_ADMIN_UI_MANIFEST["id"]): MEMORY_ADMIN_UI_MANIFEST,
     str(MEMORY_MANIFEST["id"]): MEMORY_MANIFEST,
-    str(MEMORY_SESSION_COMPRESSION_MANIFEST["id"]): MEMORY_SESSION_COMPRESSION_MANIFEST,
     str(MQTT_UI_MANIFEST["id"]): MQTT_UI_MANIFEST,
     str(NAVIGATION_SHELL_MANIFEST["id"]): NAVIGATION_SHELL_MANIFEST,
     str(NOTES_MANIFEST["id"]): NOTES_MANIFEST,

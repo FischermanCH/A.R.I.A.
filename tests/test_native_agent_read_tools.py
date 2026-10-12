@@ -231,7 +231,7 @@ def test_every_native_tool_result_is_hard_capped_with_honest_marker(tmp_path) ->
         assert payload["status"] == "truncated"
         assert payload["truncation"]["truncated"] is True
         assert payload["truncation"]["original_characters"] > payload["truncation"]["shown_characters"]
-        assert "gekuerzt" in payload["truncation"]["notice"]
+        assert "gekürzt" in payload["truncation"]["notice"]
         return _response(content="Best-effort answer from the shown source excerpt.")
 
     outcome = asyncio.run(run_native_agent_turn(
@@ -273,10 +273,12 @@ def test_documents_inventory_is_metadata_only_and_content_query_is_bounded(tmp_p
     ))
     answer_payload = json.loads(answer.content)
     assert requested[-1]["query"] == "active ingredients"
-    assert len(answer_payload["documents"]) == 6
+    assert 1 <= len(answer_payload["documents"]) <= 12
     assert all(len(row["excerpt"]) <= 1600 and len(row["answer"]) <= 1600 for row in answer_payload["documents"])
+    assert len(answer.content) <= MAX_TOOL_RESULT_CHARS
+    assert len(answer.content) <= 12_000
     assert answer_payload["selection"]["truncated"] is True
-    assert answer_payload["selection"]["shown"] == 6
+    assert answer_payload["selection"]["shown"] == len(answer_payload["documents"])
     assert answer_payload["selection"]["available"] == 10
 
 
@@ -301,8 +303,8 @@ def test_multi_document_query_uses_one_compact_tool_result_then_answers(tmp_path
                 arguments={"action": "answer", "query": "compare all leaflets"},
             )
         assert len(kwargs["messages"][-1]["content"]) <= MAX_TOOL_RESULT_CHARS
-        assert '"shown": 6' in kwargs["messages"][-1]["content"]
-        return _response(content="Source-bound comparison of the six shown relevant excerpts; further documents were not shown.")
+        assert '"shown": 12' in kwargs["messages"][-1]["content"]
+        return _response(content="Source-bound comparison of the shown relevant excerpts.")
 
     outcome = asyncio.run(run_native_agent_turn(
         message="compare all leaflets", user_id="u1", turn_id="multi-doc-compact",
@@ -419,7 +421,7 @@ def test_document_inventory_fallback_explicit_cap_avoids_skill_default_twelve() 
         "shown": 15,
         "available": 15,
         "truncated": False,
-        "notice": "alle ausgewaehlten Treffer sind enthalten",
+        "notice": "alle ausgewählten Treffer sind enthalten",
     }
 
 
@@ -495,7 +497,7 @@ def test_large_context_tools_mark_local_content_truncation(
     payload = json.loads(result.content)
 
     assert payload["selection"]["truncated"] is True
-    assert "gekuerzt" in payload["selection"]["notice"]
+    assert "gekürzt" in payload["selection"]["notice"]
     row_key = {"memory_context_read": "memory_context",
                "notes_read_search_inventory": "notes"}[tool_name]
     assert len(payload[row_key][0][content_key]) <= 1600

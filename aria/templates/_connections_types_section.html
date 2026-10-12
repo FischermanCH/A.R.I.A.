@@ -5,7 +5,7 @@
   {% if request.state.can_access_advanced_config %}
   <h3>{{ tr(request, 'connections_overview.section_types_title', 'Verbindungstypen') }}</h3>
   <p class="hint-text">{{ tr(request, 'connections_overview.section_types_desc', 'Jeder Typ hat seine eigene Hauptseite zum Verwalten, Testen und Pflegen von Profilen.') }}</p>
-  <p class="hint-text">{{ tr(request, 'connections_overview.section_types_hint', 'RSS und beobachtete Webseiten sind gute Verbindungen fuer laufende Recherche und Sammlung. Die allgemeine Websuche wird von ARIA verwaltet.') }}</p>
+  <p class="hint-text">{{ tr(request, 'connections_overview.section_types_hint', 'RSS and watched websites are useful connections for ongoing research and collection. General web search is managed by ARIA.') }}</p>
   <div class="config-submenu">
     {% for row in connection_menu_rows %}
     {% if row.disabled %}

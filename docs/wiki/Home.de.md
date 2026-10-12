@@ -18,7 +18,7 @@ ARIA ist ein schlanker selbst gehosteter AI-Assistent fuer Menschen, die Kontrol
 8. [Agentic Operator](/help?doc=agentic)
 9. [Releases and Upgrades](/help?doc=releases)
 10. [Pricing](/help?doc=pricing)
-11. [Security](/help?doc=security)
+11. [Sicherheit](/help?doc=security)
 
 ## Aktuelle Produktschwerpunkte
 

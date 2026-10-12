@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/tool_page.html" %}
+{% block page_body %}
 <main class="config-layout config-domain-layout config-domain-surface-layout updates-clean-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
@@ -104,7 +104,7 @@
     </li>
     <li>
       <span>{{ tr(request, 'updates.checked_at', 'Zuletzt geprüft') }}</span>
-      <strong>{{ update_status.checked_at or tr(request, 'updates.not_checked_yet', 'Noch nicht geprüft') }}</strong>
+      <strong>{{ update_status.checked_at_display or tr(request, 'updates.not_checked_yet', 'Noch nicht geprüft') }}</strong>
     </li>
   </div>
 
@@ -140,7 +140,7 @@
   {% if update_status.update_available %}
   <div class="alert warn update-alert">
     <strong>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</strong>
-    <div>{{ tr(request, 'updates.manual_update_hint', 'Fuer Managed-Compose-Installationen und interne aria-pull-Setups mit aktivem Helper kann der Admin das Update unten direkt anstossen. Freie Docker- oder Portainer-Wege bleiben bewusst manuell.') }}</div>
+    <div>{{ tr(request, 'updates.manual_update_hint', 'Für Managed-Compose-Installationen und interne aria-pull-Setups mit aktivem Helper kann der Admin das Update unten direkt anstoßen. Freie Docker- oder Portainer-Wege bleiben bewusst manuell.') }}</div>
   </div>
   {% endif %}
 
@@ -211,13 +211,13 @@
       </div>
       <div class="alert info update-alert">
         <strong>{{ tr(request, 'updates.sequence_gui_note_title', 'GUI-Update-Button') }}</strong>
-        <div>{{ tr(request, 'updates.sequence_gui_note_body', 'Managed-Compose-Installationen und interne aria-pull-Setups koennen Updates jetzt direkt hier anstossen. Freie Host- oder Portainer-Wege ohne Helper bleiben bewusst beim manuellen Ablauf.') }}</div>
+        <div>{{ tr(request, 'updates.sequence_gui_note_body', 'Managed-Compose-Installationen und interne aria-pull-Setups können Updates jetzt direkt hier anstoßen. Freie Host- oder Portainer-Wege ohne Helper bleiben bewusst beim manuellen Ablauf.') }}</div>
       </div>
     </div>
   </details>
 
   {% if update_status.release_notes %}
-  <pre class="help-document docs-content-surface">{{ update_status.release_notes }}</pre>
+  <pre class="help-document docs-content-surface" data-ui-user-content>{{ update_status.release_notes }}</pre>
   {% else %}
   <div class="empty-state">{{ tr(request, 'updates.notes_missing', 'Für diese Version wurden noch keine Release Notes gefunden.') }}</div>
   {% endif %}
@@ -231,7 +231,7 @@
         <summary>{{ release.label }}</summary>
         {% if release.notes %}
         <div class="stats-details-content">
-          <pre class="help-document docs-content-surface">{{ release.notes }}</pre>
+          <pre class="help-document docs-content-surface" data-ui-user-content>{{ release.notes }}</pre>
         </div>
         {% else %}
         <div class="stats-details-content">

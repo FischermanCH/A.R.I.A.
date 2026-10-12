@@ -17,62 +17,17 @@ Lean, modular, self-hosted AI assistant with memory, recipes, secure connections
 ---
 ## Screenshots
 
-<details open>
-  <summary><strong>Login and chat</strong></summary>
-  <p>
-    <a href="docs/assets/screenshots/01-aria-login-en.png"><img src="docs/assets/screenshots/01-aria-login-en.png" alt="ARIA login in English" width="260"></a>
-    <a href="docs/assets/screenshots/01-aria-login-de.png"><img src="docs/assets/screenshots/01-aria-login-de.png" alt="ARIA login in German" width="260"></a>
-    <a href="docs/assets/screenshots/02-aria-main-chat.png"><img src="docs/assets/screenshots/02-aria-main-chat.png" alt="ARIA main chat" width="260"></a>
-    <a href="docs/assets/screenshots/02-aria-main-chat-toolbox.png"><img src="docs/assets/screenshots/02-aria-main-chat-toolbox.png" alt="ARIA toolbox in chat" width="260"></a>
-    <a href="docs/assets/screenshots/02-aria-main-chat-menu.png"><img src="docs/assets/screenshots/02-aria-main-chat-menu.png" alt="ARIA chat menu" width="260"></a>
-  </p>
-</details>
+The public images below come only from ARIA's isolated, deterministic demo stack. All names,
+connections, conversations, statistics and memory entries are synthetic.
 
-<details>
-  <summary><strong>Memory</strong></summary>
-  <p>
-    <a href="docs/assets/screenshots/03-aria-memories.png"><img src="docs/assets/screenshots/03-aria-memories.png" alt="ARIA memories overview" width="260"></a>
-    <a href="docs/assets/screenshots/03-aria-memories-map.png"><img src="docs/assets/screenshots/03-aria-memories-map.png" alt="ARIA memory map" width="260"></a>
-    <a href="docs/assets/screenshots/03-aria-memories-setup.png"><img src="docs/assets/screenshots/03-aria-memories-setup.png" alt="ARIA memory setup" width="260"></a>
-  </p>
-</details>
-
-<details>
-  <summary><strong>Recipes and automations</strong></summary>
-  <p>
-    <a href="docs/assets/screenshots/04-aria-skills.png"><img src="docs/assets/screenshots/04-aria-skills.png" alt="ARIA recipes overview" width="260"></a>
-    <a href="docs/assets/screenshots/04-aria-skills-discord.png"><img src="docs/assets/screenshots/04-aria-skills-discord.png" alt="ARIA Discord recipe sample" width="260"></a>
-    <a href="docs/assets/screenshots/04-aria-skills-linux-fleet-hc.png"><img src="docs/assets/screenshots/04-aria-skills-linux-fleet-hc.png" alt="ARIA Linux fleet healthcheck recipe" width="260"></a>
-  </p>
-</details>
-
-<details>
-  <summary><strong>Stats and help</strong></summary>
-  <p>
-    <a href="docs/assets/screenshots/05-aria-stats.png"><img src="docs/assets/screenshots/05-aria-stats.png" alt="ARIA statistics page" width="260"></a>
-    <a href="docs/assets/screenshots/07-aria-help.png"><img src="docs/assets/screenshots/07-aria-help.png" alt="ARIA help page" width="260"></a>
-    <a href="docs/assets/screenshots/08-aria-users.png"><img src="docs/assets/screenshots/08-aria-users.png" alt="ARIA users page" width="260"></a>
-  </p>
-</details>
-
-<details>
-  <summary><strong>Settings and themes</strong></summary>
-  <p>
-    <a href="docs/assets/screenshots/06-aria-settings.png"><img src="docs/assets/screenshots/06-aria-settings.png" alt="ARIA settings overview" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-connections.png"><img src="docs/assets/screenshots/06-aria-settings-connections.png" alt="ARIA connection settings" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-bundled-sample-connections.png"><img src="docs/assets/screenshots/06-aria-settings-bundled-sample-connections.png" alt="ARIA sample connections" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-workbench.png"><img src="docs/assets/screenshots/06-aria-settings-workbench.png" alt="ARIA workbench settings" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-fine-tune-memory.png"><img src="docs/assets/screenshots/06-aria-settings-fine-tune-memory.png" alt="ARIA memory tuning settings" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-tune-intelligence.png"><img src="docs/assets/screenshots/06-aria-settings-tune-intelligence.png" alt="ARIA intelligence tuning settings" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-personality-style.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style.png" alt="ARIA personality and style settings" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-harbor-blue.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-harbor-blue.png" alt="ARIA Harbor Blue theme" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-cyberpunk.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-cyberpunk.png" alt="ARIA Cyberpunk theme" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-deep-space.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-deep-space.png" alt="ARIA Deep Space theme" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-arcade.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-arcade.png" alt="ARIA Arcade theme" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-nyan-cat.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-nyan-cat.png" alt="ARIA Nyan Cat theme" width="260"></a>
-    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-puke-unicorn.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-puke-unicorn.png" alt="ARIA Puke Unicorn theme" width="260"></a>
-  </p>
-</details>
+<p>
+  <a href="docs/assets/screenshots/en/matrix-chat-tool-table.webp"><img src="docs/assets/screenshots/en/matrix-chat-tool-table.webp" alt="ARIA chat with a safe Markdown Tool result" width="260"></a>
+  <a href="docs/assets/screenshots/en/matrix-statistics.webp"><img src="docs/assets/screenshots/en/matrix-statistics.webp" alt="ARIA owner statistics" width="260"></a>
+  <a href="docs/assets/screenshots/en/matrix-connections.webp"><img src="docs/assets/screenshots/en/matrix-connections.webp" alt="ARIA connection overview" width="260"></a>
+  <a href="docs/assets/screenshots/en/paper-activity-journal.webp"><img src="docs/assets/screenshots/en/paper-activity-journal.webp" alt="ARIA activity journal in the Paper theme" width="260"></a>
+  <a href="docs/assets/screenshots/en/paper-agent-jobs.webp"><img src="docs/assets/screenshots/en/paper-agent-jobs.webp" alt="ARIA background jobs in the Paper theme" width="260"></a>
+  <a href="docs/assets/screenshots/de/matrix-personal-model.webp"><img src="docs/assets/screenshots/de/matrix-personal-model.webp" alt="Persönliches Modell in ARIA" width="260"></a>
+</p>
 
 
 # English
@@ -131,7 +86,7 @@ Not the current target:
 ## Current implementation snapshot
 
 - Chat UI at `/`
-- modular Native Agent with 37 core Tools when MCP is off
+- modular Native Agent with 38 core Tools when the Activity Journal is enabled and MCP is off (37 with the Journal disabled)
 - optional HTTP/SSE MCP servers whose tools join the native catalog, with per-server trust, timeouts and confirmation previews
 - persistent background Agent Jobs with pause, resume, correction, cancellation, budget extension and in-job confirmation
 - Qdrant-backed memory, structured personal claims, document upload and explicit memory/recipe recurrence suggestions
@@ -582,6 +537,7 @@ export ARIA_LLM_TEMPERATURE="0.4"
 export ARIA_LLM_MAX_TOKENS="4096"
 export ARIA_ARIA_HOST="0.0.0.0"
 export ARIA_ARIA_PORT="8800"
+export TZ="Europe/Zurich"
 ```
 
 Secret-related environment variables are resolved centrally:
@@ -596,7 +552,8 @@ Never commit real secrets into code or YAML.
 
 - Qdrant must be reachable if `memory.enabled: true`
 - if Memory fails, chat should still continue and message details show `memory_error`
-- context rollup uses `memory.compression_summary_prompt` (default currently remains `prompts/skills/memory_compress.md` for compatibility)
+- retired context rollups remain readable and are never silently rewritten or deleted; explicit import and cleanup controls live in the Activity Journal
+- displayed times use the UI display-time-zone setting, then `TZ`, then the browser time zone, and finally UTC; persisted timestamps remain UTC
 - for ALPHA testing, prefer a separate host/container, LAN/VPN access, and avoid mixing highly sensitive real user data into throwaway test instances
 
 ## Tests
@@ -607,7 +564,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public hotfix candidate: `0.1.0-alpha983`
+- Current published hotfix: `0.1.0-alpha983`
+- Next reviewed release candidate: `0.1.0-alpha1007` (not public until a separate release step)
 - Existing public installations on `0.1.0-alpha604` should follow the backup and migration notes in `CHANGELOG.md` before replacing the image.
 
 ## One-line summary
@@ -672,7 +630,7 @@ Aktuell **nicht** gedacht für:
 ## Aktueller Implementierungsstand
 
 - Chat-UI unter `/`
-- modularer Native Agent mit 37 Core-Tools bei ausgeschaltetem MCP
+- modularer Native Agent mit 38 Core-Tools bei aktivem Aktivitätsjournal und ausgeschaltetem MCP (37 bei deaktiviertem Journal)
 - optionale HTTP/SSE-MCP-Server mit serverbezogenem Vertrauen, Timeouts und Confirmation-Previews
 - persistente Agent-Hintergrund-Jobs mit Pause, Fortsetzen, Korrektur, Abbruch, Budgeterweiterung und Bestaetigung im Job
 - Qdrant-Memory, strukturierte Personal Claims, Dokumente und explizite Memory-/Recipe-Recurrence-Vorschlaege
@@ -927,7 +885,8 @@ Echte Secrets bitte nie in Code oder YAML committen.
 
 - Qdrant muss erreichbar sein, wenn `memory.enabled: true`
 - bei Memory-Fehlern läuft der Chat weiter, Message-Details zeigen dann `memory_error`
-- Kontext-Rollup nutzt `memory.compression_summary_prompt` (Default bleibt aktuell aus Kompatibilitaetsgruenden `prompts/skills/memory_compress.md`)
+- stillgelegte Kontext-Rollups bleiben lesbar und werden nie still umgeschrieben oder gelöscht; die explizite Übernahme und Bereinigung liegt im Aktivitätsjournal
+- angezeigte Zeiten verwenden zuerst die Anzeige-Zeitzone der UI, danach `TZ`, die Browser-Zeitzone und zuletzt UTC; gespeichert wird weiterhin in UTC
 - für ALPHA-Tests besser separater Host/Container, LAN/VPN-Zugriff und keine hochsensiblen Echtdaten in Wegwerf-Testinstanzen
 
 ## Tests
@@ -938,7 +897,7 @@ Echte Secrets bitte nie in Code oder YAML committen.
 
 ## Public-Release-Status
 
-Aktueller Public-Hotfix-Kandidat: `0.1.0-alpha983`. Bestehende Public-Installationen auf `0.1.0-alpha604` sollten vor dem Image-Wechsel die Backup- und Migrationshinweise in `CHANGELOG.de.md` befolgen.
+Aktuell veröffentlicht ist `0.1.0-alpha983`. Der nächste geprüfte Release-Kandidat ist `0.1.0-alpha1007` und bleibt bis zu einem getrennt freigegebenen Veröffentlichungsschritt unveröffentlicht. Bestehende Public-Installationen auf `0.1.0-alpha604` sollten vor dem Image-Wechsel die Backup- und Migrationshinweise in `CHANGELOG.de.md` befolgen.
 
 ## Ein-Satz-Zusammenfassung
 

@@ -2,7 +2,7 @@
 
 ## Was ARIA ist
 
-ARIA ist ein kleiner, modularer KI-Assistent fuer Menschen, die Kontrolle statt Plattform-Wildwuchs wollen.
+ARIA ist ein kleiner, modularer KI-Assistent für Menschen, die Kontrolle statt Plattform-Wildwuchs wollen.
 
 ARIA laeuft lokal, haelt seine Architektur nachvollziehbar und kombiniert:
 
@@ -19,11 +19,11 @@ Das Ziel ist ein schlankes, pruefbares und erweiterbares System.
 
 ## Kernidee
 
-**Browser oeffnen und loschatten.**
+**Browser öffnen und loschatten.**
 
 ARIA ist GUI-first gebaut:
 
-- keine API-first-Komplexitaet fuer normale Nutzung
+- keine API-first-Komplexität für normale Nutzung
 - keine React-/Node-/Buildchain-Pflicht
 - kein grosser Framework-Stack, der die eigentliche Logik versteckt
 
@@ -81,7 +81,7 @@ Es vermeidet unnoetigen Orchestrierungsaufwand und versucht:
 
 ARIA kann im lokalen Netz, auf einem kleinen Server oder in einem Container-Setup laufen.
 
-Es ist gedacht fuer Menschen, die wollen:
+Es ist gedacht für Menschen, die wollen:
 
 - lokale Kontrolle
 - berechenbares Hosting
@@ -95,22 +95,22 @@ Es ist gedacht fuer Menschen, die wollen:
 ### Chat und Gedächtnis
 
 - browserbasierte Chat-UI
-- typisiertes Gedächtnis fuer Fakten, Praeferenzen, Session-Kontext und verdichtetes Wissen
-- Dokument-Collections fuer RAG-Uploads
+- typisiertes Gedächtnis für Fakten, Präferenzen, Session-Kontext und verdichtetes Wissen
+- Dokument-Collections für RAG-Uploads
 - Auto-Memory und manuelle Memory-Pflege
 - Memory-Suche und Wartungsansichten
 - eigenstaendiger Notizen-Bereich unter `/notes`
 - Markdown-first Notizen mit Qdrant-gestuetzter semantischer Suche
 - Provider-native Websuche, wenn das konfigurierte Modell Web-Tools unterstuetzt
-- beobachtete Webseiten als leichte Quellen fuer Seiten ohne RSS
+- beobachtete Webseiten als leichte Quellen für Seiten ohne RSS
 
 ### Rezepte und Automatisierung
 
 - gespeicherte Rezept-Manifeste als JSON
 - schrittbasierte Rezept-Pipeline
 - Rezept-Wizard in der UI
-- Import/Export fuer eigene Rezepte
-- Runtime-Ausfuehrung fuer strukturierte Rezeptschritte
+- Import/Export für eigene Rezepte
+- Runtime-Ausführung für strukturierte Rezeptschritte
 
 ### Verbindungen
 
@@ -140,14 +140,14 @@ Beispiele:
 - entfernte Dateien via `SFTP` lesen und schreiben
 - Dateibereiche via `SMB` lesen
 - `RSS`-Feeds lesen
-- Websuche ueber konfigurierte Provider-Web-Tools
-- kommende Termine ueber read-only `Google Calendar` iCal-Feeds abrufen
+- Websuche über konfigurierte Provider-Web-Tools
+- kommende Termine über read-only `Google Calendar` iCal-Feeds abrufen
 - Nachrichten an `Discord` senden
 - konfigurierte `HTTP APIs` aufrufen
 - `Webhook`-Ziele ansprechen
 - Mail via `SMTP` / `IMAP` senden und lesen
 - Nachrichten an `MQTT` publizieren
-- Markdown-Notizen als zusaetzlichen Kontext fuer Recherche nutzen
+- Markdown-Notizen als zusätzlichen Kontext für Recherche nutzen
 
 ### Sicherheit und Betrieb
 
@@ -156,14 +156,14 @@ Beispiele:
 - sicherer Secret Store
 - Config-UI mit Zugriffsschutz auf Routenebene
 - Statistik- und Runtime-Health-Ansichten
-- Loesch-, Bearbeitungs- und Test-Flows fuer Verbindungen
+- Lösch-, Bearbeitungs- und Test-Flows für Verbindungen
 
 Aktuelle ALPHA-Grenze:
 
 - ARIA ist noch kein vollstaendiges Multi-User-System
 - der aktuelle User-Modus ist eine reduzierte Arbeitsansicht
 - er trennt Alltagsnutzung von Systemkonfiguration
-- Ownership, Sharing und RBAC fuer Rezepte und Ressourcen sind als eigener Architekturblock geplant
+- Ownership, Sharing und RBAC für Rezepte und Ressourcen sind als eigener Architekturblock geplant
 
 ---
 

@@ -13,7 +13,7 @@ ARIA uses Memory for:
 - session context
 - longer-term rollups
 - document RAG
-- Experience Memory for safe learned action patterns
+- persönliche Fakten und Vorlieben, die explizit gespeichert oder nach wiederholter Nennung angeboten wurden
 
 ## What deliberately does not go into memory automatically
 
@@ -42,10 +42,6 @@ Compressed weekly/monthly or work-context summaries. Rollups help without pullin
 
 RAG v1 for uploads under `/memories`. Supported formats are text, Markdown, and PDFs with embedded text. OCR/scan PDFs are not part of v1.
 
-### Experience Memory
-
-Successful safe recipe/guardrail/action patterns can be stored as planner context. They help ARIA propose actions, but do not replace policy or guardrails.
-
 ## Recall
 
 Recall can combine:
@@ -54,7 +50,6 @@ Recall can combine:
 2. session context
 3. rollups
 4. document guides and matching chunks
-5. Experience Memory for action planning
 
 Chat details show sources, collection, and chunk references when document recall was used.
 
@@ -62,31 +57,26 @@ Chat details show sources, collection, and chunk references when document recall
 
 - `/memories` for the graphical Memory browser
 - `/memories/import` for new documents and memory imports
-- `/memories/auto-memory` for Auto-memory and agentic learning settings
-- `/memories/maintenance` for technical maintenance, rebuilds, and internal learning artifacts
+- `/memories/auto-memory` for the personal model and its effective or historical details
+- `/memories/activity-journal` for compact user-scoped summaries of completed tool activities and agent jobs
+- `/memories/maintenance` for rollup, reindex, and explicitly scoped cleanup actions
 - `/config/embeddings` for embedding model and safety confirmation when memory already exists
 
-### Auto-memory and learning
+### Personal model
 
-Auto-memory can store durable facts and preferences when ARIA has enough confidence. Agentic learning can also extract reviewable conventions from user feedback and successful safe runs. Learning artifacts are context and review material; they do not bypass policy, guardrails, or confirmation.
-
-The Learning Governor bounds new events, candidates, and evals per source and day/session using FIFO, deduplicates equivalent artifacts despite changing IDs, and stores evals only above the configured review/importance threshold. The Memory browser applies no hidden filter to existing points and labels `active effective`, `review only`, and `audit only`. Automatic importance retention cleans event, candidate, and eval collections at startup and after new writes. It keeps important and source-diverse evidence and protects activated, promoted, regression-passed, or explicitly protected points; age is not a selection criterion.
-
-`/memories/auto-memory` shows the user's complete learning inventory and supports point-level manual deletion. A bounded LLM-first synthesis consolidates compatible raw candidates into canonical review artifacts with provenance; it grants no runtime effect and removes sources only after a successful store.
-
-The page separates all visible raw candidates from the actual review queue. Only canonical synthesis candidates backed by at least two source points can be accepted or rejected; raw evidence remains visible and deletable but requires no manual decision. Accepting means human-reviewed only: the promotion gate then decides between `eligible` and `reviewed_blocked` without runtime activation. Eligible low-risk candidates can be prepared for apply and taken through regression, preflight, and a separate explicit Learning Hint activation under `Gate & regression`.
-
-Activated Learning Hints reach the preferred MetaCatalog/AriaTurn path as weak signals and cannot override safety, configuration, explicit targets, or source authority. Matches and actual LLM use are counted separately. Recent feedback is linked only to used hints; repeated negative feedback automatically suspends a hint.
-
-Explicitly confirmed alternative spellings can be learned through the `entity_alias_v1` contract. A typo alone does not create a durable alias. Activation requires distinct observed/canonical forms, explicit user confirmation, and an exact canonical-form reference in existing non-learning Memory. The active hint remains a weak LLM-first signal and cannot alter facts or dosages.
+ARIA can store a direct request to remember something as a personal detail. Its server-side learning path can offer a separate save button after a durable preference has been mentioned repeatedly. ARIA does not ask to save it in the answer text.
 
 Structured personal claims carry type, scope, authority, and lifecycle status. Only active claims enter the bounded personal context used by turn planning and answers; raw learning artifacts and historical or suspended claims stay visible but ineffective. `/memories/auto-memory` shows use and feedback and supports point-level suspend, reactivate, and delete controls.
 
 Validity windows are enforced automatically: scheduled and expired claims remain visible but do not enter ARIA's personal turn context.
 
+### Activity journal
+
+The Activity journal stores only short redacted facts about completed tool turns and agent jobs: goal, tools and connections used, outcome status, and a short outcome phrase. Raw output, file or document content, images, prompts, and credentials do not belong in this store. It is never injected into a model prompt automatically; ARIA can query it on demand through a user-scoped read tool. Retention defaults to 90 days, while entries marked keep and explicitly imported legacy rollups are exempt from automatic cleanup.
+
 Corrections supersede claims visibly instead of silently overwriting them. Goals and projects have dedicated pause, resume, complete, and reopen actions; session scope remains in session memory.
 
-`/memories/auto-memory` shows lifecycle, version, match/use counters, feedback, and last use for each active hint. Hints can be suspended, reactivated, or deleted point by point. Deferred evidence is reconsidered in bounded batches when new evidence arrives.
+`/memories/auto-memory` shows readable facts and preferences, their status, and usage counts. Existing claim actions can correct, suspend, reactivate, or delete individual entries.
 
 ### Memory browser
 

@@ -26,6 +26,8 @@ git push origin HEAD
 git push origin v0.1.0-alpha.983
 ```
 
+The tag push automatically regenerates and commits the bilingual website release pages through `.github/workflows/website-release-content.yml`; verify that workflow before publishing website copy.
+
 The expected origin repository is `github.com/FischermanCH/A.R.I.A.`. Verify it before pushing.
 
 ## 3. Create the GitHub prerelease

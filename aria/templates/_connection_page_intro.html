@@ -1,22 +1,26 @@
 {% from "_icons.html" import icon %}
 {% set connection_intro_back_url = connection_intro.back_url if connection_intro.back_url is defined else '' %}
-<section class="config-card">
-  <h2>{{ tr(request, connection_intro.title_key, connection_intro.title) }}</h2>
-  <p>{{ tr(request, connection_intro.subtitle_key, connection_intro.subtitle) }}</p>
+<section class="config-card{% if connection_page_type == 'overview' %} connection-overview-shell{% endif %}">
+  {% if connection_page_type == 'overview' %}
+  <header class="connection-overview-header">
+    <div>
+      <h1>{{ tr(request, connection_intro.title_key, connection_intro.title) }}</h1>
+      <p class="ui-page-purpose connection-page-purpose">{{ tr(request, connection_intro.subtitle_key, connection_intro.subtitle) }}</p>
+    </div>
+    <a class="button-like ui-primary-action connection-overview-create" href="{{ connection_mode_create_url or connection_create_url }}">{{ tr(request, connection_intro.create_label_key, connection_intro.create_label) }}</a>
+  </header>
+  {% else %}
+  <h1>{{ tr(request, connection_intro.title_key, connection_intro.title) }}</h1>
+  <p class="ui-page-purpose connection-page-purpose">{{ tr(request, connection_intro.subtitle_key, connection_intro.subtitle) }}</p>
+  {% endif %}
   <div class="inline-actions">
-    {% if connection_intro.back_label_key == 'config_conn.back_to_rss_overview' %}
-    <button type="button" class="nav-link nav-link-button ui-action-link" onclick="window.location.assign('{{ connection_intro_back_url }}')">
-      {{ icon('arrow_left', 'ui-action-icon') }}
-      {{ tr(request, connection_intro.back_label_key or 'config_conn.back_to_hub', connection_intro.back_label or 'Back to connection overview') }}
-    </button>
-    {% else %}
-    <a class="button-link subtle-link ui-action-link" href="{{ connection_intro_back_url }}">{{ icon('arrow_left', 'ui-action-icon') }}{{ tr(request, connection_intro.back_label_key or 'config_conn.back_to_hub', connection_intro.back_label or 'Back to connection overview') }}</a>
-    {% endif %}
+    <a class="button-link subtle-link ui-action-link" data-ui-back-link="true" href="{{ connection_intro_back_url }}">{{ icon('arrow_left', 'ui-action-icon') }}{{ tr(request, connection_intro.back_label_key or 'config_conn.back_to_hub', connection_intro.back_label or 'Back to connection overview') }}</a>
   </div>
+  {% if connection_page_type == 'overview' and connection_status_block is defined %}<span hidden data-connection-inventory-kind="{{ connection_intro.kind|default('') }}" data-connection-inventory-expected="{{ connection_status_block.total_count|default(0) }}"></span>{% endif %}
   {% if saved %}<div class="alert ok">{{ tr(request, 'config_conn.saved', 'Connection saved.') }}</div>{% endif %}
   {% if info_message %}<div class="alert {{ connection_info_status|default('ok') }}">{{ info_message }}</div>{% endif %}
   {% if error_message %}<div class="alert err">{{ error_message }}</div>{% endif %}
-  <div class="connection-summary-grid">
+  {% if connection_page_type == 'overview' %}<details class="connection-overview-summary ui-info-panel"><summary><strong>{{ tr(request, 'config_conn.overview_summary', 'Übersicht') }}</strong> · {% for card in connection_intro.summary_cards %}{% if loop.index <= 3 %}{{ card.value }} {{ tr(request, card.label_key, card.label) }}{% if not loop.last and loop.index < 3 %} · {% endif %}{% endif %}{% endfor %}</summary><div class="connection-summary-grid">
     {% for card in connection_intro.summary_cards %}
     <article class="connection-summary-card">
       <span class="connection-summary-label">{{ tr(request, card.label_key, card.label) }}</span>
@@ -24,5 +28,5 @@
       <small>{{ tr(request, card.hint_key, card.hint) }}</small>
     </article>
     {% endfor %}
-  </div>
+  </div></details>{% endif %}
 </section>

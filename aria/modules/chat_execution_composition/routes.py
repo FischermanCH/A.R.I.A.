@@ -15,6 +15,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.templating import Jinja2Templates
 
 from aria.modules.platform_primitives.i18n import I18NStore
+from aria.modules.platform_primitives.display_time import (
+    display_datetime,
+    display_datetime_from_iso,
+    format_display_timestamp,
+    request_display_timezone,
+)
 from aria.modules.platform_primitives.recipe_progress import RECIPE_PROGRESS_STORE
 from aria.modules.notes.context import notes_index_enabled
 from aria.modules.notes.index import NotesIndex
@@ -33,8 +39,6 @@ from aria.modules.notes.links import note_editor_path
 SettingsGetter = Callable[[], Any]
 UsernameResolver = Callable[[Request], str]
 SessionIdResolver = Callable[[Request], str]
-MemoryCollectionResolver = Callable[[Request, str], str]
-SessionCollectionResolver = Callable[[str, str], str]
 CookieSecureResolver = Callable[..., bool]
 CookieValueResolver = Callable[[Request, str], str]
 CookieSetter = Callable[..., None]
@@ -185,8 +189,6 @@ class ChatExecutionRouteDeps:
     get_settings: SettingsGetter
     get_username_from_request: UsernameResolver
     ensure_session_id: SessionIdResolver
-    get_effective_memory_collection: MemoryCollectionResolver
-    session_memory_collection_for_user: SessionCollectionResolver
     cookie_should_be_secure: CookieSecureResolver
     request_cookie_value: CookieValueResolver
     set_response_cookie: CookieSetter
@@ -214,6 +216,18 @@ class ChatExecutionRouteDeps:
 
 
 def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -> None:
+    def _message_timestamp_pair(request: Request, value: object = "") -> tuple[str, str]:
+        timezone_name = request_display_timezone(request, deps.get_settings())
+        language = str(getattr(request.state, "lang", "de") or "de").lower()
+        raw = str(value or "").strip()
+        if not raw:
+            raw = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        return raw, format_display_timestamp(
+            raw,
+            timezone_name,
+            language=language,
+        )
+
     def _job_request_wants_json(request: Request) -> bool:
         accept = str(request.headers.get("accept") or "").lower()
         requested_with = str(request.headers.get("x-requested-with") or "").lower()
@@ -249,7 +263,36 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
         except Exception:
             return []
 
-    def _agent_job_panel_rows(username: str) -> list[dict[str, Any]]:
+    def _agent_job_panel_rows(
+        username: str,
+        *,
+        language: str = "de",
+        timezone_name: str = "UTC",
+    ) -> list[dict[str, Any]]:
+        now = time.time()
+
+        def locale_number(value: int) -> str:
+            rendered = f"{max(0, int(value)):,}"
+            return rendered.replace(",", "." if language == "de" else ",")
+
+        def local_time(value: object) -> tuple[str, str, str]:
+            try:
+                raw = float(value or 0)
+                timestamp = display_datetime(raw, timezone_name)
+            except (TypeError, ValueError, OSError, OverflowError):
+                return "-", "-", ""
+            absolute = timestamp.strftime("%d.%m.%Y, %H:%M" if language == "de" else "%Y-%m-%d, %H:%M")
+            elapsed = max(0, int(now - raw))
+            if elapsed < 60:
+                relative = _chat_route_text(language, "jobs_time_just_now", "gerade eben" if language == "de" else "just now")
+            elif elapsed < 3600:
+                relative = _chat_route_text(language, "jobs_time_minutes_ago", "vor {count} Min." if language == "de" else "{count} min ago", count=elapsed // 60)
+            elif elapsed < 86400:
+                relative = _chat_route_text(language, "jobs_time_hours_ago", "vor {count} Std." if language == "de" else "{count} h ago", count=elapsed // 3600)
+            else:
+                relative = _chat_route_text(language, "jobs_time_days_ago", "vor {count} Tagen" if language == "de" else "{count} d ago", count=elapsed // 86400)
+            return absolute, relative, timestamp.isoformat(timespec="seconds")
+
         rows: list[dict[str, Any]] = []
         for source in _agent_jobs_for_user(username):
             row = dict(source)
@@ -265,18 +308,33 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
             total_tokens = max(0, int(usage.get("total_tokens", 0) or 0))
             cache_read = max(0, int(usage.get("cache_read_tokens", 0) or 0))
             input_tokens = max(0, int(usage.get("input_tokens", 0) or 0))
-            usage_summary = f"≈ {total_tokens:,} Tokens".replace(",", " ") if total_tokens else ""
+            usage_summary = f"≈ {locale_number(total_tokens)} Tokens" if total_tokens else ""
             if usage_summary and input_tokens:
                 usage_summary += f" ({round(cache_read * 100 / input_tokens)} % aus Cache)"
             if usage.get("cost_usd") is not None:
-                usage_summary += (" · " if usage_summary else "") + f"≈ ${float(usage['cost_usd']):.4f}"
+                cost = f"{float(usage['cost_usd']):.4f}"
+                if language == "de":
+                    cost = cost.replace(".", ",")
+                usage_summary += (" · " if usage_summary else "") + f"≈ ${cost}"
             row["usage_summary"] = usage_summary
             for key in ("created_at", "updated_at"):
-                try:
-                    timestamp = datetime.fromtimestamp(float(row.get(key) or 0), tz=timezone.utc)
-                    row[f"{key}_text"] = timestamp.isoformat(timespec="seconds").replace("+00:00", "Z")
-                except (TypeError, ValueError, OSError, OverflowError):
-                    row[f"{key}_text"] = "-"
+                absolute, relative, technical = local_time(row.get(key))
+                row[f"{key}_text"] = absolute
+                row[f"{key}_relative"] = relative
+                row[f"{key}_technical"] = technical
+            steps: list[dict[str, Any]] = []
+            for source_step in tuple(row.get("step_log") or ()):
+                step = dict(source_step)
+                names = [str(value) for value in tuple(step.get("tool_names") or ()) if str(value)]
+                label = ", ".join(names) or _chat_route_text(language, "jobs_step_agent", "Agent")
+                step["display_summary"] = _chat_route_text(
+                    language, "jobs_step_completed", "{tool} abgeschlossen", tool=label,
+                )
+                step["technical_summary"] = str(step.get("outcome_summary") or "")
+                steps.append(step)
+            row["step_log"] = steps
+            renderer = deps.templates.env.globals.get("render_assistant_message_html")
+            row["result_html"] = str(renderer(result)) if result and callable(renderer) else ""
             rows.append(row)
         return rows
 
@@ -285,7 +343,13 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
         username = deps.get_username_from_request(request)
         if not username:
             return JSONResponse({"error": "authentication_required"}, status_code=401)
-        return JSONResponse({"jobs": _agent_jobs_for_user(username)})
+        return JSONResponse({
+            "jobs": _agent_job_panel_rows(
+                username,
+                language=str(getattr(request.state, "lang", "de") or "de"),
+                timezone_name=request_display_timezone(request, deps.get_settings()),
+            ),
+        })
 
     @app.get("/jobs/{job_id}/notice", response_class=HTMLResponse)
     async def agent_job_notice(request: Request, job_id: str) -> Response:
@@ -302,6 +366,14 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
         ), None)
         if not clean_job_id or job is None:
             return Response(status_code=404)
+        reconcile = getattr(deps.execution_deps.pipeline, "reconcile_agent_job_notices", None)
+        if callable(reconcile):
+            try:
+                reconciled = reconcile(username, job_id=clean_job_id)
+                if inspect.isawaitable(reconciled):
+                    await reconciled
+            except Exception:
+                pass
         desired_intent = (
             "agent_job_budget_reached"
             if str(job.get("status") or "") == "paused" and str(job.get("pause_reason") or "") == "budget_reached"
@@ -323,6 +395,9 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
         ), None)
         if notice is None:
             return Response(status_code=204)
+        message_timestamp_iso, message_timestamp = _message_timestamp_pair(
+            request, notice.get("timestamp")
+        )
         return deps.templates.TemplateResponse(
             request=request,
             name="_chat_messages.html",
@@ -338,6 +413,8 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                 "agent_job_id": clean_job_id,
                 "agent_job_notice": True,
                 "agent_job_event_key": str(notice.get("agent_job_event_key") or desired_event_key),
+                "message_timestamp": message_timestamp,
+                "message_timestamp_iso": message_timestamp_iso,
             },
         )
 
@@ -349,7 +426,11 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                 _chat_route_text(getattr(request.state, "lang", "de"), "jobs_auth_required", "Authentication required."),
                 status_code=401,
             )
-        rows = _agent_job_panel_rows(username)
+        rows = _agent_job_panel_rows(
+            username,
+            language=str(getattr(request.state, "lang", "de") or "de"),
+            timezone_name=request_display_timezone(request, deps.get_settings()),
+        )
         requested_job = "".join(
             character for character in str(request.query_params.get("job") or "")
             if character.isalnum() or character in "_-"
@@ -607,8 +688,6 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
         session_id = deps.ensure_session_id(request)
         lang = str(getattr(request.state, "lang", "de") or "de")
         is_english = lang.strip().lower().startswith("en")
-        memory_collection = deps.get_effective_memory_collection(request, username or "web")
-        session_collection = deps.session_memory_collection_for_user(username or "web", session_id)
         if not username:
             return render_missing_username_response(
                 templates=deps.templates,
@@ -620,6 +699,13 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                 session_id=session_id,
                 secure_cookie=secure_cookie,
             )
+        # Make the browser fallback available to native tools in this turn.
+        # Configured UI/TZ values still win in request_display_timezone().
+        display_timezones = getattr(deps.execution_deps.pipeline, "_display_timezones_by_user", None)
+        if not isinstance(display_timezones, dict):
+            display_timezones = {}
+            setattr(deps.execution_deps.pipeline, "_display_timezones_by_user", display_timezones)
+        display_timezones[username] = request_display_timezone(request, settings)
 
         def _stamp_route_wall_time(state: ChatResponseState) -> None:
             route_wall_ms = int((time.perf_counter() - route_start) * 1000)
@@ -644,6 +730,7 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
 
         if response_state is not None:
             _stamp_route_wall_time(response_state)
+            message_timestamp_iso, message_timestamp = _message_timestamp_pair(request)
             response = deps.templates.TemplateResponse(
                 request=request,
                 name="_chat_messages.html",
@@ -661,6 +748,8 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                     "confirmation_button_label": None,
                     "agent_job_id": "",
                     "agent_job_notice": False,
+                    "message_timestamp": message_timestamp,
+                    "message_timestamp_iso": message_timestamp_iso,
                 },
             )
             deps.append_chat_history(
@@ -730,8 +819,6 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
             lang=lang,
             is_english=is_english,
             route_state=route_state,
-            memory_collection=memory_collection,
-            session_collection=session_collection,
             deps=deps.execution_deps,
             chat_history=chat_history,
         )
@@ -778,6 +865,7 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                 except Exception:
                     pass
         template_start = time.perf_counter()
+        message_timestamp_iso, message_timestamp = _message_timestamp_pair(request)
         response = deps.templates.TemplateResponse(
             request=request,
             name="_chat_messages.html",
@@ -796,6 +884,8 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                 "suggestion_affordance": response_state.suggestion_affordance,
                 "agent_job_id": response_state.agent_job_id,
                 "agent_job_notice": False,
+                "message_timestamp": message_timestamp,
+                "message_timestamp_iso": message_timestamp_iso,
             },
         )
         template_ms = int((time.perf_counter() - template_start) * 1000)

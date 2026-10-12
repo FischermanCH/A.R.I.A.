@@ -3,16 +3,11 @@
 {% set service_restart = operations_service_restart if operations_service_restart is defined else {} %}
 {% set config_logs_path = module_route_prefix_path('ops_config_backup', '/config/logs') %}
 {% set ops_service_restart_path = module_route_path('ops_config_backup', '/config/operations/service-restart') %}
-{% set config_backup_path = module_route_path('config_backup', '/config/backup') %}
 <section class="floating-card config-domain-section">
   <div class="config-submenu">
     <a class="config-submenu-item" href="{{ config_logs_path }}?return_to={{ page_return_to | urlencode }}">
       <span class="submenu-icon-wrap">{{ icon('logs', 'submenu-icon') }}</span>
       <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.logs_title', 'Logs & Cleanup') }}</span><span class="submenu-desc">{{ tr(request, 'config.logs_desc', 'Automatically clean up token/run logs and control retention.') }}</span></span>
-    </a>
-    <a class="config-submenu-item" href="{{ config_backup_path }}?return_to={{ page_return_to | urlencode }}">
-      <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
-      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.transfer_title', 'Import / Export') }}</span><span class="submenu-desc">{{ tr(request, 'config.transfer_desc', 'Export config backups, download memory JSON, and restore ARIA from one place.') }}</span></span>
     </a>
   </div>
 </section>
@@ -43,7 +38,7 @@
   {% if not service_restart.configured %}
   <div class="alert info">
     <strong>{{ tr(request, 'config.operations_services_unavailable_title', 'Kein Neustart-Helper aktiv') }}</strong>
-    <div>{{ tr(request, 'config.operations_services_unavailable_body', 'Dieser Bereich ist nur auf Installationen mit aktivem GUI-Helper fuer Updates und Service-Neustarts verfuegbar.') }}</div>
+    <div>{{ tr(request, 'config.operations_services_unavailable_body', 'Dieser Bereich ist nur auf Installationen mit aktivem GUI-Helper für Updates und Service-Neustarts verfügbar.') }}</div>
   </div>
   {% elif service_restart.helper_error %}
   <div class="alert warn">

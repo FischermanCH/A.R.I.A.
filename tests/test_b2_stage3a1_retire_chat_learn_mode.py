@@ -22,15 +22,15 @@ def test_chat_execution_has_no_live_chat_learn_mode_coupling() -> None:
 
 def test_chat_surface_keeps_stored_manifest_view_without_learn_mode_state_or_controls() -> None:
     route_source = (ROOT / "aria/modules/chat_surface/routes.py").read_text(encoding="utf-8")
-    catalog_source = (ROOT / "aria/modules/chat_surface/catalog.py").read_text(encoding="utf-8")
+    actions_source = (ROOT / "aria/modules/chat_surface/actions.py").read_text(encoding="utf-8")
     template_source = (ROOT / "aria/templates/chat.html").read_text(encoding="utf-8")
 
-    assert "stored_recipe_identity_values" in route_source
+    assert "stored_recipe_manifests" in route_source
     assert "chat_learn_mode" not in route_source
     assert "chat_learn_active" not in route_source
     assert "chat_learn_event_count" not in route_source
-    assert "chat_learn_active" not in catalog_source
-    assert '"group": "learning"' not in catalog_source
+    assert "chat_learn_active" not in actions_source
+    assert '"group": "learning"' not in actions_source
     assert "chat_learn_active" not in template_source
     assert "chat_learn_event_count" not in template_source
     assert "isLearnModeCommand" not in template_source

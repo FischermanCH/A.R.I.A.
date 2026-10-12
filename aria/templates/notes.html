@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "page_types/overview_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% block page_body %}
 {% set documents_notes_path = module_route_path('notes', '/notes') %}
 {% set documents_notes_save_path = module_route_path('notes', '/notes/save') %}
 {% set documents_notes_delete_path = module_route_path('notes', '/notes/delete') %}

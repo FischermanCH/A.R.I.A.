@@ -12,20 +12,20 @@ class _Settings:
     class _Connections:
         ssh = {
             "dns-node-01": {
-                "host": "dns-node-01.lan",
+                "host": "dns-node-01.example",
                 "user": "root",
                 "guardrail_ref": "safe-ssh",
             }
         }
         sftp = {
             "mgmt": {
-                "host": "mgmt.lan",
+                "host": "mgmt.example",
                 "user": "root",
             }
         }
         smb = {
             "mgmt": {
-                "host": "fileserver.lan",
+                "host": "fileserver.example",
                 "share": "ops",
                 "user": "ops",
             }
@@ -83,14 +83,14 @@ class _GuardrailRuntimeSettings:
     class _Connections:
         sftp = {
             "dns-node-01": {
-                "host": "dns-node-01.lan",
+                "host": "dns-node-01.example",
                 "user": "root",
                 "guardrail_ref": "sftp-readonly",
             }
         }
         smb = {
             "example_share": {
-                "host": "fileserver.lan",
+                "host": "fileserver.example",
                 "share": "Example_Share",
                 "user": "Example",
                 "guardrail_ref": "smb-readonly",
@@ -484,8 +484,8 @@ def test_guardrail_confirm_dry_run_inherits_routing_target_confirmation() -> Non
     assert result["decision"]["action"] == "ask_user"
     assert result["decision"]["reason"] == "routing_target_confirmation"
     assert result["decision"]["action_label"] == "Zuerst nachfragen"
-    assert result["decision"]["reason_label"] == "Das Ziel ist noch nicht eindeutig bestaetigt."
-    assert "ARIA wuerde vor der Ausfuehrung auf sftp/mgmt noch nachfragen: Read remote path: /etc/hosts" == result["decision"]["summary"]
+    assert result["decision"]["reason_label"] == "Das Ziel ist noch nicht eindeutig bestätigt."
+    assert "ARIA würde vor der Ausführung auf sftp/mgmt noch nachfragen: Read remote path: /etc/hosts" == result["decision"]["summary"]
 
 
 def test_guardrail_confirm_dry_run_blocks_denied_ssh_command() -> None:
@@ -754,7 +754,7 @@ def test_execution_preview_dry_run_reports_allow_path() -> None:
     assert result["decision"]["preview"] == "SSH command: uptime"
     assert (
         result["decision"]["summary"]
-        == "ARIA wuerde auf ssh/dns-node-01 direkt ausfuehren: SSH command: uptime"
+        == "ARIA würde auf ssh/dns-node-01 direkt ausführen: SSH command: uptime"
     )
 
 

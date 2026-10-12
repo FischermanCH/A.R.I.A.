@@ -44,6 +44,11 @@ class NativeToolContract:
     terminal: bool = False
     relay_result_content: bool = False
     required_connection_kinds: tuple[str, ...] = ()
+    # A trusted MCP server may execute an effectful remote tool directly while
+    # retaining the historical read_only contract effect. This flag preserves
+    # the remote annotation for output-integrity checks without changing the
+    # confirmation policy.
+    effectful: bool = False
 
     def provider_payload(self) -> dict[str, Any]:
         return {
@@ -69,6 +74,7 @@ class NativeToolResult:
     activity: Mapping[str, Any] | None = None
     suggestion: Mapping[str, Any] | None = None
     images: tuple[tuple[str, str], ...] = ()
+    detail_lines: tuple[str, ...] = ()
 
 
 NativeToolHandler = Callable[[NativeToolContext, Mapping[str, Any]], Awaitable[NativeToolResult]]

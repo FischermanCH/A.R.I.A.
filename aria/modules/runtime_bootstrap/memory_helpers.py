@@ -17,7 +17,6 @@ from aria.modules.system_diagnostics.qdrant_storage import (
 )
 
 CollectionNameSanitizer = Callable[[str | None], str]
-CurrentMemoryDayGetter = Callable[[], str]
 RequestCookieGetter = Callable[[Request, str], str]
 SettingsGetter = Callable[[], Any]
 
@@ -27,7 +26,6 @@ class MemoryRuntimeHelperDeps:
     base_dir: Path
     get_settings: SettingsGetter
     sanitize_collection_name: CollectionNameSanitizer
-    current_memory_day: CurrentMemoryDayGetter
     request_cookie_value: RequestCookieGetter
     session_cookie: str
     memory_collection_cookie: str
@@ -38,7 +36,6 @@ class MemoryRuntimeHelpers:
     default_memory_collection_for_user: Callable[[str], str]
     ensure_session_id: Callable[[Request], str]
     get_effective_memory_collection: Callable[[Request, str], str]
-    session_memory_collection_for_user: Callable[[str, str], str]
     qdrant_base_url: Callable[[Request], str]
     qdrant_dashboard_url: Callable[[Request], str]
     list_qdrant_collections: Callable[[], Awaitable[list[str]]]
@@ -49,7 +46,6 @@ def build_memory_runtime_helpers(deps: MemoryRuntimeHelperDeps) -> MemoryRuntime
     BASE_DIR = deps.base_dir
     _get_settings = deps.get_settings
     _sanitize_collection_name = deps.sanitize_collection_name
-    _current_memory_day = deps.current_memory_day
     _request_cookie_value = deps.request_cookie_value
     SESSION_COOKIE = deps.session_cookie
     MEMORY_COLLECTION_COOKIE = deps.memory_collection_cookie
@@ -73,15 +69,6 @@ def build_memory_runtime_helpers(deps: MemoryRuntimeHelperDeps) -> MemoryRuntime
         if selected:
             return selected
         return default_memory_collection_for_user(user_id)
-
-    def session_memory_collection_for_user(user_id: str, session_id: str) -> str:
-        settings = _get_settings()
-        slug = _sanitize_collection_name(user_id.lower())
-        if not slug:
-            slug = "web"
-        session_prefix = settings.memory.collections.sessions.prefix.strip() or "aria_sessions"
-        _ = session_id
-        return f"{session_prefix}_{slug}_{_current_memory_day()}"
 
     def qdrant_base_url(request: Request) -> str:
         settings = _get_settings()
@@ -226,7 +213,6 @@ def build_memory_runtime_helpers(deps: MemoryRuntimeHelperDeps) -> MemoryRuntime
         default_memory_collection_for_user=default_memory_collection_for_user,
         ensure_session_id=ensure_session_id,
         get_effective_memory_collection=get_effective_memory_collection,
-        session_memory_collection_for_user=session_memory_collection_for_user,
         qdrant_base_url=qdrant_base_url,
         qdrant_dashboard_url=qdrant_dashboard_url,
         list_qdrant_collections=list_qdrant_collections,

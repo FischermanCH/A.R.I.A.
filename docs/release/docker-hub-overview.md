@@ -2,13 +2,13 @@
 
 ARIA is a lean, modular, self-hosted AI assistant with memory, recipes, secure connections, a native tool-calling agent with MCP and controllable background jobs, and a browser-first UI.
 
-## ARIA 0.1.0-alpha983: document-inventory hotfix for the modular release
+## ARIA 0.1.0-alpha1007 release candidate
 
-ARIA Alpha983 includes a focused public hotfix on top of the Alpha982 modular release. Document inventory questions now list every imported document with its name and collection instead of returning no documents or an incomplete search-derived list. No document data was lost in Alpha982; only the inventory presentation was affected.
+Alpha1007 is the reviewed candidate for the next public ARIA alpha after Alpha983. Until the owner runs the separate publish procedure, the current public image remains Alpha983.
 
-It retains the major ARIA architecture upgrade introduced by Alpha982.
+The candidate retains the major ARIA architecture upgrade introduced in Alpha982 and the document-inventory fix from Alpha983, then adds the Activity Journal, owner-focused statistics, reliable controllable Agent Jobs, resilient MCP discovery, consistent bilingual administration and a deterministic public demo. Alpha1007 also includes the final owner-review polish for statistics and chat. The full, honest summary is in `docs/release/public-release-summary-alpha1007.md`.
 
-ARIA Alpha983 is not the same internal shape as the older public Docker Hub alpha, Alpha604.
+ARIA Alpha1007 is not the same internal shape as the older public Docker Hub alpha, Alpha604.
 
 The project has moved from the older monolith-style alpha line to a modular ARIA runtime with clearer owners for chat routing, recipes, memory, documents, notes, web/public facts, runtime actions, release/update handling, and UI composition. This is meant to make ARIA easier to maintain and safer to operate, but it also means operators should treat the next public image as an architecture migration from `0.1.0-alpha604`, not as a tiny patch update.
 
@@ -38,18 +38,19 @@ Repository and full documentation:
 
 Image tags:
 
-- immutable: `fischermanch/aria:0.1.0-alpha.983`
+- candidate immutable tag after publication: `fischermanch/aria:0.1.0-alpha.1007`
 - moving channels: `fischermanch/aria:alpha`, `fischermanch/aria:latest`
 
-> **About the version numbers:** ARIA's version numbers deliberately count development iterations. Alpha604 to Alpha983 are 379 iterations of building ARIA together with AI — kept transparent on purpose, and it will keep counting.
+> **About the version numbers:** ARIA's version numbers deliberately count development iterations. Alpha604 to Alpha1007 are 403 iterations of building ARIA together with AI — kept transparent on purpose, and it will keep counting.
 
 Release highlights:
 
-- Modular runtime architecture replaces the old monolith-style internal shape.
-- Repeated personal preferences can become explicit memory suggestions; repeated action sequences can become inactive recipe suggestions.
-- Enabled MCP servers join the native Tool agent with confirmations, trust control, timeouts and honest failures.
-- Long Agent tasks continue as controllable background jobs instead of holding the browser request open.
-- Core memory remains intact while obsolete learning collections can be removed explicitly after an upgrade.
+- The Activity Journal records compact, redacted summaries of completed Tool turns and Jobs without copying raw Tool output or document contents.
+- Long Agent work has durable completion delivery, safe Markdown results and explicit pause, resume, correction, confirmation and cancellation controls.
+- The iPhone/Safari chat stays usable in portrait and landscape, and Journal/Job/statistics timestamps follow one configurable display time zone.
+- `/stats` restores the public Alpha983 check coverage in a clearer owner layout: concrete linked problems, visible status lamps and counts, complete Chat/embedding/web model roles, costs, activity and resources from cached/local data; opening it never calls a provider.
+- MCP discovery and recipe warm-up stay out of the synchronous first-turn path; unavailable external services fail honestly without freezing chat.
+- Shared bilingual page and theme rules keep the administration consistent while the graphical Memory browser remains intact.
 
 ## What you need
 
@@ -318,13 +319,13 @@ For new public installs, prefer `aria-setup` unless you explicitly want to manag
 ## Screenshots
 
 <p>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat.png" alt="ARIA main chat" width="220"></a>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat-toolbox.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat-toolbox.png" alt="ARIA toolbox in chat" width="220"></a>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/03-aria-memories-map.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/03-aria-memories-map.png" alt="ARIA memory map" width="220"></a>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-chat-tool-table.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-chat-tool-table.webp" alt="ARIA chat with a Tool result" width="220"></a>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-statistics.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-statistics.webp" alt="ARIA owner statistics" width="220"></a>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-connections.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-connections.webp" alt="ARIA connections" width="220"></a>
 </p>
 
 <p>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/04-aria-skills.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/04-aria-skills.png" alt="ARIA recipes overview" width="220"></a>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/05-aria-stats.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/05-aria-stats.png" alt="ARIA statistics page" width="220"></a>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/06-aria-settings-workbench.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/06-aria-settings-workbench.png" alt="ARIA workbench settings" width="220"></a>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/paper-activity-journal.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/paper-activity-journal.webp" alt="ARIA activity journal" width="220"></a>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/paper-agent-jobs.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/paper-agent-jobs.webp" alt="ARIA Agent Jobs" width="220"></a>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/de/matrix-personal-model.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/de/matrix-personal-model.webp" alt="ARIA Persönliches Modell" width="220"></a>
 </p>

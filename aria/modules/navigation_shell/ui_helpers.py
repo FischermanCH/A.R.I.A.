@@ -102,22 +102,95 @@ def daily_time_from_cron(value: str) -> str:
 
 
 def render_assistant_message_html(text: str) -> Markup:
-    lines: list[str] = []
-    for raw_line in str(text or "").splitlines():
-        escaped_line = html.escape(str(raw_line or ""))
+    def _plain_inline(raw_value: str) -> str:
+        escaped_line = html.escape(str(raw_value or ""))
 
         def _replace_link(match: re.Match[str]) -> str:
-            label = html.escape(match.group(1))
-            url = html.escape(match.group(2), quote=True)
+            # The complete line is already escaped and the URL pattern accepts
+            # only http(s) or an absolute local path.
+            label = match.group(1)
+            url = match.group(2)
             return f'<a href="{url}" target="_blank" rel="noopener noreferrer">{label}</a>'
 
         rendered_line = _MARKDOWN_LINK_RE.sub(_replace_link, escaped_line)
-        rendered_line = "".join(
+        return "".join(
             part if part.startswith("<a ") else _MARKDOWN_BOLD_RE.sub(r"<strong>\1</strong>", part)
             for part in _RENDERED_LINK_RE.split(rendered_line)
         )
-        lines.append(rendered_line)
-    return Markup("<br>".join(lines))
+
+    def _inline(raw_value: str) -> str:
+        parts = re.split(r"(`[^`\n]+`)", str(raw_value or ""))
+        return "".join(
+            f"<code>{html.escape(part[1:-1])}</code>"
+            if len(part) >= 2 and part.startswith("`") and part.endswith("`")
+            else _plain_inline(part)
+            for part in parts
+        )
+
+    raw_lines = str(text or "").splitlines()
+    rendered: list[str] = []
+    index = 0
+    while index < len(raw_lines):
+        line = raw_lines[index]
+        if line.strip().startswith("```"):
+            index += 1
+            code_lines: list[str] = []
+            while index < len(raw_lines) and not raw_lines[index].strip().startswith("```"):
+                code_lines.append(raw_lines[index])
+                index += 1
+            if index < len(raw_lines):
+                index += 1
+            rendered.append(f"<pre><code>{html.escape(chr(10).join(code_lines))}</code></pre>")
+            continue
+        is_table = (
+            index + 1 < len(raw_lines)
+            and "|" in line
+            and re.fullmatch(r"\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*", raw_lines[index + 1])
+        )
+        if is_table:
+            headers = [value.strip() for value in line.strip().strip("|").split("|")]
+            index += 2
+            body: list[list[str]] = []
+            while index < len(raw_lines) and "|" in raw_lines[index] and raw_lines[index].strip():
+                values = [value.strip() for value in raw_lines[index].strip().strip("|").split("|")]
+                body.append((values + [""] * len(headers))[:len(headers)])
+                index += 1
+            rendered.append(
+                '<div class="assistant-table-wrap"><table><thead><tr>'
+                + "".join(f"<th>{_inline(value)}</th>" for value in headers)
+                + "</tr></thead><tbody>"
+                + "".join(
+                    "<tr>" + "".join(f"<td>{_inline(value)}</td>" for value in values) + "</tr>"
+                    for values in body
+                )
+                + "</tbody></table></div>"
+            )
+            continue
+        unordered = re.match(r"^\s*[-*+]\s+(.+)$", line)
+        if unordered:
+            items: list[str] = []
+            while index < len(raw_lines):
+                match = re.match(r"^\s*[-*+]\s+(.+)$", raw_lines[index])
+                if not match:
+                    break
+                items.append(_inline(match.group(1)))
+                index += 1
+            rendered.append("<ul>" + "".join(f"<li>{item}</li>" for item in items) + "</ul>")
+            continue
+        ordered = re.match(r"^\s*\d+[.)]\s+(.+)$", line)
+        if ordered:
+            items = []
+            while index < len(raw_lines):
+                match = re.match(r"^\s*\d+[.)]\s+(.+)$", raw_lines[index])
+                if not match:
+                    break
+                items.append(_inline(match.group(1)))
+                index += 1
+            rendered.append("<ol>" + "".join(f"<li>{item}</li>" for item in items) + "</ol>")
+            continue
+        rendered.append(_inline(line))
+        index += 1
+    return Markup("<br>".join(rendered))
 
 
 def intent_badge(intents: list[str], recipe_errors: list[str] | None = None) -> tuple[str, str]:

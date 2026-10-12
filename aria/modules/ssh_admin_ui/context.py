@@ -138,8 +138,14 @@ def build_ssh_connections_context(
                                 else "config_conn.missing"
                             )
                         ),
-                        "hint_key": "",
-                        "hint": f"Private key: {'ok' if private_key_exists else 'missing'} / Public key: {'ok' if public_key_exists else 'missing'}",
+                        "hint_key": (
+                            "config_conn.ssh_key_status_ready"
+                            if private_key_exists and public_key_exists
+                            else "config_conn.ssh_key_status_partial"
+                            if private_key_exists or public_key_exists
+                            else "config_conn.ssh_key_status_missing"
+                        ),
+                        "hint": "SSH key status",
                     },
                 ],
             ),
@@ -190,7 +196,7 @@ def build_ssh_connections_context(
             field_hints={
                 "allow_commands": "One line per command. Empty = no permission for ssh_command.",
             },
-            ordered_fields=["strict_host_key_checking", "key_path", "allow_commands"],
+            ordered_fields=["strict_host_key_checking", "allow_commands"],
         ),
         "ssh_new_advanced_form_fields": build_schema_form_fields(
             kind="ssh",

@@ -417,61 +417,30 @@ def test_chat_can_save_current_history_as_note(monkeypatch, tmp_path) -> None:
 
 
 
-def test_chat_catalog_memory_import_path_fails_closed_without_memory_route(monkeypatch) -> None:
-    import aria.modules.chat_surface.catalog as chat_catalog
+def test_chat_quick_actions_use_canonical_ui_paths() -> None:
+    from aria.modules.chat_surface.actions import build_chat_quick_actions
 
-    monkeypatch.setattr(chat_catalog, "module_route_path", lambda *_args, **_kwargs: None)
-
-    with pytest.raises(RuntimeError, match="memory_admin_ui route is not registered: /memories/import"):
-        chat_catalog.build_chat_command_catalog(
-            lang="de",
-            auth_role="user",
-            advanced_mode=False,
-            recall_templates=[],
-            store_templates=[],
-            recipe_trigger_hints=[],
-        )
+    rows = build_chat_quick_actions("de")
+    assert next(row for row in rows if row["key"] == "import_document")["href"] == "/memories/import#document-import"
+    assert next(row for row in rows if row["key"] == "open_notes")["href"] == "/notes"
 
 
 
 
-def test_chat_toolbox_contains_save_chat_as_note_command() -> None:
-    from aria.modules.chat_surface.catalog import build_chat_command_catalog
+def test_chat_actions_contains_save_chat_as_note_command() -> None:
+    from aria.modules.chat_surface.actions import build_chat_quick_actions
 
-    entries, _titles, groups = build_chat_command_catalog(
-        lang="de",
-        auth_role="user",
-        advanced_mode=False,
-        recall_templates=[],
-        store_templates=[],
-        recipe_trigger_hints=[],
-    )
-
-    matching = [entry for entry in entries if str(entry.get("insert", "")).strip() == "/chat note"]
-    assert matching
-    assert matching[0]["label"] == "Chat als Notiz speichern"
-    assert any(item.get("insert") == "/chat note " for group in groups for item in group.get("items", []))
+    row = next(row for row in build_chat_quick_actions("de") if row["key"] == "save_chat_note")
+    assert row["insert"] == "/chat note"
+    assert row["label"] == "Chat als Notiz speichern"
 
 
-def test_chat_toolbox_links_to_document_import() -> None:
-    from aria.modules.chat_surface.catalog import build_chat_command_catalog
+def test_chat_actions_links_to_document_import() -> None:
+    from aria.modules.chat_surface.actions import build_chat_quick_actions
 
-    entries, _titles, groups = build_chat_command_catalog(
-        lang="de",
-        auth_role="user",
-        advanced_mode=False,
-        recall_templates=[],
-        store_templates=[],
-        recipe_trigger_hints=[],
-    )
-
-    matching = [entry for entry in entries if entry.get("href") == "/memories/import#document-import"]
-    assert matching
-    assert matching[0]["label"] == "Dokument importieren"
-    document_groups = [group for group in groups if group.get("key") == "documents"]
-    assert document_groups
-    assert document_groups[0]["title"] == "Dokumente"
-    assert any(item.get("href") == "/memories/import#document-import" for item in document_groups[0].get("items", []))
+    row = next(row for row in build_chat_quick_actions("de") if row["key"] == "import_document")
+    assert row["href"] == "/memories/import#document-import"
+    assert row["label"] == "Dokument importieren"
 
 
 def test_chat_notes_flow_does_not_route_natural_question_without_llm_contract(monkeypatch, tmp_path) -> None:
@@ -790,8 +759,8 @@ def test_chat_renders_native_learning_suggestion_as_nonblocking_action(monkeypat
         (
             "de",
             {"kind": "cross_host", "new_host": "srv-b"},
-            "Kopie fuer srv-b anlegen",
-            "Eine inaktive Kopie dieses Rezepts fuer srv-b anlegen.",
+            "Kopie für srv-b anlegen",
+            "Eine inaktive Kopie dieses Rezepts für srv-b anlegen.",
             (),
         ),
     ),

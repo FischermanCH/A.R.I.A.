@@ -1,61 +1,69 @@
-# Agentic Operator
+# Agent und Hintergrund-Jobs
 
 Stand: 2026-07-09
 
 ## Zielbild
 
-ARIA soll weniger wie ein Bot mit Tools und mehr wie ein kontrollierter persoenlicher Operator arbeiten:
+ARIA arbeitet als kontrollierter persönlicher Agent:
 
 1. Ziel verstehen
 2. Kontext laden
 3. Schritt planen
 4. Sicherheit entscheiden
-5. ausfuehren
+5. ausführen
 6. Ergebnis zusammenfassen
-7. optional aus Review und Feedback lernen
+7. das belegte Ergebnis nachvollziehbar anzeigen
 
 LLMs helfen bei Bedeutung, Planung, Zusammenfassung und Review. Sicherheit, Guardrails, Runtime, Validierung, Normalisierung und Fallbacks bleiben kontrollierte Systemschichten.
 
-## Operator Trace
+Längere Abläufe können als Hintergrund-Job weiterlaufen. Im Job-Panel lassen sie
+sich an Loop-Grenzen pausieren, fortsetzen, korrigieren oder abbrechen. Eine
+Korrektur wird als neue Nutzernachricht nach dem letzten Tool-Ergebnis in den
+laufenden Job übernommen. Bestätigungspflichtige Schritte verwenden auch dort
+denselben Confirmation-Kernel wie ein kurzer Chat-Turn.
 
-In Chat-Details koennen `operator_trace`-Linien erscheinen. Sie fassen vorhandene Debug-/Runtime-Signale in lesbare Phasen:
+## Details und Trace
+
+In Chat-Details können `operator_trace`-Linien erscheinen. Sie fassen vorhandene Debug-/Runtime-Signale in lesbare Phasen:
 
 - **understanding**: was ARIA aus dem Prompt verstanden hat
 - **context**: welche lokalen oder externen Quellen geladen wurden
 - **draft/policy**: welche Aktion geplant und welche Sicherheitsentscheidung getroffen wurde
-- **runtime**: welche Runtime tatsaechlich ausgefuehrt hat
+- **runtime**: welche Runtime tatsächlich ausgeführt hat
 - **result**: was die Runtime geliefert hat
 - **summary**: Antwort- und Laufzeitabschluss
-- **learning**: nur Review-/Kontext-Lernen, keine automatische Policy-Aenderung
+- **job**: Status, Schritte, Token, Kosten und ein begrenztes Ergebnis
 
-Der Trace ist Beobachtung, nicht Freibrief. Er ersetzt keine Guardrails und fuehrt keine Aktion allein aus.
+Der Trace ist Beobachtung, nicht Freibrief. Er ersetzt keine Guardrails und führt keine Aktion allein aus.
 
 ## Aktionen und Guardrails
 
-Read-only Aktionen wie Healthchecks, Disk-Space-Checks, RSS-Lesen oder API-Statusabfragen koennen direkt laufen, wenn Policy und Guardrails sie erlauben.
+Read-only Aktionen wie Healthchecks, Disk-Space-Checks, RSS-Lesen oder API-Statusabfragen können direkt laufen, wenn Policy und Guardrails sie erlauben.
 
-Side-Effects wie Nachrichten senden, Webhooks ausloesen, Dateien schreiben oder riskante Commands koennen blockiert werden oder eine Bestaetigung brauchen.
+Side-Effects wie Nachrichten senden, Webhooks auslösen, Dateien schreiben oder riskante Commands können blockiert werden oder eine Bestätigung brauchen.
 
 ## Kontextquellen
 
 ARIA kann je nach Prompt kombinieren:
 
-- Memory und Praeferenzen
+- Memory und Präferenzen
 - Dokumente und Dokument-Inventar
 - Notes
 - Connections und deren Metadaten
 - Rezepte und gelernte Erfahrungen
-- Websuche, wenn aktuelle oeffentliche Informationen gebraucht werden
+- Websuche, wenn aktuelle öffentliche Informationen gebraucht werden
 
 Aktuelle Produkt-/Versionsfragen sollen Web-Freshness und offizielle Quellen bevorzugen. Lokale Dokumente bleiben relevant, wenn der Prompt explizit nach dem lokalen Dokumentenspeicher fragt.
 
-## Lernen
-
-Gelernte Muster sind Planner-Kontext und Review-Material. Sie duerfen Guardrails nicht umgehen. Multi-Target- oder Side-Effect-Erfahrungen bleiben vorsichtig und muessen bewusst bewertet werden, bevor sie als echtes Rezept dienen.
+MCP-Werkzeuge erscheinen nur für ausdrücklich aktivierte Server. Unvertraute,
+verändernde oder nicht als read-only annotierte Werkzeuge laufen über die
+Bestätigung. Ein als vertrauenswürdig markierter Server darf Werkzeuge ohne
+Bestätigung ausführen; diese Einstellung ist deshalb eine bewusste
+Sicherheitsgrenze.
 
 ## Gute Tests nach einem Update
 
-- eine read-only Serverfrage stellen und Details auf Kontext, Runtime und Ergebnis pruefen
-- eine bestaetigungspflichtige Aktion planen und nicht ausfuehren
-- eine aktuelle Produktfrage stellen und Quellen pruefen
+- eine read-only Serverfrage stellen und Details auf Kontext, Runtime und Ergebnis prüfen
+- eine bestätigungspflichtige Aktion planen und nicht ausführen
+- eine aktuelle Produktfrage stellen und Quellen prüfen
 - eine lokale Dokument-Inventarfrage stellen und sicherstellen, dass sie nicht ins Web ausweicht

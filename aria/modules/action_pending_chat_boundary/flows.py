@@ -49,7 +49,7 @@ def _pending_action_is_confirmable(pending_action: dict[str, Any]) -> bool:
 
 def _pending_contract_missing_text(language: str | None, missing: tuple[str, ...]) -> str:
     labels_de = {
-        "payload": "ausfuehrbarer Payload",
+        "payload": "ausführbarer Payload",
         "capability": "Aktionstyp",
         "connection_ref": "Ziel/Connection",
         "command": "belegtes Kommando",
@@ -70,7 +70,7 @@ def _pending_contract_missing_text(language: str | None, missing: tuple[str, ...
     readable = ", ".join(labels.get(item, item) for item in missing)
     if str(language or "").lower().startswith("en"):
         return f"I cannot execute this yet because the action contract is missing: {readable}."
-    return f"Ich kann das noch nicht ausfuehren, weil im Action-Contract fehlt: {readable}."
+    return f"Ich kann das noch nicht ausführen, weil im Action-Contract fehlt: {readable}."
 
 
 @dataclass(frozen=True)

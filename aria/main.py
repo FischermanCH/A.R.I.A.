@@ -21,6 +21,8 @@ from aria.channels.api import register_api_routes
 import aria.modules.auth_ui.session as auth_session_helpers
 from aria.modules.auth_ui.middleware import AuthMiddlewareDeps, register_auth_middleware
 from aria.modules.auth_ui.routes import AuthSurfaceRouteDeps, register_auth_surface_routes
+from aria.modules.activity_journal.runtime import wire_activity_journal
+from aria.modules.activity_journal.routes import register_activity_journal_routes
 from aria.modules.chat_execution_composition.flow import ChatExecutionDeps
 from aria.modules.chat_execution_composition.routes import ChatExecutionRouteDeps, register_chat_execution_routes
 from aria.modules.chat_surface.routes import ChatSurfaceRouteDeps, register_chat_surface_routes
@@ -33,7 +35,6 @@ from aria.modules.runtime_bootstrap.memory_helpers import MemoryRuntimeHelperDep
 import aria.modules.runtime_bootstrap.manager as runtime_manager
 from aria.modules.release_update.routes import SystemUpdateRouteDeps, register_system_update_routes
 from aria.modules.stats_ui.activities import register_activities_routes
-from aria.modules.chat_surface.catalog import build_chat_command_catalog
 from aria.modules.auth_ui.cookies import CookieHelper
 from aria.modules.config_ui.routes import ConfigRouteDeps, register_config_routes
 from aria.modules.recipes_ui.stored_ui import build_client_recipe_progress_hints as _build_client_recipe_progress_hints
@@ -54,9 +55,12 @@ from aria.modules.navigation_shell.ui_helpers import (
     replace_agent_name as _replace_agent_name,
 )
 from aria.modules.memory_admin_ui.routes import register_memories_routes
-from aria.modules.navigation_shell.navigation import admin_nav_groups, config_hub_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
+from aria.modules.navigation_shell.navigation import admin_nav_groups, canonical_parent_href, canonical_parent_section, config_hub_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
 from aria.modules.notes.routes import NotesRouteDeps, register_notes_routes
 from aria.modules.native_toolcall_selftest.routes import NativeToolcallRouteDeps, register_native_toolcall_selftest_routes
+from aria.modules.native_agent.trace_store import NativeTraceStore
+from aria.modules.native_agent.pending_store import NativePendingStore
+from aria.modules.native_agent.pipeline_bridge import warm_native_agent_local_state
 from aria.modules.recipes_ui.routes import register_recipe_routes
 from aria.modules.stats_ui.routes import _refresh_pricing_snapshot
 from aria.modules import module_catalog_entries, module_route_path, module_route_prefix_path, module_static_asset_path
@@ -72,7 +76,6 @@ from aria.modules.action_confirmation.ledger import ActionConfirmationLedger
 from aria.modules.chat_history_storage.store import FileChatHistoryStore
 from aria.modules.capability_context.store import CapabilityContextStore
 from aria.modules.connections_profiles.admin import (
-    CONNECTION_ADMIN_SPECS,
     create_connection_profile,
     delete_connection_profile,
     get_inbound_webhook_token,
@@ -104,6 +107,7 @@ from aria.modules.recipe_store.manifests import (
 from aria.modules.discord_alerting.alerts import runtime_host_line, send_discord_alerts
 from aria.modules.platform_primitives.i18n import I18NStore
 from aria.modules.system_inventory.admin import rebuild_inventory_index
+from aria.modules.runtime_diagnostics.runtime import build_runtime_diagnostics_with_retry
 from aria.modules.system_inventory.managed_action_catalog import ensure_managed_action_catalog
 from aria.modules.model_usage_observability.llm_audit import GLOBAL_LLM_AUDIT_LOG
 from aria.modules.pipeline_orchestrator.pipeline import Pipeline
@@ -304,6 +308,46 @@ def _schedule_mcp_startup_warmup(pipeline: Any, settings: Any) -> asyncio.Task[N
     return asyncio.create_task(warmup(), name="mcp-startup-discovery")
 
 
+def _schedule_recipe_startup_warmup(pipeline: Any) -> asyncio.Task[None] | None:
+    """Warm only the deterministic local recipe manifest cache."""
+
+    refresh = getattr(pipeline, "_refresh_stored_recipe_runtime", None)
+    if not callable(refresh):
+        refresh = getattr(pipeline, "_load_stored_recipe_runtime", None)
+    snapshot = getattr(pipeline, "_stored_recipe_runtime_snapshot", None)
+    if not callable(refresh):
+        return None
+
+    async def warmup() -> None:
+        try:
+            loop = asyncio.get_running_loop()
+            started = loop.time()
+            rows = await asyncio.to_thread(refresh)
+            cold_ms = max(0, round((loop.time() - started) * 1000))
+            started = loop.time()
+            if callable(snapshot):
+                snapshot()
+            else:
+                await asyncio.to_thread(refresh)
+            warm_ms = max(0, round((loop.time() - started) * 1000))
+            pipeline._native_recipe_warmup = {
+                "loaded": len(rows), "cold_ms": cold_ms, "warm_ms": warm_ms,
+                "provider_calls": 0, "embedding_calls": 0,
+            }
+            LOGGER.info(
+                "Recipe runtime cache warmup loaded=%s cold_ms=%s warm_ms=%s",
+                len(rows), cold_ms, warm_ms,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            LOGGER.warning("Recipe runtime cache warmup failed (%s)", type(exc).__name__)
+
+    task = asyncio.create_task(warmup(), name="recipe-runtime-cache-warmup")
+    pipeline._native_recipe_warmup_task = task
+    return task
+
+
 async def _close_mcp_sessions(pipeline: Any) -> None:
     manager = getattr(pipeline, "_native_mcp_client", None)
     close = getattr(manager, "close", None)
@@ -406,7 +450,7 @@ def _build_app() -> FastAPI:
     pipeline = _DynamicProxy(runtime_manager_instance.get_pipeline)
     chat_history_store = FileChatHistoryStore(CHAT_HISTORY_DIR, max_messages=80)
 
-    async def _append_agent_job_notice(user_id: str, **payload: Any) -> None:
+    async def _append_agent_job_notice(user_id: str, **payload: Any) -> bool:
         job_id = str(payload.get("job_id") or "")
         # The detached exchange is persisted by the web route just after the
         # pipeline returns. A very fast background completion must follow it,
@@ -419,9 +463,15 @@ def _build_app() -> FastAPI:
                 break
             await asyncio.sleep(0.05)
         chat_history_store.append_assistant_notice(user_id, **payload)
+        return chat_history_store.has_notice(
+            user_id,
+            job_id=job_id,
+            event_key=str(payload.get("event_key") or ""),
+        )
 
     def _wire_agent_job_notifier(target_pipeline: Pipeline) -> None:
         target_pipeline._agent_job_notifier = _append_agent_job_notice
+        wire_activity_journal(target_pipeline)
 
     _wire_agent_job_notifier(runtime_manager_instance.get_pipeline())
 
@@ -434,10 +484,21 @@ def _build_app() -> FastAPI:
     def _reload_runtime() -> None:
         global AUTH_SESSION_MAX_AGE_SECONDS
         try:
+            previous_pipeline = runtime_manager_instance.get_pipeline()
+            previous_mcp = getattr(previous_pipeline, "_native_mcp_client", None)
             new_settings = runtime_manager_instance.reload_runtime()
             reloaded_pipeline = runtime_manager_instance.get_pipeline()
             reloaded_pipeline._native_agent_secure_store_getter = _get_secure_store
             _wire_agent_job_notifier(reloaded_pipeline)
+            reloaded_mcp = getattr(reloaded_pipeline, "_native_mcp_client", None)
+            inherit_cache = getattr(reloaded_mcp, "inherit_discovery_cache", None)
+            if callable(inherit_cache) and previous_mcp is not None:
+                inherit_cache(previous_mcp)
+            _schedule_mcp_startup_warmup(reloaded_pipeline, new_settings)
+            _schedule_recipe_startup_warmup(reloaded_pipeline)
+            close_previous = getattr(previous_mcp, "close", None)
+            if callable(close_previous):
+                asyncio.create_task(close_previous(), name="mcp-runtime-reload-close")
             AUTH_SESSION_MAX_AGE_SECONDS = _sanitize_auth_session_max_age_seconds(
                 getattr(new_settings.security, "session_max_age_seconds", DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS)
             )
@@ -470,7 +531,6 @@ def _build_app() -> FastAPI:
             base_dir=BASE_DIR,
             get_settings=_get_runtime_settings,
             sanitize_collection_name=_sanitize_collection_name,
-            current_memory_day=_current_memory_day,
             request_cookie_value=_request_cookie_value,
             session_cookie=SESSION_COOKIE,
             memory_collection_cookie=MEMORY_COLLECTION_COOKIE,
@@ -479,7 +539,6 @@ def _build_app() -> FastAPI:
     _default_memory_collection_for_user = _memory_runtime_helpers.default_memory_collection_for_user
     _ensure_session_id = _memory_runtime_helpers.ensure_session_id
     _get_effective_memory_collection = _memory_runtime_helpers.get_effective_memory_collection
-    _session_memory_collection_for_user = _memory_runtime_helpers.session_memory_collection_for_user
     _qdrant_dashboard_url = _memory_runtime_helpers.qdrant_dashboard_url
     _qdrant_overview = _memory_runtime_helpers.qdrant_overview
 
@@ -677,10 +736,68 @@ def _build_app() -> FastAPI:
     startup_maintenance_task: asyncio.Task[None] | None = None
     inventory_reindex_task: asyncio.Task[None] | None = None
     mcp_warmup_task: asyncio.Task[None] | None = None
+    recipe_warmup_task: asyncio.Task[None] | None = None
+    data_hygiene_task: asyncio.Task[None] | None = None
+
+    async def _run_data_hygiene(source: str) -> dict[str, int]:
+        current_settings = _get_runtime_settings()
+        trace_cfg = getattr(current_settings, "native_trace", None)
+        counts: dict[str, int] = {}
+        trace_stats = await asyncio.to_thread(
+            NativeTraceStore(
+                BASE_DIR / "data" / "modules" / "native_agent",
+                detail_level=str(getattr(trace_cfg, "detail_level", "minimal") or "minimal"),
+                retention_days=int(getattr(trace_cfg, "retention_days", 7) or 7),
+                max_mebibytes=int(getattr(trace_cfg, "max_mebibytes", 50) or 50),
+            ).sweep
+        )
+        counts["traces"] = int(trace_stats.get("removed_retention", 0)) + int(trace_stats.get("removed_size", 0))
+        token_days = int(getattr(current_settings.token_tracking, "retention_days", 90) or 0)
+        token_stats = await pipeline.token_tracker.prune_old_entries(token_days)
+        archive_stats = await asyncio.to_thread(pipeline.token_tracker.prune_archives)
+        counts["token_rows"] = int(token_stats.get("removed", 0) or 0)
+        counts["token_archives"] = int(archive_stats.get("removed", 0) or 0)
+        audit_stats = await asyncio.to_thread(GLOBAL_LLM_AUDIT_LOG.prune_old_entries, 30)
+        counts["llm_audit"] = int(audit_stats.get("removed", 0) or 0)
+        inbound_stats = await asyncio.to_thread(
+            inbound_event_store.prune_expired, retention_days=30, max_events_per_source=1000,
+        )
+        counts["inbound"] = int(inbound_stats.get("removed_age", 0)) + int(inbound_stats.get("removed_cap", 0))
+        pending = getattr(pipeline, "_native_pending_store", None)
+        if pending is None:
+            pending = NativePendingStore(BASE_DIR / "data" / "runtime" / "native_pending_actions.sqlite3")
+            pipeline._native_pending_store = pending
+        counts["pending"] = int(await asyncio.to_thread(pending.prune_expired))
+        ledger = getattr(pipeline, "_native_confirmation_ledger", None) or action_confirmation_ledger
+        counts["confirmations"] = int(await asyncio.to_thread(ledger.prune_expired))
+        evidence = getattr(pipeline, "web_evidence_store", None)
+        if evidence is not None:
+            evidence_stats = await evidence.prune_expired()
+            counts["web_evidence"] = int(evidence_stats.get("removed", 0) or 0)
+        LOGGER.info(
+            "Data hygiene sweep source=%s counts=%s", source,
+            " ".join(f"{key}={value}" for key, value in sorted(counts.items())),
+        )
+        return counts
+
+    async def _run_data_hygiene_scheduler() -> None:
+        while True:
+            try:
+                current_settings = _get_runtime_settings()
+                interval = max(
+                    60, int(getattr(getattr(current_settings, "native_trace", None), "sweep_interval_seconds", 3600) or 3600),
+                )
+                await asyncio.sleep(interval)
+                await _run_data_hygiene("periodic")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                LOGGER.warning("Data hygiene periodic sweep failed: %s", exc)
+                await asyncio.sleep(60)
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI):  # noqa: ANN202
-        nonlocal inventory_reindex_task, mcp_warmup_task, startup_maintenance_task
+        nonlocal inventory_reindex_task, mcp_warmup_task, recipe_warmup_task, startup_maintenance_task, data_hygiene_task
         try:
             interrupted_agent_jobs = pipeline.sweep_stale_agent_jobs()
         except Exception as exc:
@@ -691,9 +808,19 @@ def _build_app() -> FastAPI:
                 "Marked %s stale native-agent jobs interrupted after worker restart",
                 interrupted_agent_jobs,
             )
+        warm_native_agent_local_state(
+            pipeline,
+            confirmation_ledger=action_confirmation_ledger,
+        )
         mcp_warmup_task = _schedule_mcp_startup_warmup(pipeline, settings)
+        recipe_warmup_task = _schedule_recipe_startup_warmup(pipeline)
+        # Persistent recipe storage can have slow metadata latency.  Warm it
+        # out of band just like MCP discovery; a Native turn consumes only the
+        # in-memory snapshot and may wait for this task for a small bounded
+        # interval, never for a full directory scan.
         async def _run_startup_maintenance() -> None:
             try:
+                await _run_data_hygiene("startup")
                 pricing_snapshot = await _refresh_pricing_snapshot(
                     settings,
                     BASE_DIR,
@@ -708,9 +835,14 @@ def _build_app() -> FastAPI:
                     pricing_cache.get("cache_file", ""),
                     " | ".join(str(error) for error in pricing_snapshot.get("errors", []) or []),
                 )
-                startup_diagnostics = await _get_runtime_preflight_data(force_refresh=True)
+                startup_diagnostics = await build_runtime_diagnostics_with_retry(
+                    BASE_DIR,
+                    settings,
+                    usage_meter=usage_meter,
+                )
+                runtime_manager_instance.set_startup_diagnostics(startup_diagnostics)
                 diag_lines = [
-                    f"{row.get('id')}: {row.get('status')} - {row.get('summary')}"
+                    f"{row.get('id')}: {row.get('status')} - {row.get('summary')} - {row.get('detail', '')}"
                     for row in startup_diagnostics.get("checks", [])
                 ]
                 LOGGER.info(
@@ -743,25 +875,16 @@ def _build_app() -> FastAPI:
                 )
                 memory_ops = 0
                 if pipeline.memory_skill:
-                    session_cfg = settings.memory.collections.sessions
-                    compress_after = int(getattr(session_cfg, "compress_after_days", 7) or 7)
-                    monthly_after = int(getattr(session_cfg, "monthly_after_days", 30) or 30)
-                    stats = await pipeline.memory_skill.compress_all_users(
-                        compress_after_days=compress_after,
-                        monthly_after_days=monthly_after,
-                    )
                     doc_meta_stats = await pipeline.memory_skill.rebuild_document_meta_catalogs_for_known_users()
                     removed_empty = await pipeline.memory_skill.cleanup_empty_collections_global()
                     memory_ops = (
-                        int(stats.get("compressed_week", 0))
-                        + int(stats.get("compressed_month", 0))
-                        + int(doc_meta_stats.get("documents", 0) or 0)
+                        int(doc_meta_stats.get("documents", 0) or 0)
                         + len(removed_empty)
                     )
 
                 log_retention_days = int(getattr(settings.token_tracking, "retention_days", 90) or 0)
                 await pipeline.token_tracker.prune_old_entries(log_retention_days)
-                GLOBAL_LLM_AUDIT_LOG.prune_old_entries(log_retention_days)
+                GLOBAL_LLM_AUDIT_LOG.prune_old_entries(30)
                 await pipeline.token_tracker.log(
                     request_id=str(uuid4()),
                     user_id="system",
@@ -814,6 +937,7 @@ def _build_app() -> FastAPI:
 
         startup_maintenance_task = asyncio.create_task(_run_startup_maintenance())
         inventory_reindex_task = asyncio.create_task(_run_inventory_reindex_scheduler())
+        data_hygiene_task = asyncio.create_task(_run_data_hygiene_scheduler())
         try:
             yield
         finally:
@@ -821,11 +945,19 @@ def _build_app() -> FastAPI:
                 mcp_warmup_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await mcp_warmup_task
+            if recipe_warmup_task and not recipe_warmup_task.done():
+                recipe_warmup_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await recipe_warmup_task
             await _close_mcp_sessions(pipeline)
             if inventory_reindex_task and not inventory_reindex_task.done():
                 inventory_reindex_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await inventory_reindex_task
+            if data_hygiene_task and not data_hygiene_task.done():
+                data_hygiene_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await data_hygiene_task
             if startup_maintenance_task and not startup_maintenance_task.done():
                 startup_maintenance_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -834,6 +966,7 @@ def _build_app() -> FastAPI:
     app = FastAPI(title=prompt_loader.get_persona_name(default=settings.ui.title or "ARIA"), lifespan=_lifespan)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "aria" / "static")), name="static")
     inbound_event_store = InboundEventStore(BASE_DIR / "data" / "runtime" / "inbound_events.sqlite3")
+    pipeline._inbound_event_store = inbound_event_store
     action_confirmation_ledger = ActionConfirmationLedger(
         BASE_DIR / "data" / "runtime" / "action_confirmations.sqlite3"
     )
@@ -953,6 +1086,8 @@ def _build_app() -> FastAPI:
     TEMPLATES.env.globals["nav_section_items"] = nav_section_items
     TEMPLATES.env.globals["context_nav_items"] = context_nav_items
     TEMPLATES.env.globals["context_nav_context"] = context_nav_context
+    TEMPLATES.env.globals["canonical_parent_section"] = canonical_parent_section
+    TEMPLATES.env.globals["canonical_parent_href"] = canonical_parent_href
     TEMPLATES.env.globals["admin_nav_groups"] = admin_nav_groups
     TEMPLATES.env.globals["settings_nav_groups"] = settings_nav_groups
     TEMPLATES.env.globals["config_hub_groups"] = config_hub_groups
@@ -1038,19 +1173,11 @@ def _build_app() -> FastAPI:
             get_username_from_request=_get_username_from_request,
             get_auth_session_from_request=_get_auth_session_from_request,
             ensure_session_id=_ensure_session_id,
-            get_effective_memory_collection=_get_effective_memory_collection,
-            session_memory_collection_for_user=_session_memory_collection_for_user,
             load_stored_recipe_manifests=_load_stored_recipe_manifests,
-            localize_stored_recipe_description=_localize_stored_recipe_description,
             sanitize_role=_sanitize_role,
             build_client_recipe_progress_hints=_build_client_recipe_progress_hints,
-            get_connection_catalog=lambda: {
-                kind: sorted(list(getattr(settings.connections, kind, {}).keys()))
-                for kind in CONNECTION_ADMIN_SPECS.keys()
-                if isinstance(getattr(settings.connections, kind, {}), dict)
-            },
-            build_chat_command_catalog=build_chat_command_catalog,
             load_chat_history=lambda username: chat_history_store.load_history(username),
+            reconcile_agent_job_notices=lambda username: pipeline.reconcile_agent_job_notices(username),
             current_memory_day=_current_memory_day,
             cookie_should_be_secure=cookie_should_be_secure,
             request_cookie_value=_request_cookie_value,
@@ -1156,6 +1283,17 @@ def _build_app() -> FastAPI:
         memory_collection_cookie=MEMORY_COLLECTION_COOKIE,
     )
 
+    register_activity_journal_routes(
+        app,
+        templates=TEMPLATES,
+        get_pipeline=_get_runtime_pipeline,
+        get_settings=_get_runtime_settings,
+        get_username_from_request=_get_username_from_request,
+        read_raw_config=_read_raw_config,
+        write_raw_config=_write_raw_config,
+        reload_runtime=_reload_runtime,
+    )
+
     register_notes_routes(
         app,
         NotesRouteDeps(
@@ -1243,8 +1381,6 @@ def _build_app() -> FastAPI:
             get_settings=lambda: settings,
             get_username_from_request=_get_username_from_request,
             ensure_session_id=_ensure_session_id,
-            get_effective_memory_collection=_get_effective_memory_collection,
-            session_memory_collection_for_user=_session_memory_collection_for_user,
             cookie_should_be_secure=cookie_should_be_secure,
             request_cookie_value=_request_cookie_value,
             set_response_cookie=_set_response_cookie,

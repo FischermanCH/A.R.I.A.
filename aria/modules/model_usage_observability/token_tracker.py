@@ -459,6 +459,33 @@ class TokenTracker:
             counter += 1
         return candidate
 
+    def prune_archives(
+        self, *, max_archives: int = 3, max_age_days: int = 180,
+        now: float | None = None,
+    ) -> dict[str, int]:
+        """Bound token-log archives by both age and generation count."""
+
+        current = float(datetime.now(timezone.utc).timestamp() if now is None else now)
+        pattern = f"{self.log_path.stem}-archive-*{self.log_path.suffix}"
+        rows = sorted(
+            (path for path in self.log_path.parent.glob(pattern) if path.is_file()),
+            key=lambda path: (path.stat().st_mtime, path.name), reverse=True,
+        )
+        kept = 0
+        removed = 0
+        for index, path in enumerate(rows):
+            try:
+                too_old = path.stat().st_mtime < current - max(1, int(max_age_days)) * 86400
+                excess = index >= max(0, int(max_archives))
+                if too_old or excess:
+                    path.unlink()
+                    removed += 1
+                else:
+                    kept += 1
+            except OSError:
+                kept += 1
+        return {"total": len(rows), "kept": kept, "removed": removed}
+
     async def clear_log(self, *, archive: bool = False) -> dict[str, int | str]:
         if not self.log_path.exists():
             return {"removed": 0}
@@ -470,12 +497,14 @@ class TokenTracker:
                 archive_path = self._next_archive_path()
                 archive_path.parent.mkdir(parents=True, exist_ok=True)
                 self.log_path.replace(archive_path)
-                return {
+                result = {
                     "removed": removed,
                     "archived": 1,
                     "archive_path": str(archive_path),
                     "archive_name": archive_path.name,
                 }
+                result.update({f"archive_{key}": value for key, value in self.prune_archives().items()})
+                return result
             self.log_path.unlink(missing_ok=True)
         except OSError:
             return {"removed": 0}

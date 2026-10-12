@@ -23,6 +23,7 @@ services:
     environment:
       ARIA_ARIA_HOST: "0.0.0.0"
       ARIA_ARIA_PORT: "8800"
+      TZ: "${TZ:-UTC}"
       ARIA_COOKIE_NAMESPACE: ${ARIA_COOKIE_NAMESPACE:-}
       ARIA_PUBLIC_URL: ${ARIA_PUBLIC_URL:-http://localhost:8800}
       ARIA_QDRANT_URL: http://qdrant:6333

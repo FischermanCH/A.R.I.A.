@@ -33,7 +33,7 @@ def test_module_status_rows_keeps_safety_flags_false_for_current_registry() -> N
     assert all(row["build_allowed"] is False for row in rows)
     assert all(row["runtime_access_allowed"] is False for row in rows)
     assert all(row["acceptance"] for row in rows)
-    assert sum(len(row["depends_on"]) for row in rows) == 416
+    assert sum(len(row["depends_on"]) for row in rows) == 422
     assert sum(len(row["external_dependencies"]) for row in rows) == 62
     assert sum(bool(row["dependency_cycle"]) for row in rows) == 0
 
@@ -86,7 +86,7 @@ def test_module_registry_diagnostics_reports_passive_dependency_summary() -> Non
     assert diagnostics == {
         "module_count": 106,
         "validation_issue_count": 0,
-        "internal_dependency_count": 416,
+        "internal_dependency_count": 422,
         "external_dependency_count": 62,
         "external_boundary_category_counts": {
             "data_boundary": 9,
@@ -96,8 +96,8 @@ def test_module_registry_diagnostics_reports_passive_dependency_summary() -> Non
         },
         "external_boundary_disposition_counts": {"durable": 62},
         "external_boundary_unclassified_count": 0,
-        "python_file_claim_count": 264,
-        "integration_point_count": 66,
+        "python_file_claim_count": 270,
+        "integration_point_count": 67,
         "duplicate_python_owner_count": 0,
         "invalid_python_claim_count": 0,
         "invalid_integration_point_count": 0,
@@ -278,7 +278,6 @@ def test_module_catalog_entries_resolves_static_help_docs_help_docs_and_groups()
     groups = module_catalog_entries("static_help_docs", "help_doc_groups", require_path=False)
 
     assert [entry["id"] for entry in help_docs] == [
-        "home",
         "quick-start",
         "chat",
         "navigation",
@@ -291,11 +290,13 @@ def test_module_catalog_entries_resolves_static_help_docs_help_docs_and_groups()
         "pricing",
         "qdrant",
         "security",
-        "alpha-help-system",
-        "help-system",
     ]
-    assert [entry["id"] for entry in groups] == ["wiki", "reference"]
-    assert {entry["group"] for entry in help_docs} == {"wiki", "reference"}
+    assert [entry["id"] for entry in groups] == [
+        "getting_started", "using_aria", "manage", "technical_legal",
+    ]
+    assert {entry["group"] for entry in help_docs} == {
+        "getting_started", "using_aria", "manage", "technical_legal",
+    }
 
 
 def test_module_catalog_entries_resolves_static_help_docs_file_editor_entries() -> None:
@@ -637,7 +638,9 @@ def test_module_route_path_resolves_registered_critical_connection_ui_routes() -
     assert module_route_path("http_api_admin_ui", "/config/connections/http-api/save") == "/config/connections/http-api/save"
     assert module_route_path("http_api_admin_ui", "/config/connections/webhook") == "/config/connections/webhook"
     assert module_route_path("http_api_admin_ui", "/config/connections/webhook/save") == "/config/connections/webhook/save"
+    assert module_route_path("http_api_admin_ui", "/config/connections/webhook/test") == "/config/connections/webhook/test"
     assert module_route_path("ssh_admin_ui", "/config/connections/save") == "/config/connections/save"
+    assert module_route_path("ssh_admin_ui", "/config/connections/test") == "/config/connections/test"
     assert module_route_path("ssh_admin_ui", "/config/connections/key-exchange") == "/config/connections/key-exchange"
     assert module_route_path("ssh_admin_ui", "/config/connections/keygen") == "/config/connections/keygen"
     assert module_route_path("ssh_admin_ui", "/config/connections/ssh") == "/config/connections/ssh"
@@ -712,6 +715,7 @@ def test_module_route_path_resolves_registered_config_ui_routes() -> None:
     assert module_route_path("config_ui", "/config/embeddings/profile/save") == "/config/embeddings/profile/save"
     assert module_route_path("config_ui", "/config/connections/mcp") == "/config/connections/mcp"
     assert module_route_path("config_ui", "/config/connections/mcp/save") == "/config/connections/mcp/save"
+    assert module_route_path("config_ui", "/config/connections/mcp/credentials") == "/config/connections/mcp/credentials"
     assert module_route_path("config_ui", "/config/connections/mcp/master") == "/config/connections/mcp/master"
     assert module_route_path("config_ui", "/config/connections/mcp/reconnect") == "/config/connections/mcp/reconnect"
     assert module_route_path("config_ui", "/config/connections/mcp/delete") == "/config/connections/mcp/delete"

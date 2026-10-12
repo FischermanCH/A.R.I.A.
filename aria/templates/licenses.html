@@ -1,17 +1,13 @@
-{% extends "base.html" %}
+{% extends "page_types/tool_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
-{% set static_help_docs_help_path = module_route_path('static_help_docs', '/help') %}
+{% block page_body %}
 <section class="panel docs-clean-layout licenses-layout">
-  <div class="page-head">
-    <div>
-      <p class="section-kicker">{{ tr(request, 'base.nav_licenses', 'Lizenz') }}</p>
-      <h2>{{ tr(request, 'licenses.title', 'Lizenzen & Drittanbieter') }}</h2>
-    </div>
-    <a class="ui-action-link" href="{{ static_help_docs_help_path }}">
-      {{ icon('help', 'ui-action-icon') }}{{ tr(request, 'licenses.help_link', 'Hilfe-System') }}
-    </a>
-  </div>
+  {% set selected_help_doc_id = 'licenses' %}
+  {% include "_help_section_header.html" %}
+  <header class="licenses-subpage-head">
+    <p class="section-kicker">{{ tr(request, 'help.group_technical_legal', 'Technik & Recht') }}</p>
+    <h2>{{ tr(request, 'licenses.title', 'Lizenzen & Drittanbieter') }}</h2>
+  </header>
 
   <div class="licenses-grid docs-clean-grid">
     {% for entry in license_entries %}
@@ -45,11 +41,11 @@
 
   {% if aria_license_text %}
   <details class="stats-details licenses-details" id="aria-license-text" open>
-    <summary>{{ tr(request, 'licenses.aria_full_text', 'ARIA Lizenztext anzeigen') }}</summary>
+    <summary>{{ tr(request, 'licenses.aria_full_text', 'A.R.I.A.-Lizenztext anzeigen') }}</summary>
     <div class="stats-details-content">
       <p class="licenses-project-link">
         <a href="https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/" target="_blank" rel="noreferrer">
-          {{ tr(request, 'licenses.project_site', 'ARIA Projektseite') }}
+          {{ tr(request, 'licenses.project_site', 'A.R.I.A.-Projektseite') }}
         </a>
       </p>
       <pre class="help-document docs-content-surface">{{ aria_license_text }}</pre>

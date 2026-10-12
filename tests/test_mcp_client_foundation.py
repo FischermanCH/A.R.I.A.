@@ -281,10 +281,13 @@ def test_all_tools_are_namespaced_and_effects_follow_annotations_for_untrusted_s
     ]
     contracts = {row.contract.name: row.contract for row in bindings}
     assert contracts["mcp__shared_docs__read_file"].effect == "read_only"
+    assert contracts["mcp__shared_docs__read_file"].effectful is False
     assert contracts["mcp__shared_docs__read_file"].confirmation_required is False
     assert contracts["mcp__shared_docs__delete_file"].effect == "mutating"
+    assert contracts["mcp__shared_docs__delete_file"].effectful is True
     assert contracts["mcp__shared_docs__delete_file"].confirmation_required is True
     assert contracts["mcp__shared_docs__mystery"].effect == "mutating"
+    assert contracts["mcp__shared_docs__mystery"].effectful is True
     assert contracts["mcp__shared_docs__mystery"].confirmation_required is True
     assert all(contract.owner_module_id == "mcp" for contract in contracts.values())
     assert all(contract.rollout_flag == "native_agent_mcp_enabled" for contract in contracts.values())
@@ -311,6 +314,7 @@ def test_trusted_server_projects_every_tool_as_direct_read_only() -> None:
     assert len(bindings) == 3
     assert all(binding.contract.effect == "read_only" for binding in bindings)
     assert all(binding.contract.confirmation_required is False for binding in bindings)
+    assert [binding.contract.effectful for binding in bindings] == [False, True, True]
     assert manager.read_only_tool_count("blender") == 3
 
 
@@ -649,7 +653,7 @@ def test_pipeline_flag_off_never_discovers_and_flag_on_emits_mcp_and_selector_de
         for line in on_result.detail_lines
     )
     assert any(
-        line.startswith("Routing Debug: tool_selector active=yes selected=42/42 ms=")
+        line.startswith("Routing Debug: tool_selector active=yes selected=43/43 ms=")
         for line in on_result.detail_lines
     )
 

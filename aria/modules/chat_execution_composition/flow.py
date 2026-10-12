@@ -145,8 +145,6 @@ async def _execute_chat_flow(
     lang: str,
     is_english: bool,
     route_state: ChatPreparedState,
-    memory_collection: str,
-    session_collection: str,
     deps: ChatExecutionDeps,
     chat_history: list[dict[str, Any]] | None = None,
 ) -> ChatResponseState:
@@ -228,8 +226,6 @@ async def _execute_chat_flow(
             user_id=username,
             source="web",
             language=lang,
-            memory_collection=memory_collection,
-            session_collection=session_collection,
             recent_history=chat_history,
             auth_role=route_state.auth_role,
             confirmation_token=native_confirmation_token,
@@ -399,8 +395,6 @@ async def execute_chat_flow(
     lang: str,
     is_english: bool,
     route_state: ChatPreparedState,
-    memory_collection: str,
-    session_collection: str,
     deps: ChatExecutionDeps,
     chat_history: list[dict[str, Any]] | None = None,
 ) -> ChatResponseState:
@@ -414,8 +408,6 @@ async def execute_chat_flow(
             lang=lang,
             is_english=is_english,
             route_state=route_state,
-            memory_collection=memory_collection,
-            session_collection=session_collection,
             deps=deps,
             chat_history=chat_history,
         )
@@ -431,8 +423,6 @@ async def execute_chat_flow(
             lang=lang,
             is_english=is_english,
             route_state=route_state,
-            memory_collection=memory_collection,
-            session_collection=session_collection,
             deps=deps,
             chat_history=chat_history,
         )

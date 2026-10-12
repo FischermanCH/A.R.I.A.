@@ -1,122 +1,126 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/settings_page.html" %}
+{% from "_ui_clarity.html" import ui_info_panel, ui_action_card, ui_settings_section, ui_danger_zone %}
+{% block page_body %}
 {% set ops_logs_save_path = module_route_path('ops_config_backup', '/config/logs/save') %}
 {% set ops_logs_cleanup_path = module_route_path('ops_config_backup', '/config/logs/cleanup') %}
 {% set ops_logs_reset_path = module_route_path('ops_config_backup', '/config/logs/reset') %}
 {% set ops_logs_factory_reset_path = module_route_path('ops_config_backup', '/config/logs/factory-reset') %}
-<main class="config-layout config-domain-layout config-domain-surface-layout config-logs-layout">
+<main class="config-layout config-domain-layout config-domain-surface-layout config-logs-layout ui-clarity-stack">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
+  <p class="ui-page-purpose">{{ tr(request, 'config_logs.page_purpose', 'Here you can configure diagnostic retention, clean up expired records, and deliberately reset local statistics or this instance.') }}</p>
 
-  <section class="config-card floating-card config-domain-section">
-    {% if pruned is not none %}
-    <div class="alert ok">{{ tr(request, 'config_logs.pruned', 'Log cleanup completed.') }} {{ tr(request, 'config_logs.pruned_info', 'Removed') }}: <strong>{{ pruned }}</strong> {{ tr(request, 'config_logs.rows', 'rows') }}</div>
-    {% endif %}
-    {% if reset is not none %}
-    <div class="alert ok">
-      {{ tr(request, 'config_logs.reset_done', 'Stats and activities reset completed.') }}
-      {{ tr(request, 'config_logs.pruned_info', 'Removed') }}:
-      <strong>{{ reset }}</strong>
-      {{ tr(request, 'config_logs.rows', 'rows') }}
-      {% if reset_archive %}
-        · {{ tr(request, 'stats.reset_archive', 'Archive') }}:
-        <code>{{ reset_archive }}</code>
-      {% endif %}
-    </div>
-    {% endif %}
-    {% if factory_reset %}
-    <div class="alert ok">
-      {{ tr(request, 'config_logs.factory_reset_done', 'Factory reset completed.') }}
-      {% if factory_qdrant is not none %}
-      {{ tr(request, 'config_logs.factory_qdrant_removed', 'Deleted Qdrant collections') }}: <strong>{{ factory_qdrant }}</strong>
-      {% endif %}
-    </div>
-    {% endif %}
-    {% if error_message %}
-    <div class="alert err">{{ error_message }}</div>
-    {% endif %}
+  {% if pruned is not none %}
+  <div class="alert ok">{{ tr(request, 'config_logs.pruned', 'Log cleanup completed.') }} {{ tr(request, 'config_logs.pruned_info', 'Removed') }}: <strong>{{ pruned }}</strong> {{ tr(request, 'config_logs.rows', 'rows') }}</div>
+  {% endif %}
+  {% if reset is not none %}
+  <div class="alert ok">
+    {{ tr(request, 'config_logs.reset_done', 'Stats and activities reset completed.') }}
+    {{ tr(request, 'config_logs.pruned_info', 'Removed') }}: <strong>{{ reset }}</strong> {{ tr(request, 'config_logs.rows', 'rows') }}
+    {% if reset_archive %} · {{ tr(request, 'stats.reset_archive', 'Archive') }}: <code>{{ reset_archive }}</code>{% endif %}
+  </div>
+  {% endif %}
+  {% if factory_reset %}
+  <div class="alert ok">
+    {{ tr(request, 'config_logs.factory_reset_done', 'Factory reset completed.') }}
+    {% if factory_qdrant is not none %}{{ tr(request, 'config_logs.factory_qdrant_removed', 'Deleted Qdrant collections') }}: <strong>{{ factory_qdrant }}</strong>{% endif %}
+  </div>
+  {% endif %}
+  {% if error_message %}<div class="alert err">{{ error_message }}</div>{% endif %}
 
+  {% call ui_settings_section(
+    tr(request, 'config_logs.retention_and_logs_title', 'Aufbewahrung & Protokolle'),
+    tr(request, 'config_logs.trace_settings_desc', 'Choose how much diagnostic metadata ARIA keeps and for how long.'),
+    'trace-settings'
+  ) %}
     <form method="post" action="{{ ops_logs_save_path }}" class="config-form-grid">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
+      <h3>{{ tr(request, 'config_logs.usage_settings_title', 'Token and run statistics') }}</h3>
       <label class="checkbox-row" for="logs-enabled">
-        <input
-          id="logs-enabled"
-          name="enabled"
-          type="checkbox"
-          value="1"
-          {% if token_tracking.enabled %}checked{% endif %}
-        >
+        <input id="logs-enabled" name="enabled" type="checkbox" value="1" {% if token_tracking.enabled %}checked{% endif %}>
         {{ tr(request, 'config_logs.enabled', 'Token/run logging enabled') }}
       </label>
-
       <label for="retention-days">{{ tr(request, 'config_logs.retention_days', 'Retention in days') }}</label>
       <input id="retention-days" name="retention_days" type="number" min="0" step="1" value="{{ token_tracking.retention_days }}">
-      <p class="hint-text">{{ tr(request, 'config_logs.retention_hint', '0 = never auto-delete. Recommended for normal operation: 90 days; ARIA prunes token/cost/activity logs and LLM debug logs during startup and maintenance.') }}</p>
+      <p class="hint-text">{{ tr(request, 'config_logs.retention_hint', '0 = never auto-delete. ARIA prunes token/cost/activity logs and LLM debug logs during startup and maintenance.') }}</p>
 
       <div class="config-divider"></div>
-
-      <p class="hint-text">{{ tr(request, 'config_logs.log_file', 'Active log file') }}: <code>{{ token_tracking.log_file }}</code></p>
-
-      {% if health.exists %}
-      <ul class="stats-list">
-        <li><span>{{ tr(request, 'config_logs.line_count', 'Lines') }}</span><strong>{{ health.line_count }}</strong></li>
-        <li><span>{{ tr(request, 'config_logs.size', 'Size') }}</span><strong>{{ health.size_human }}</strong></li>
-        <li><span>{{ tr(request, 'config_logs.oldest', 'Oldest entry') }}</span><strong>{{ health.oldest_timestamp or 'n/a' }}</strong></li>
-        <li><span>{{ tr(request, 'config_logs.newest', 'Newest entry') }}</span><strong>{{ health.newest_timestamp or 'n/a' }}</strong></li>
-      </ul>
-      {% else %}
-      <p class="hint-text">{{ tr(request, 'config_logs.missing', 'No log file exists yet.') }}</p>
-      {% endif %}
-
-      <div class="config-actions">
-        <button type="submit">{{ tr(request, 'config_logs.save', 'Save') }}</button>
-      </div>
+      <h3>{{ tr(request, 'config_logs.trace_title', 'Native agent traces') }}</h3>
+      <label for="trace-retention-days">{{ tr(request, 'config_logs.trace_retention_days', 'Trace retention in days') }}</label>
+      <input id="trace-retention-days" name="trace_retention_days" type="number" min="1" max="365" list="trace-retention-presets" value="{{ native_trace.retention_days }}">
+      <datalist id="trace-retention-presets"><option value="7"><option value="30"><option value="90"></datalist>
+      <p class="hint-text">{{ tr(request, 'config_logs.trace_retention_presets', 'Presets: 7, 30 or 90 days; custom values from 1 to 365 are allowed.') }}</p>
+      <label for="trace-detail-level">{{ tr(request, 'config_logs.trace_detail_level', 'Trace detail level') }}</label>
+      <select id="trace-detail-level" name="trace_detail_level">
+        <option value="minimal" {% if native_trace.detail_level == 'minimal' %}selected{% endif %}>{{ tr(request, 'config_logs.trace_minimal', 'Minimal (sizes, hashes and status only)') }}</option>
+        <option value="full" {% if native_trace.detail_level == 'full' %}selected{% endif %}>{{ tr(request, 'config_logs.trace_full', 'Full (raw arguments and outputs)') }}</option>
+      </select>
+      <div class="alert warn">{{ tr(request, 'config_logs.trace_full_warning', 'Full traces can store sensitive document text, command output and tool arguments. Use only for short diagnostics.') }}</div>
+      <label for="trace-max-mebibytes">{{ tr(request, 'config_logs.trace_size_cap', 'Trace size cap (MiB)') }}</label>
+      <input id="trace-max-mebibytes" name="trace_max_mebibytes" type="number" min="1" max="4096" value="{{ native_trace.max_mebibytes }}">
+      <button type="submit" class="ui-primary-action">{{ tr(request, 'config_logs.save_settings', 'Save log settings') }}</button>
     </form>
+  {% endcall %}
 
-    <form method="post" action="{{ ops_logs_cleanup_path }}" class="config-actions" style="margin-top: 1rem;">
+  {% call ui_action_card(
+    tr(request, 'config_logs.cleanup_action_title', 'Clean up now'),
+    tr(request, 'config_logs.cleanup_action_desc', 'Removes expired operational logs, traces and temporary evidence according to the configured retention rules.'),
+    'logs-cleanup'
+  ) %}
+    <form method="post" action="{{ ops_logs_cleanup_path }}" class="config-form-grid">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
-      <button type="submit">{{ tr(request, 'config_logs.cleanup_now', 'Clean up now') }}</button>
+      <button type="submit" class="ui-primary-action">{{ tr(request, 'config_logs.cleanup_now', 'Clean up now') }}</button>
     </form>
+  {% endcall %}
 
-    <section class="config-card" style="margin-top: 1rem;">
-      <h3>{{ tr(request, 'config_logs.reset_title', 'Stats reset') }}</h3>
-      <p>{{ tr(request, 'config_logs.reset_subtitle', 'Archives the current token/run history and starts a new local stats period. Memories and connection profiles stay untouched.') }}</p>
-      {% if reset is not none %}
-      <div class="alert ok">
-        {{ tr(request, 'config_logs.reset_done', 'Stats and activities reset completed.') }}
-        {{ tr(request, 'config_logs.pruned_info', 'Removed') }}:
-        <strong>{{ reset }}</strong>
-        {{ tr(request, 'config_logs.rows', 'rows') }}
-        {% if reset_archive %}
-          · {{ tr(request, 'stats.reset_archive', 'Archive') }}:
-          <code>{{ reset_archive }}</code>
-        {% endif %}
-      </div>
-      {% endif %}
-      <p class="hint-text">{{ tr(request, 'config_logs.reset_confirm_hint', 'Type RESET to confirm the reset deliberately.') }}</p>
-      <form method="post" action="{{ ops_logs_reset_path }}" class="config-form-grid">
+  {% call ui_info_panel(
+    tr(request, 'config_logs.statistics_info_title', 'Token-log statistics'),
+    tr(request, 'config_logs.statistics_info_summary', 'Open the current size and time range.')
+  ) %}
+    <p class="hint-text">{{ tr(request, 'config_logs.log_file', 'Active log file') }}: <code>{{ token_tracking.log_file }}</code></p>
+    {% if health.exists %}
+    <ul class="stats-list">
+      <li><span>{{ tr(request, 'config_logs.line_count', 'Lines') }}</span><strong>{{ health.line_count }}</strong></li>
+      <li><span>{{ tr(request, 'config_logs.size', 'Size') }}</span><strong>{{ health.size_human }}</strong></li>
+      <li><span>{{ tr(request, 'config_logs.oldest', 'Oldest entry') }}</span><strong>{{ health.oldest_timestamp or 'n/a' }}</strong></li>
+      <li><span>{{ tr(request, 'config_logs.newest', 'Newest entry') }}</span><strong>{{ health.newest_timestamp or 'n/a' }}</strong></li>
+    </ul>
+    {% else %}<p class="hint-text">{{ tr(request, 'config_logs.missing', 'No log file exists yet.') }}</p>{% endif %}
+  {% endcall %}
+
+  {% call ui_danger_zone(
+    tr(request, 'config_logs.danger_zone_title', 'Danger zone'),
+    tr(request, 'config_logs.danger_zone_desc', 'These operations remove local data and require an exact typed confirmation.'),
+    'logs-danger-zone'
+  ) %}
+    <article class="ui-danger-card">
+      <h3>{{ tr(request, 'config_logs.reset_title', 'Reset statistics') }}</h3>
+      <p>{{ tr(request, 'config_logs.reset_subtitle', 'Archives the current token/run history and starts a new local stats period.') }}</p>
+      <ul class="ui-danger-consequences">
+        <li>{{ tr(request, 'config_logs.reset_consequence_history', 'Current token and run statistics are archived and cleared.') }}</li>
+        <li>{{ tr(request, 'config_logs.reset_consequence_safe', 'Memories and connection profiles stay untouched.') }}</li>
+      </ul>
+      <form method="post" action="{{ ops_logs_reset_path }}" class="config-form-grid" data-typed-confirmation="RESET">
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">
-        <label for="confirm-reset">{{ tr(request, 'config_logs.reset_confirm_label', 'Confirmation') }}</label>
-        <input id="confirm-reset" name="confirm_text" type="text" value="" placeholder="RESET" autocomplete="off">
-        <div class="config-actions">
-          <button type="submit" class="danger-btn">{{ tr(request, 'config_logs.reset_now', 'Reset stats now') }}</button>
-        </div>
+        <label for="confirm-reset">{{ tr(request, 'config_logs.reset_confirm_hint', 'Type RESET to confirm deliberately.') }}</label>
+        <input id="confirm-reset" name="confirm_text" type="text" value="" placeholder="RESET" autocomplete="off" required>
+        <button type="submit" class="danger-btn">{{ tr(request, 'config_logs.reset_now', 'Reset statistics') }}</button>
       </form>
-    </section>
+    </article>
 
-    <section class="config-card" style="margin-top: 1rem;">
+    <article class="ui-danger-card">
       <h3>{{ tr(request, 'config_logs.factory_reset_title', 'Factory Reset') }}</h3>
-      <p>{{ tr(request, 'config_logs.factory_reset_subtitle', 'Deletes user data, memories, connections, guardrails, stored recipes, chat history, SSH keys, and local runtime caches. Runtime secrets and prompts remain intact.') }}</p>
-      <p class="hint-text">{{ tr(request, 'config_logs.factory_reset_confirm_hint', 'Type FACTORY RESET to wipe this ARIA instance deliberately.') }}</p>
-      <form method="post" action="{{ ops_logs_factory_reset_path }}" class="config-form-grid">
-        <input type="hidden" name="return_to" value="{{ return_to or '' }}">
-        <label for="confirm-factory-reset">{{ tr(request, 'config_logs.factory_reset_confirm_label', 'Confirmation') }}</label>
-        <input id="confirm-factory-reset" name="confirm_text" type="text" value="" placeholder="FACTORY RESET" autocomplete="off">
-        <div class="config-actions">
-          <button type="submit" class="danger-btn">{{ tr(request, 'config_logs.factory_reset_now', 'Run factory reset now') }}</button>
-        </div>
+      <p>{{ tr(request, 'config_logs.factory_reset_subtitle', 'Deletes this ARIA instance’s memories/Qdrant collections, documents, notes, stored recipes, chat history, jobs, native traces, token archives, pricing caches, runtime files, users and SSH keys. Runtime config secrets and prompts remain intact. Host files outside ARIA data/config mounts are never touched.') }}</p>
+      <ul class="ui-danger-consequences">
+        <li>{{ tr(request, 'config_logs.factory_consequence_data', 'Deletes the listed ARIA-owned data for this instance.') }}</li>
+        <li>{{ tr(request, 'config_logs.factory_consequence_scope', 'Never touches host files outside ARIA data and config mounts.') }}</li>
+      </ul>
+      <form method="post" action="{{ ops_logs_factory_reset_path }}" class="config-form-grid" data-typed-confirmation="FACTORY RESET">
+        <label for="confirm-factory-reset">{{ tr(request, 'config_logs.factory_reset_confirm_hint', 'Type FACTORY RESET to wipe this ARIA instance deliberately.') }}</label>
+        <input id="confirm-factory-reset" name="confirm_text" type="text" value="" placeholder="FACTORY RESET" autocomplete="off" required>
+        <button type="submit" class="danger-btn">{{ tr(request, 'config_logs.factory_reset_now', 'Run factory reset now') }}</button>
       </form>
-    </section>
-  </section>
+    </article>
+  {% endcall %}
 </main>
 {% endblock %}

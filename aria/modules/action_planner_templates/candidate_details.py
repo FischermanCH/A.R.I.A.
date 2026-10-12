@@ -119,7 +119,7 @@ def intent_label(intent: str, language: str = "") -> str:
     clean = str(intent or "").strip().lower()
     mapping = {
         "health_check": _localized_text(language, de="Gesundheitscheck", en="Health check"),
-        "run_command": _localized_text(language, de="Kommando ausfuehren", en="Run command"),
+        "run_command": _localized_text(language, de="Kommando ausführen", en="Run command"),
         "list_files": _localized_text(language, de="Dateien anzeigen", en="List files"),
         "read_file": _localized_text(language, de="Datei lesen", en="Read file"),
         "write_file": _localized_text(language, de="Datei schreiben", en="Write file"),
@@ -289,7 +289,7 @@ def apply_candidate_labels(
 
 def clarifying_question(candidate: Any, missing_input: str, language: str = "") -> str:
     if missing_input == "command":
-        return _localized_text(language, de="Welchen Befehl soll ARIA auf diesem Ziel ausfuehren?", en="Which command should ARIA run on this target?")
+        return _localized_text(language, de="Welchen Befehl soll ARIA auf diesem Ziel ausführen?", en="Which command should ARIA run on this target?")
     if missing_input == "remote_path":
         if str(candidate.intent or "").strip().lower() == "write_file":
             return _localized_text(language, de="Auf welchen Remote-Pfad soll ARIA schreiben?", en="Which remote path should ARIA write to?")

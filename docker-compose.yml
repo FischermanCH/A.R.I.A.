@@ -27,6 +27,7 @@ services:
     environment:
       ARIA_ARIA_HOST: "0.0.0.0"
       ARIA_ARIA_PORT: "8800"
+      TZ: "${TZ:-UTC}"
       ARIA_LLM_API_BASE: "${ARIA_LLM_API_BASE:-http://host.docker.internal:11434}"
       ARIA_LLM_MODEL: "${ARIA_LLM_MODEL:-ollama_chat/qwen3:8b}"
       ARIA_EMBEDDINGS_API_BASE: "${ARIA_EMBEDDINGS_API_BASE:-http://host.docker.internal:11434}"

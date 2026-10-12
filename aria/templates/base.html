@@ -27,6 +27,14 @@
     .global-agent-job-toast button { min-width: 2rem; }
   </style>
   <script>
+    (() => {
+      try {
+        const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+        if (zone && /^[A-Za-z0-9_+\-/]+$/.test(zone)) document.cookie = `aria_display_timezone=${zone}; Path=/; Max-Age=31536000; SameSite=Lax`;
+      } catch (_) {
+        // Browser-zone discovery is optional; configured TZ/UTC remain authoritative fallbacks.
+      }
+    })();
     {% set release_update_reconnect_sw_path = module_route_path('release_update', '/update-reconnect-sw.js') if module_route_path is defined else '' %}
     {% set release_update_health_path = module_route_path('release_update', '/health') if module_route_path is defined else '' %}
     const reconnectServiceWorkerUrl = {{ release_update_reconnect_sw_path|tojson }};
@@ -39,10 +47,16 @@
     }
   </script>
 </head>
-<body data-theme="{{ request.state.ui_theme if request and request.state else 'matrix' }}" data-background="{{ request.state.ui_background if request and request.state else 'grid' }}"{% if request and request.state and request.state.ui_background_asset_url %} style="--background-art: url('{{ request.state.ui_background_asset_url|e }}'); --background-size: cover; --background-repeat: no-repeat;"{% endif %}>
+{% set current_path = request.url.path if request else '/' %}
+{% set ui_create_routes = ['/config/users/new', '/memories/create', '/recipes/start', '/recipes/wizard'] %}
+{% set ui_settings_routes = ['/config/admin-mode', '/config/error-interpreter', '/config/logs', '/config/security', '/memories/config', '/config/appearance', '/config/embeddings', '/config/language', '/config/llm', '/config/memory'] %}
+{% set ui_tool_routes = ['/config/backup', '/config/operations', '/memories/import', '/memories/maintenance', '/updates', '/jobs/panel'] %}
+{% set ui_detail_routes = ['/config/admin/ui-audit', '/config/files', '/config/llm/debug', '/config/prompts'] %}
+{% set authenticated_page_type = 'create' if current_path in ui_create_routes or current_path.endswith('/new') else ('settings' if current_path in ui_settings_routes else ('tool' if current_path in ui_tool_routes else ('detail' if current_path in ui_detail_routes else 'overview'))) %}
+{% if current_path.startswith('/config/connections/') and current_path.count('/') >= 4 and not current_path.endswith('/new') %}{% set authenticated_page_type = 'detail' %}{% endif %}
+<body data-theme="{{ request.state.ui_theme if request and request.state else 'matrix' }}" data-background="{{ request.state.ui_background if request and request.state else 'grid' }}" data-ui-canonical-section="{{ canonical_parent_section(request) if canonical_parent_section is defined else '' }}"{% if not current_path.startswith('/memories') %} data-ui-page-type="{{ authenticated_page_type }}"{% endif %}{% if request and request.state and request.state.ui_background_asset_url %} style="--background-art: url('{{ request.state.ui_background_asset_url|e }}?v={{ release_asset_version }}'); --background-size: cover; --background-repeat: no-repeat;"{% endif %}>
   {% from "_icons.html" import icon %}
   {% set logical_back_url = request.state.logical_back_url if request and request.state and request.state.logical_back_url else '' %}
-  {% set current_path = request.url.path if request else '/' %}
   {% set update_status = request.state.update_status if request and request.state and request.state.update_status is defined else None %}
   {% set nav_memories_active = current_path.startswith('/memories') %}
   {% set nav_notes_active = current_path.startswith('/notes') %}
@@ -183,7 +197,6 @@
       const logical='{{ logical_back_url|e }}';
       const isAuthenticated = {{ "true" if request.state.authenticated else "false" }};
       const backReloadKey = "aria_back_reload_pending";
-      const restartFailureCountKey = "aria_restart_probe_failure_count";
       const restartFailureThreshold = 2;
       const body = document.body;
       const brandMark = document.querySelector(".brand-mark");
@@ -194,10 +207,19 @@
       const legacyBusyOwners = [];
       const htmxBusyOwners = new WeakMap();
       let restartCheckInFlight = false;
+      let consecutiveHealthFailures = 0;
       const globalAgentJobIndicator = document.getElementById("global-agent-job-indicator");
       const knownAgentJobStates = new Map();
       const shownAgentJobEvents = new Set();
       let globalAgentJobsInitialized = false;
+
+      document.querySelectorAll("details[data-ui-settings-section][data-ui-settings-key]").forEach(function (section) {
+        const key = "aria_ui_settings_open:" + section.dataset.uiSettingsKey;
+        try { section.open = window.localStorage.getItem(key) === "1"; } catch (error) { /* native closed default */ }
+        section.addEventListener("toggle", function () {
+          try { window.localStorage.setItem(key, section.open ? "1" : "0"); } catch (error) { /* storage is optional */ }
+        });
+      });
 
       function showAgentJobToast(job, previousState) {
         const status = String(job.status || "");
@@ -519,14 +541,15 @@
               credentials: "same-origin",
             });
             if (!response.ok) throw new Error("health not ok");
-            const failureCount = readStoredInt(restartFailureCountKey);
-            if (failureCount >= restartFailureThreshold) {
+            if (consecutiveHealthFailures >= restartFailureThreshold) {
               setRestartBannerVisible(true);
             }
-            writeStoredInt(restartFailureCountKey, 0);
+            consecutiveHealthFailures = 0;
           } catch (error) {
-            const failureCount = readStoredInt(restartFailureCountKey);
-            writeStoredInt(restartFailureCountKey, Math.min(failureCount + 1, restartFailureThreshold + 5));
+            consecutiveHealthFailures = Math.min(
+              consecutiveHealthFailures + 1,
+              restartFailureThreshold + 5
+            );
           } finally {
             restartCheckInFlight = false;
             scheduleHealthCheck(healthPollIntervalMs);

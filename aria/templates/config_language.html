@@ -1,12 +1,14 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/settings_page.html" %}
+{% from "_ui_clarity.html" import ui_settings_section with context %}
+{% block page_body %}
 {% set config_ui_language_path = module_route_path('config_ui', '/config/language') %}
 {% set config_ui_language_save_path = module_route_path('config_ui', '/config/language/save') %}
 {% set config_ui_language_file_save_path = module_route_path('config_ui', '/config/language/file/save') %}
 <main class="config-layout config-domain-layout config-domain-surface-layout config-language-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
-  <section class="floating-card config-domain-section">
+  <p class="ui-page-purpose">{{ tr(request, 'config_language.page_purpose', 'Hier wählst du die Standardsprache der Oberfläche und bearbeitest bei Bedarf die Übersetzungsdateien.') }}</p>
+  {% call ui_settings_section(tr(request, 'config_language.settings_title', 'Oberflächensprache'), tr(request, 'config_language.settings_desc', 'Legt die Standardsprache für neue Sitzungen fest.'), 'language-settings', default_language) %}
     <form method="post" action="{{ config_ui_language_save_path }}" class="editor-form">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label>
@@ -17,13 +19,18 @@
           {% endfor %}
         </select>
       </label>
-      <button type="submit">{{ tr(request, 'config_language.save_default', 'Standardsprache speichern') }}</button>
+      <label>
+        {{ tr(request, 'config_language.display_timezone', 'Anzeige-Zeitzone') }}
+        <input name="display_timezone" value="{{ display_timezone|e }}" maxlength="100" placeholder="Europe/Zurich">
+        <span class="hint-text">{{ tr(request, 'config_language.display_timezone_hint', 'Leer: TZ-Umgebungsvariable, dann Browser-Zeitzone, sonst UTC.') }}</span>
+      </label>
+      <button type="submit">{{ tr(request, 'config_language.save_default', 'Anzeigeeinstellungen speichern') }}</button>
     </form>
-  </section>
+  {% endcall %}
 
   {% if request.state.can_access_advanced_config %}
   <section class="floating-card config-domain-section">
-    <details class="skill-details">
+    <details class="skill-details" data-ui-settings-section="true" data-ui-settings-key="language-advanced">
       <summary>{{ tr(request, 'config_language.advanced_summary', 'Erweitert: Sprachdatei editieren') }}</summary>
       <div class="skill-details-content">
         <form method="get" action="{{ config_ui_language_path }}" class="editor-form">

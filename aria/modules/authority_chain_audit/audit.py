@@ -91,8 +91,6 @@ RETIRED_PRODUCTIVE_MARKERS: tuple[tuple[str, str], ...] = (
     ("aria/modules/ssh_runtime/pipeline_helpers.py", "_multi_target_ssh_result_state"),
     ("aria/modules/ssh_runtime/pipeline_helpers.py", "_looks_like_health_observation_command"),
     ("aria/modules/connections_mutations/handlers.py", "grouped_terms = ["),
-    ("aria/modules/chat_surface/catalog.py", "_build_suggested_toolbox_group"),
-    ("aria/modules/chat_surface/catalog.py", "_score_chat_command_entry"),
     ("aria/modules/connections_catalog/catalog.py", "connection_toolbox_keywords"),
     ("aria/modules/recipes_ui/stored_ui.py", "\"keywords\":"),
     ("aria/modules/memory_learning_bridge/skill.py", "_recall_keyword_fallback"),

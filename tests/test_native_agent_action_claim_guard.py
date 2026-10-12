@@ -50,6 +50,7 @@ def _mcp_binding(calls: list[dict[str, str]]) -> NativeToolBinding:
         source_authority="test:mcp",
         user_scoped=True,
         rollout_flag="test",
+        effectful=True,
     ), execute)
 
 
@@ -99,12 +100,12 @@ def test_live_action_fabrication_retries_then_uses_real_mcp_tool(tmp_path) -> No
         (
             "Baue einen blauen Würfel.",
             "Ich habe einen blauen Würfel erstellt.",
-            "Ich habe diese Aktion NICHT ausgeführt – in diesem Schritt wurde kein Werkzeug aufgerufen. Bitte versuche es erneut.",
+            "Ich habe diese Aktion NICHT ausgeführt – in diesem Schritt wurde kein Aktionswerkzeug erfolgreich ausgeführt. Bitte versuche es erneut.",
         ),
         (
             "Build a blue cube.",
             "I have created a blue cube.",
-            "I did NOT perform this action - no tool was called in this step. Please try again.",
+            "I did NOT perform this action - no action tool completed successfully in this step. Please try again.",
         ),
     ],
 )
@@ -197,6 +198,7 @@ def test_already_anchored_recap_passes_without_retry(tmp_path, answer: str) -> N
     [
         "Ich habe den Würfel nicht erstellt.",
         "Ich habe keinen Würfel gelöscht.",
+        "Ich habe nichts über dich gespeichert.",
         "Nie habe ich die Datei entfernt.",
         "Soll ich einen Würfel erstellen?",
         "Kann ich den Würfel bauen?",
@@ -204,6 +206,7 @@ def test_already_anchored_recap_passes_without_retry(tmp_path, answer: str) -> N
         "Erstelle den Würfel in Blender.",
         "Hier ist Beispielcode:\n```python\nprint('I have created the cube')\n```",
         "I have not created the cube.",
+        "I have nothing saved about you.",
         "I never deleted the cube.",
         "I couldn't create the cube.",
         "Would you like me to create it?",

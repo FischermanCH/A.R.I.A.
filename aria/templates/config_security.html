@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/settings_page.html" %}
+{% block page_body %}
 {% set config_ui_security_path = module_route_path('config_ui', '/config/security') %}
 {% set config_ui_security_guardrails_draft_path = module_route_path('config_ui', '/config/security/guardrails/draft') %}
 {% set config_ui_security_guardrails_save_path = module_route_path('config_ui', '/config/security/guardrails/save') %}

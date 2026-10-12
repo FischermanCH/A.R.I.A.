@@ -1,0 +1,45 @@
+{% macro ui_info_panel(title, summary='') -%}
+<details class="ui-info-panel" data-ui-pattern="info">
+  <summary class="ui-info-panel__summary">
+    <span class="ui-info-panel__marker" aria-hidden="true">ℹ</span>
+    <span>
+      <strong>{{ title }}</strong>
+      {% if summary %}<small>{{ summary }}</small>{% endif %}
+    </span>
+  </summary>
+  <div class="ui-info-panel__content">{{ caller() }}</div>
+</details>
+{%- endmacro %}
+
+{% macro ui_action_card(title, description, section_id='', primary=false) -%}
+<article class="ui-action-card{% if primary %} ui-action-card--primary{% endif %}" data-ui-pattern="action" data-primary-actions="1"{% if section_id %} id="{{ section_id }}"{% endif %}>
+  <header class="ui-pattern-heading">
+    <h2>{{ title }}</h2>
+    <p>{{ description }}</p>
+  </header>
+  <div class="ui-action-card__body">{{ caller() }}</div>
+</article>
+{%- endmacro %}
+
+{% macro ui_settings_section(title, description, section_id='', summary='', collapsed=true) -%}
+{% set summary_text = summary or description %}
+<details class="ui-settings-section" data-ui-pattern="settings" data-ui-settings-section="true" data-primary-actions="1"{% if not collapsed %} open{% endif %}{% if section_id %} id="{{ section_id }}"{% if collapsed %} data-ui-settings-key="{{ section_id }}"{% endif %}{% endif %}>
+  <summary class="ui-settings-section__summary">
+    <span class="ui-settings-section__heading"><strong>{{ title }}</strong><small>{{ summary_text }}</small></span>
+  </summary>
+  <div class="ui-settings-section__body">{% if description and description != summary_text %}<p class="ui-settings-section__description">{{ description }}</p>{% endif %}{{ caller() }}</div>
+</details>
+{%- endmacro %}
+
+{% macro ui_danger_zone(title, description, section_id='') -%}
+<section class="ui-danger-zone" data-ui-pattern="danger"{% if section_id %} id="{{ section_id }}"{% endif %}>
+  <header class="ui-pattern-heading">
+    <span class="ui-danger-zone__marker" aria-hidden="true">!</span>
+    <div>
+      <h2>{{ title }}</h2>
+      <p>{{ description }}</p>
+    </div>
+  </header>
+  <div class="ui-danger-zone__body">{{ caller() }}</div>
+</section>
+{%- endmacro %}

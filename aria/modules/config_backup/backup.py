@@ -3,15 +3,29 @@
 from __future__ import annotations
 
 import copy
+import base64
+import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 from aria.modules.recipe_store.manifests import sanitize_recipe_id, validate_stored_recipe_manifest
 from aria.modules.release_update.release_meta import read_release_meta
 
-BACKUP_SCHEMA_VERSION = "aria-config-backup-v1"
+BACKUP_SCHEMA_VERSION = "aria-config-backup-v2"
+LEGACY_BACKUP_SCHEMA_VERSION = "aria-config-backup-v1"
+_SENSITIVE_CONFIG_KEYS = {
+    "api_key", "qdrant_api_key", "password", "password_hash", "secret", "token",
+    "auth_token", "access_token", "refresh_token", "private_key", "headers",
+    "webhook_url", "client_secret", "authorization",
+}
+_SCRYPT_N = 2**15
+_SCRYPT_R = 8
+_SCRYPT_P = 1
 
 
 def backup_filename(now: datetime | None = None) -> str:
@@ -119,12 +133,83 @@ def _read_secure_store_snapshot(secure_store: Any | None) -> dict[str, Any]:
     return {"enabled": True, "secrets": secrets, "users": users}
 
 
+def _secret_free_config(value: Any, *, key: str = "") -> Any:
+    """Preserve config shape while removing credentials from portable backups."""
+
+    clean_key = str(key).strip().lower()
+    is_sensitive = clean_key in _SENSITIVE_CONFIG_KEYS or clean_key.endswith(
+        ("_password", "_secret", "_api_key", "_auth_token", "_access_token", "_refresh_token")
+    )
+    if is_sensitive:
+        return {} if clean_key == "headers" else ""
+    if isinstance(value, dict):
+        return {str(child): _secret_free_config(item, key=str(child)) for child, item in value.items()}
+    if isinstance(value, list):
+        return [_secret_free_config(item) for item in value]
+    return copy.deepcopy(value)
+
+
+def _encrypted_secrets_bundle(
+    *, raw_config: dict[str, Any], secure_store: Any | None, passphrase: str,
+) -> dict[str, Any]:
+    clean_passphrase = str(passphrase or "")
+    if len(clean_passphrase) < 12:
+        raise ValueError("Encrypted backups require a passphrase of at least 12 characters.")
+    salt = os.urandom(16)
+    nonce = os.urandom(12)
+    key = hashlib.scrypt(
+        clean_passphrase.encode("utf-8"), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P,
+        dklen=32, maxmem=128 * 1024 * 1024,
+    )
+    plaintext = json.dumps(
+        {"config": copy.deepcopy(raw_config), "secure_store": _read_secure_store_snapshot(secure_store)},
+        ensure_ascii=False, separators=(",", ":"), sort_keys=True,
+    ).encode("utf-8")
+    ciphertext = AESGCM(key).encrypt(nonce, plaintext, BACKUP_SCHEMA_VERSION.encode("ascii"))
+    return {
+        "algorithm": "AES-256-GCM",
+        "kdf": "scrypt",
+        "kdf_parameters": {"n": _SCRYPT_N, "r": _SCRYPT_R, "p": _SCRYPT_P, "length": 32},
+        "salt": base64.b64encode(salt).decode("ascii"),
+        "nonce": base64.b64encode(nonce).decode("ascii"),
+        "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
+    }
+
+
+def _decrypt_secrets_bundle(bundle: Any, passphrase: str) -> dict[str, Any]:
+    if not isinstance(bundle, dict):
+        raise ValueError("Encrypted secrets bundle is invalid.")
+    if not str(passphrase or ""):
+        raise ValueError("This backup contains an encrypted secrets bundle; enter its passphrase.")
+    try:
+        params = dict(bundle.get("kdf_parameters") or {})
+        salt = base64.b64decode(str(bundle["salt"]), validate=True)
+        nonce = base64.b64decode(str(bundle["nonce"]), validate=True)
+        ciphertext = base64.b64decode(str(bundle["ciphertext"]), validate=True)
+        key = hashlib.scrypt(
+            str(passphrase).encode("utf-8"), salt=salt,
+            n=int(params.get("n", _SCRYPT_N)), r=int(params.get("r", _SCRYPT_R)),
+            p=int(params.get("p", _SCRYPT_P)), dklen=int(params.get("length", 32)),
+            maxmem=128 * 1024 * 1024,
+        )
+        decoded = AESGCM(key).decrypt(nonce, ciphertext, BACKUP_SCHEMA_VERSION.encode("ascii"))
+        payload = json.loads(decoded.decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("Encrypted backup could not be decrypted; the passphrase is wrong or the file is damaged.") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("config"), dict):
+        raise ValueError("Encrypted secrets bundle is invalid.")
+    _validate_secure_store_payload(payload.get("secure_store", {}))
+    return payload
+
+
 def build_config_backup_payload(
     *,
     base_dir: Path,
     raw_config: dict[str, Any],
     secure_store: Any | None = None,
     error_interpreter_path: Path | None = None,
+    include_secrets: bool = False,
+    passphrase: str = "",
 ) -> dict[str, Any]:
     support_files: dict[str, str] = {}
     if error_interpreter_path and error_interpreter_path.exists() and error_interpreter_path.is_file():
@@ -135,33 +220,47 @@ def build_config_backup_payload(
         except OSError:
             pass
 
-    return {
+    payload = {
         "schema_version": BACKUP_SCHEMA_VERSION,
         "exported_at": _iso_now(),
         "aria": read_release_meta(base_dir),
-        "config": copy.deepcopy(raw_config),
-        "secure_store": _read_secure_store_snapshot(secure_store),
+        "config": _secret_free_config(raw_config),
+        "secure_store": {"included": False, "secrets": {}, "users": []},
         "stored_recipes": _read_stored_recipe_manifests(base_dir),
         "custom_skills": _read_stored_recipe_manifests(base_dir),
         "prompt_files": _read_text_files(base_dir, _iter_prompt_files(base_dir)),
         "support_files": support_files,
+        "manifest": {
+            "secrets": "encrypted" if include_secrets else "excluded",
+            "scope_statement": (
+                "Contains no memories, documents, notes, chats, jobs or Qdrant data; "
+                "persistent volumes are not a backup."
+            ),
+            "included": ["secret-free config", "stored recipe manifests", "prompt markdown files", "support files"],
+            "not_included": ["memories", "documents", "notes", "chats", "jobs", "qdrant_data"],
+            "persistent_volumes_are_a_backup": False,
+        },
         "notes": {
             "included": [
-                "config.yaml",
-                "secure store secrets",
-                "user accounts",
+                "secret-free config.yaml",
                 "stored recipe manifests",
                 "prompt markdown files",
                 "error interpreter file",
             ],
             "excluded": [
-                "memories and Qdrant data",
-                "chat history",
+                "secrets and password hashes (unless explicitly encrypted)",
+                "memories, documents, notes, chats, jobs and Qdrant data",
                 "runtime logs and update state",
                 "Docker or stack environment variables",
+                "persistent volume contents",
             ],
         },
     }
+    if include_secrets:
+        payload["encrypted_secrets_bundle"] = _encrypted_secrets_bundle(
+            raw_config=raw_config, secure_store=secure_store, passphrase=passphrase,
+        )
+    return payload
 
 
 def summarize_config_backup_payload(payload: dict[str, Any]) -> dict[str, int]:
@@ -183,7 +282,7 @@ def summarize_config_backup_payload(payload: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def parse_config_backup_payload(data: bytes | str) -> dict[str, Any]:
+def parse_config_backup_payload(data: bytes | str, *, passphrase: str = "") -> dict[str, Any]:
     raw = data.decode("utf-8") if isinstance(data, bytes) else str(data or "")
     try:
         payload = json.loads(raw)
@@ -192,12 +291,22 @@ def parse_config_backup_payload(data: bytes | str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("Backup file must contain a JSON object.")
     schema = str(payload.get("schema_version", "")).strip()
-    if schema != BACKUP_SCHEMA_VERSION:
+    if schema not in {BACKUP_SCHEMA_VERSION, LEGACY_BACKUP_SCHEMA_VERSION}:
         raise ValueError("Backup file schema is not supported.")
     config = payload.get("config")
     if not isinstance(config, dict):
         raise ValueError("Backup file does not contain a valid config object.")
-    _validate_secure_store_payload(payload.get("secure_store", {}))
+    if schema == LEGACY_BACKUP_SCHEMA_VERSION:
+        _validate_secure_store_payload(payload.get("secure_store", {}))
+        payload["restore_warnings"] = ["legacy_plaintext_backup"]
+    elif payload.get("encrypted_secrets_bundle") is not None:
+        secret_payload = _decrypt_secrets_bundle(payload.get("encrypted_secrets_bundle"), passphrase)
+        payload["config"] = secret_payload["config"]
+        payload["secure_store"] = secret_payload.get("secure_store", {})
+        payload["secrets_restored"] = True
+    else:
+        payload["secure_store"] = {"included": False, "secrets": {}, "users": []}
+        payload["needs_secret_reentry"] = True
     _validate_text_file_map(payload.get("prompt_files", {}), required_prefix="prompts/", required_suffix=".md")
     _validate_support_files(payload.get("support_files", {}))
     _validate_stored_recipe_payload(payload.get("stored_recipes", payload.get("custom_skills", [])))
@@ -271,6 +380,8 @@ def _validate_stored_recipe_payload(raw: Any) -> list[dict[str, Any]]:
 
 
 def _sync_secure_store(secure_store: Any | None, payload: dict[str, Any]) -> None:
+    if bool(payload.get("needs_secret_reentry")):
+        return
     secure = payload.get("secure_store", {})
     if not isinstance(secure, dict):
         secure = {}
@@ -332,8 +443,11 @@ def restore_config_backup_payload(
     write_raw_config: Callable[[dict[str, Any]], None],
     get_secure_store: Callable[[dict[str, Any] | None], Any | None],
     error_interpreter_path: Path | None = None,
+    passphrase: str = "",
 ) -> dict[str, int]:
-    clean_payload = parse_config_backup_payload(json.dumps(payload, ensure_ascii=False))
+    clean_payload = parse_config_backup_payload(
+        json.dumps(payload, ensure_ascii=False), passphrase=passphrase,
+    )
     raw_config = copy.deepcopy(clean_payload.get("config", {}))
     write_raw_config(raw_config)
 
@@ -377,4 +491,9 @@ def restore_config_backup_payload(
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(str(content), encoding="utf-8")
 
-    return summarize_config_backup_payload(clean_payload)
+    summary = summarize_config_backup_payload(clean_payload)
+    summary["needs_secret_reentry"] = int(bool(clean_payload.get("needs_secret_reentry")))
+    summary["legacy_plaintext_warning"] = int(
+        "legacy_plaintext_backup" in list(clean_payload.get("restore_warnings") or [])
+    )
+    return summary

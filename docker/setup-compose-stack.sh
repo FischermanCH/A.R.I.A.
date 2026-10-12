@@ -75,7 +75,7 @@ Options:
   -h, --help                  Show this help
 
 Examples:
-  ./docker/setup-compose-stack.sh --stack-name aria-main --public-url http://aria.example.lan:8800
+  ./docker/setup-compose-stack.sh --stack-name aria-main --public-url http://aria.example.test:8800
   ./docker/setup-compose-stack.sh --stack-name lab --http-port 8810 --no-start
 USAGE
 }
@@ -119,8 +119,27 @@ port_in_use() {
 
 backup_if_exists() {
   local path="$1"
+  local backup=""
   [[ -e "$path" ]] || return 0
-  mv "$path" "${path}.bak.$(date +%Y%m%d%H%M%S)"
+  backup="${path}.bak.$(date +%Y%m%d%H%M%S)"
+  mv "$path" "$backup"
+  chmod 600 "$backup"
+}
+
+prune_upgrade_backups() {
+  local path=""
+  local backup=""
+  local index=0
+  for path in "$INSTALL_DIR/docker-compose.yml" "$INSTALL_DIR/.env" "$INSTALL_DIR/aria-stack.sh" "$INSTALL_DIR/INSTALL.txt"; do
+    index=0
+    while IFS= read -r backup; do
+      [[ -n "$backup" ]] || continue
+      index=$((index + 1))
+      if (( index > 2 )); then
+        rm -f -- "$backup"
+      fi
+    done < <(find "$INSTALL_DIR" -maxdepth 1 -type f -name "$(basename "$path").bak.*" -printf '%T@ %p\n' | sort -rn | cut -d' ' -f2-)
+  done
 }
 
 read_env_value() {
@@ -194,6 +213,11 @@ services:
       QDRANT__SERVICE__API_KEY: ${ARIA_QDRANT_API_KEY}
     volumes:
       - ./storage/qdrant-storage:/qdrant/storage
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 
   aria:
@@ -208,6 +232,7 @@ services:
     environment:
       ARIA_ARIA_HOST: "0.0.0.0"
       ARIA_ARIA_PORT: "8800"
+      TZ: ${TZ:-UTC}
       ARIA_COOKIE_NAMESPACE: ${ARIA_COOKIE_NAMESPACE:-}
       ARIA_PUBLIC_URL: ${ARIA_PUBLIC_URL:-http://localhost:8800}
       ARIA_QDRANT_URL: http://qdrant:6333
@@ -224,6 +249,11 @@ services:
       - ./storage/aria-prompts:/app/prompts
       - ./storage/aria-data:/app/data
       - ./storage/qdrant-storage:/qdrant/storage:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   aria-updater:
     image: ${ARIA_IMAGE:-fischermanch/aria:alpha}
@@ -252,6 +282,11 @@ services:
       - python
       - -m
       - aria.update_helper
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 EOF
 }
@@ -269,6 +304,7 @@ ARIA_COOKIE_NAMESPACE=$ARIA_COOKIE_NAMESPACE
 
 ARIA_HTTP_PORT=$HTTP_PORT
 ARIA_PUBLIC_URL=$PUBLIC_URL
+TZ=${TZ:-UTC}
 
 ARIA_LLM_API_BASE=$LLM_API_BASE
 ARIA_LLM_MODEL=$LLM_MODEL
@@ -998,6 +1034,10 @@ if [[ "$START_STACK" == "true" ]]; then
   log "Starte den Stack"
   compose_cmd --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml" up -d
   "$INSTALL_DIR/aria-stack.sh" validate
+  if [[ "$FORCE" == "true" || "$UPGRADE_EXISTING" == "true" ]]; then
+    prune_upgrade_backups
+    log "Erfolgreiches Upgrade: alte .bak-Dateien auf zwei Generationen begrenzt."
+  fi
   log "ARIA ist erreichbar: $PUBLIC_URL"
 else
   log "Stack-Dateien geschrieben, Start uebersprungen (--no-start)"

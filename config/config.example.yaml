@@ -4,6 +4,10 @@ aria:
   log_level: "info"
   public_url: ""
 
+ui:
+  # Optional IANA zone for displayed timestamps. Empty follows TZ, browser, then UTC.
+  display_timezone: ""
+
 llm:
   model: "ollama_chat/qwen3:8b"
   api_base: "http://localhost:11434"
@@ -69,7 +73,6 @@ memory:
   qdrant_api_key: ""
   collection: "aria_memory"
   top_k: 3
-  compression_summary_prompt: "prompts/recipes/memory_compress.md"
   collections:
     facts:
       prefix: "aria_facts"
@@ -86,8 +89,6 @@ memory:
       weight: 0.5
       top_k: 2
       time_decay: true
-      compress_after_days: 7
-      archive_after_days: 90
     knowledge:
       prefix: "aria_knowledge"
       weight: 0.7
@@ -128,6 +129,9 @@ agentic_loop:
   native_agent_budget_max_total: 160
   agent_job_retention_days: 14
   agent_job_stale_paused_days: 7
+  # Compact per-user activity summaries; raw tool and document content is never stored here.
+  activity_journal_enabled: true
+  activity_journal_retention_days: 90
 
 prompts:
   persona: "prompts/persona.md"

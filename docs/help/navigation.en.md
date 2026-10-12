@@ -60,7 +60,7 @@ Many technical details only appear when Extended view is active.
 `/config/admin` is the Admin overview. Admin is split into real groups:
 
 - **System configuration**
-- **Recipes & Learning**
+- **Recipes**
 - **Memory**
 - **Operations**
 
@@ -73,7 +73,7 @@ Memory is its own area:
 - `/memories` shows the graphical Memory browser.
 - `/memories/import` imports documents and memory data.
 - `/memories/create` captures manual memories.
-- `/memories/auto-memory` explains Auto-memory and learning.
+- `/memories/auto-memory` shows the personal model.
 - `/memories/maintenance` collects technical maintenance.
 
 Memory maintenance is no longer duplicated as a global Admin shortcut; it stays in the Memory context.
@@ -85,10 +85,7 @@ Recipes are structured as their own area:
 - `/recipes` is the Recipes hub.
 - `/recipes/mine` is the worklist for saved recipes.
 - `/recipes/start` and `/recipes/templates` help with creation and import.
-- `/recipes/learned` is the normal Learned Recipes view.
-- `/recipes/learned/maintenance` is the Admin maintenance page for learned recipes.
-
-System recipes and maintenance functions intentionally stay in the Admin context.
+- `/recipes/system` shows the bundled system recipes.
 
 ## Connections
 
@@ -101,7 +98,7 @@ On narrow viewports, menus, tabs, and help links may wrap. The account entry rem
 ## Useful Update Tests
 
 - open the account menu with and without Extended view
-- check `/config`, `/config/admin`, `/config/admin/memory`, and `/config/admin/operations`
+- check `/config`, `/config/access`, and `/config/operations`
 - check `/memories`, `/memories/import`, `/memories/auto-memory`, and `/memories/maintenance`
-- check `/recipes`, `/recipes/mine`, `/recipes/learned`, and `/recipes/learned/maintenance`
+- check `/recipes`, `/recipes/mine`, `/recipes/start`, and `/recipes/system`
 - check the same paths on iPhone width

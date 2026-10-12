@@ -106,7 +106,15 @@ def build_connections_page_context_helper(deps: ConnectionsSurfaceHelperDeps) ->
         }
         connection_rows = connection_menu_rows()
 
-        sample_rows = _build_sample_connection_rows()
+        sample_rows = []
+        for sample_row in _build_sample_connection_rows():
+            localized_row = dict(sample_row)
+            localized_row["description"] = str(
+                localized_row.get("description_en" if lang == "en" else "description_de")
+                or localized_row.get("description")
+                or ""
+            ).strip()
+            sample_rows.append(localized_row)
         connection_status_rows = _attach_mixed_connection_edit_urls(
             build_settings_connection_status_rows(
                 settings,

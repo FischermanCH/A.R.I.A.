@@ -248,7 +248,7 @@ def build_routed_confirmation_text(
         lines.append(
             localized_text(
                 language,
-                de="ARIA moechte diese Aktion vor der Ausfuehrung noch bestaetigen.",
+                de="ARIA möchte diese Aktion vor der Ausführung noch bestätigen.",
                 en="ARIA wants to confirm this action before execution.",
             )
         )
@@ -288,7 +288,7 @@ def build_routed_missing_input_text(
         lines.append(
             localized_text(
                 language,
-                de="Bevor ARIA etwas ausfuehrt, fehlt noch eine Pflichtangabe.",
+                de="Bevor ARIA etwas ausführt, fehlt noch eine Pflichtangabe.",
                 en="Before ARIA can execute anything, one required field is still missing.",
             )
         )

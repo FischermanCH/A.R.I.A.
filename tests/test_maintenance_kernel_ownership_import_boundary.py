@@ -30,9 +30,7 @@ def _settings(*, enabled: bool, backend: str = "qdrant") -> SimpleNamespace:
         memory=SimpleNamespace(
             enabled=enabled,
             backend=backend,
-            collections=SimpleNamespace(
-                sessions=SimpleNamespace(compress_after_days=8, monthly_after_days=31),
-            ),
+            collections=SimpleNamespace(),
         ),
         embeddings=SimpleNamespace(),
         auto_memory=SimpleNamespace(learning_governor=SimpleNamespace()),
@@ -60,10 +58,6 @@ def test_disabled_maintenance_uses_only_injected_pruners(monkeypatch) -> None:
     stats = asyncio.run(maintenance.run_memory_maintenance("synthetic.yaml"))
 
     assert stats == {
-        "users": 0,
-        "compressed_week": 0,
-        "compressed_month": 0,
-        "collections_removed": 0,
         "document_meta_documents": 0,
         "token_log_removed": 4,
         "llm_audit_removed": 3,
@@ -83,10 +77,6 @@ def test_qdrant_maintenance_uses_only_injected_callbacks(monkeypatch) -> None:
         def __init__(self, **kwargs) -> None:
             calls.append(("init", tuple(sorted(kwargs))))
 
-        async def compress_all_users(self, *, compress_after_days: int, monthly_after_days: int):
-            calls.append(("compress", compress_after_days, monthly_after_days))
-            return {"users": 2, "compressed_week": 5, "compressed_month": 1, "collections_removed": 6}
-
         async def rebuild_document_meta_catalogs_for_known_users(self):
             calls.append("document_meta")
             return {"documents": 9}
@@ -101,14 +91,9 @@ def test_qdrant_maintenance_uses_only_injected_callbacks(monkeypatch) -> None:
 
     assert calls == [
         ("init", ("embeddings", "memory", "usage_meter")),
-        ("compress", 8, 31),
         "document_meta",
     ]
     assert stats == {
-        "users": 2,
-        "compressed_week": 5,
-        "compressed_month": 1,
-        "collections_removed": 6,
         "document_meta_documents": 9,
         "token_log_removed": 4,
         "llm_audit_removed": 3,

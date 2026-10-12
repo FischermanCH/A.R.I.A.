@@ -22,6 +22,7 @@ MODULE_MANIFEST: dict[str, Any] = {
         "aria/modules/platform_primitives/recipe_progress.py",
         "aria/modules/platform_primitives/actionable_sequence.py",
         "aria/modules/platform_primitives/observed_claims.py",
+        "aria/modules/platform_primitives/connection_refs.py",
     ],
     "tests": [
         "tests/test_i18n.py",

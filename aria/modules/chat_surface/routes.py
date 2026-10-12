@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,24 +9,23 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from aria.modules.recipe_runtime.stored_manifest_view import stored_recipe_identity_values
 from aria.modules import module_template_name
-from aria.modules.recipes_ui.stored_ui import build_stored_recipe_toolbox_row
+from aria.modules.chat_surface.actions import build_chat_quick_actions
+from aria.modules.platform_primitives.display_time import (
+    format_display_timestamp,
+    request_display_timezone_with_source,
+)
 
 
 SettingsGetter = Callable[[], Any]
 UsernameResolver = Callable[[Request], str]
 AuthSessionResolver = Callable[[Request], dict[str, Any] | None]
 SessionIdResolver = Callable[[Request], str]
-MemoryCollectionResolver = Callable[[Request, str], str]
-SessionCollectionResolver = Callable[[str, str], str]
 StoredRecipeManifestLoader = Callable[[], tuple[list[dict[str, Any]], list[str]]]
-StoredRecipeDescriptionLocalizer = Callable[[dict[str, Any], str], str]
 RoleSanitizer = Callable[[str | None], str]
 StoredRecipeProgressHintsBuilder = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
-ConnectionCatalogGetter = Callable[[], dict[str, list[str]]]
-ChatCatalogBuilder = Callable[..., tuple[list[dict[str, Any]], dict[str, str], list[dict[str, Any]]]]
 ChatHistoryLoader = Callable[[str], list[dict[str, Any]]]
+AgentJobNoticeReconciler = Callable[[str], Awaitable[int]]
 MemoryDayGetter = Callable[[], str]
 CookieSecureResolver = Callable[..., bool]
 CookieValueResolver = Callable[[Request, str], str]
@@ -41,15 +40,11 @@ class ChatSurfaceRouteDeps:
     get_username_from_request: UsernameResolver
     get_auth_session_from_request: AuthSessionResolver
     ensure_session_id: SessionIdResolver
-    get_effective_memory_collection: MemoryCollectionResolver
-    session_memory_collection_for_user: SessionCollectionResolver
     load_stored_recipe_manifests: StoredRecipeManifestLoader
-    localize_stored_recipe_description: StoredRecipeDescriptionLocalizer
     sanitize_role: RoleSanitizer
     build_client_recipe_progress_hints: StoredRecipeProgressHintsBuilder
-    get_connection_catalog: ConnectionCatalogGetter
-    build_chat_command_catalog: ChatCatalogBuilder
     load_chat_history: ChatHistoryLoader
+    reconcile_agent_job_notices: AgentJobNoticeReconciler
     current_memory_day: MemoryDayGetter
     cookie_should_be_secure: CookieSecureResolver
     request_cookie_value: CookieValueResolver
@@ -71,75 +66,66 @@ def register_chat_surface_routes(app: FastAPI, deps: ChatSurfaceRouteDeps) -> No
         username = deps.get_username_from_request(request)
         session_id = deps.ensure_session_id(request)
         auth = deps.get_auth_session_from_request(request) or {}
-        recall_templates: list[str] = []
-        store_templates: list[str] = []
         stored_recipe_manifests, _ = deps.load_stored_recipe_manifests()
         recipe_trigger_hints: list[str] = []
-        recipe_toolbox_rows: list[dict[str, Any]] = []
         seen_hints: set[str] = set()
         lang = str(getattr(request.state, "lang", "de") or "de")
         for manifest in stored_recipe_manifests:
             recipe_name = str(manifest.get("name", "") or "").strip()
             recipe_id = str(manifest.get("id", "") or "").strip()
-            identity_values = [item for item in stored_recipe_identity_values(manifest) if item]
             names = [value for value in [recipe_name.lower(), recipe_id.replace("-", " ").lower()] if value]
-            description = deps.localize_stored_recipe_description(manifest, lang).strip()
-            for item in names + [value.lower() for value in identity_values]:
+            for item in names:
                 if not item or len(item) < 3 or item in seen_hints:
                     continue
                 seen_hints.add(item)
                 recipe_trigger_hints.append(item)
-            toolbox_row = build_stored_recipe_toolbox_row(manifest, description=description)
-            if toolbox_row:
-                recipe_toolbox_rows.append(toolbox_row)
-        active_collection = deps.get_effective_memory_collection(request, username or "web")
-        session_collection = deps.session_memory_collection_for_user(username or "web", session_id)
+        if username:
+            try:
+                await deps.reconcile_agent_job_notices(username)
+            except Exception:
+                pass
         chat_history = deps.load_chat_history(username) if username else []
+        terminal_agent_job_ids = {
+            str(item.get("agent_job_id", "") or "")
+            for item in chat_history
+            if isinstance(item, dict)
+            and str(item.get("badge_intent", "") or "") in {
+                "agent_job_done", "agent_job_error", "agent_job_cancelled",
+            }
+        }
+        display_timezone, display_timezone_source = request_display_timezone_with_source(
+            request, settings
+        )
+        for item in chat_history:
+            if not isinstance(item, dict):
+                continue
+            item["display_timestamp"] = format_display_timestamp(
+                item.get("timestamp"),
+                display_timezone,
+                language=lang,
+            )
         auth_role = deps.sanitize_role(auth.get("role"))
         client_recipe_progress_hints = deps.build_client_recipe_progress_hints(stored_recipe_manifests)
-        chat_command_entries, chat_command_group_titles, chat_toolbox_groups = deps.build_chat_command_catalog(
-            lang=lang,
-            auth_role=auth_role,
-            advanced_mode=bool(getattr(request.state, "can_access_advanced_config", False)),
-            recall_templates=list(recall_templates),
-            store_templates=list(store_templates),
-            recipe_trigger_hints=sorted(recipe_trigger_hints, key=len, reverse=True),
-            recipe_toolbox_rows=sorted(
-                recipe_toolbox_rows,
-                key=lambda row: (
-                    str(row.get("label", "") or "").lower(),
-                    str(row.get("insert", "") or "").lower(),
-                ),
-            ),
-            connection_catalog=deps.get_connection_catalog(),
-            recent_messages=[
-                str(item.get("text", "")).strip()
-                for item in chat_history[-8:]
-                if isinstance(item, dict) and str(item.get("text", "")).strip()
-            ],
-        )
+        chat_quick_actions = build_chat_quick_actions(lang)
         response = deps.templates.TemplateResponse(
             request=request,
             name=_chat_surface_template("chat.html"),
             context={
                 "title": settings.ui.title,
                 "username": username,
-                "recall_templates": recall_templates,
-                "store_templates": store_templates,
                 "recipe_trigger_hints": sorted(recipe_trigger_hints, key=len, reverse=True),
                 "recipe_progress_hints": client_recipe_progress_hints,
                 "skill_trigger_hints": sorted(recipe_trigger_hints, key=len, reverse=True),
                 "skill_progress_hints": client_recipe_progress_hints,
-                "chat_command_entries": chat_command_entries,
-                "chat_command_group_titles": chat_command_group_titles,
-                "chat_toolbox_groups": chat_toolbox_groups,
-                "active_memory_collection": active_collection,
-                "active_session_collection": session_collection,
+                "chat_quick_actions": chat_quick_actions,
+                "terminal_agent_job_ids": terminal_agent_job_ids,
                 "active_memory_day": deps.current_memory_day(),
                 "debug_mode": bool(settings.ui.debug_mode),
                 "active_session_id": session_id,
                 "auth_role": auth_role,
                 "chat_history": chat_history,
+                "display_timezone": display_timezone,
+                "display_timezone_source": display_timezone_source,
             },
         )
         if not deps.request_cookie_value(request, deps.session_cookie):

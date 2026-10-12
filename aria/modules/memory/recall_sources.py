@@ -3,6 +3,26 @@ from __future__ import annotations
 from typing import Any
 
 
+DOCUMENT_EXCERPT_MAX_CHARS = 1_600
+
+
+def bounded_document_excerpt(value: Any, *, max_chars: int = DOCUMENT_EXCERPT_MAX_CHARS) -> str:
+    """Keep a source chunk readable while enforcing a strict per-hit bound."""
+
+    text = str(value or "").strip()
+    limit = max(1, int(max_chars))
+    if len(text) <= limit:
+        return text
+    marker = "…"
+    if limit == len(marker):
+        return marker
+    candidate = text[: max(1, limit - len(marker))]
+    boundary = max(candidate.rfind("\n"), candidate.rfind(". "), candidate.rfind("! "), candidate.rfind("? "))
+    if boundary >= max(40, limit // 2):
+        candidate = candidate[: boundary + (0 if candidate[boundary] == "\n" else 1)]
+    return candidate.rstrip() + marker
+
+
 def format_recall_source_detail(row: dict[str, Any]) -> str:
     collection = str(row.get("collection", "")).strip()
     document_name = str(row.get("document_name", "")).strip()
@@ -49,16 +69,21 @@ def build_recall_source_entries(
         if not detail or detail in seen:
             continue
         seen.add(detail)
+        source_type = str(row.get("type", "")).strip()
         entries.append(
             {
                 "detail": detail,
-                "type": str(row.get("type", "")).strip(),
+                "type": source_type,
                 "label": str(row.get("label", "")).strip(),
                 "collection": str(row.get("collection", "")).strip(),
                 "document_id": str(row.get("document_id", "")).strip(),
                 "document_name": str(row.get("document_name", "")).strip(),
                 "chunk_index": int(row.get("chunk_index", 0) or 0),
                 "chunk_total": int(row.get("chunk_total", 0) or 0),
+                "score": float(row.get("score", 0.0) or 0.0),
+                "excerpt": bounded_document_excerpt(row.get("text", "")) if source_type.lower() == "document" else "",
+                "neighbor": bool(row.get("neighbor", False)) if source_type.lower() == "document" else False,
+                "neighbor_of_chunk_index": int(row.get("neighbor_of_chunk_index", 0) or 0),
                 "_position": index,
             }
         )

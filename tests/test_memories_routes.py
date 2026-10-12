@@ -102,6 +102,7 @@ def _build_memories_app(
     include_observed_store_attributes: bool = True,
     qdrant: object | None = None,
     username: str = "tester",
+    legacy_rollup_count: int = 0,
 ) -> TestClient:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
@@ -142,13 +143,7 @@ def _build_memories_app(
             enabled=True,
             qdrant_url="http://qdrant.local:6333",
             qdrant_api_key="secret-key",
-            compression_summary_prompt="prompts/memory_summary.md",
-            collections=SimpleNamespace(
-                sessions=SimpleNamespace(
-                    compress_after_days=7,
-                    monthly_after_days=30,
-                )
-            ),
+            collections=SimpleNamespace(sessions=SimpleNamespace()),
         ),
         )
 
@@ -499,6 +494,20 @@ def _build_memories_app(
                     "chunk_total": 2,
                 },
             ]
+            rows.extend(
+                {
+                    "id": f"rollup-{index}",
+                    "collection": "aria_context-mem_tester_dim_384",
+                    "type": "knowledge",
+                    "label": "WISSEN",
+                    "text": f"Legacy rollup {index}",
+                    "source": "compression",
+                    "rollup_level": "week",
+                    "rollup_bucket": f"2026-W{index + 1:02d}",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                }
+                for index in range(legacy_rollup_count)
+            )
             clean_type = str(type_filter or "all").strip().lower()
             clean_collection = str(collection_filter or "").strip()
             if clean_type and clean_type != "all":
@@ -978,7 +987,7 @@ def test_maintenance_cleanup_feedback_redirects_and_renders_inside_cleanup_card(
     assert response.text.count("Legacy learning collections removed: 1.") == 1
 
 
-def test_maintenance_feedback_focus_contract_covers_all_three_actions() -> None:
+def test_maintenance_feedback_focus_contract_keeps_only_live_actions() -> None:
     client = _build_memories_app()
 
     rollup = client.post(
@@ -996,18 +1005,11 @@ def test_maintenance_feedback_focus_contract_covers_all_three_actions() -> None:
         data={"csrf_token": "test-csrf"},
         follow_redirects=False,
     )
-    non_maintenance_rollup = client.post(
-        "/memories/maintenance",
-        data={"source_view": ""},
-        follow_redirects=False,
-    )
-
-    assert rollup.headers["location"].endswith("&focus=rollup#maint-rollup")
+    assert rollup.headers["location"].startswith("/memories/maintenance?")
+    assert "focus=" not in rollup.headers["location"]
+    assert "#maint-" not in rollup.headers["location"]
     assert reset.headers["location"].endswith("&focus=reset#maint-reset")
     assert cleanup.headers["location"].endswith("&focus=cleanup#maint-cleanup")
-    assert non_maintenance_rollup.headers["location"].startswith("/memories?")
-    assert "focus=" not in non_maintenance_rollup.headers["location"]
-    assert "#maint-" not in non_maintenance_rollup.headers["location"]
 
 
 def test_maintenance_unknown_focus_keeps_single_top_feedback_fallback() -> None:
@@ -1653,14 +1655,15 @@ def test_memory_admin_pages_use_registry_template_readpoints(monkeypatch) -> Non
         response = client.get(page)
         assert response.status_code == 200
 
-    assert {
+    expected = {
         ("memory_admin_ui", "memories_overview.html"),
         ("memory_admin_ui", "memories_import.html"),
         ("memory_admin_ui", "memories_create.html"),
         ("memory_admin_ui", "memories_maintenance.html"),
         ("memory_admin_ui", "config_memory.html"),
         ("memory_admin_ui", "memories_auto_memory.html"),
-    }.issubset(set(calls))
+    }
+    assert not (expected - set(calls)), expected - set(calls)
 
 
 def test_memory_admin_template_readpoint_fails_closed_for_unregistered_template(monkeypatch) -> None:
@@ -1711,18 +1714,15 @@ def test_memory_admin_visible_urls_use_registry_route_readpoints(monkeypatch) ->
         response = client.get(page)
         assert response.status_code == 200
 
-    assert {
+    expected_routes = {
         ("memory_admin_ui", "/memories"),
         ("memory_admin_ui", "/memories/import"),
         ("memory_admin_ui", "/memories/create"),
         ("memory_admin_ui", "/memories/upload"),
-        ("memory_admin_ui", "/memories/maintenance"),
         ("memory_admin_ui", "/memories/config"),
         ("memory_admin_ui", "/memories/config/backend-save"),
         ("memory_admin_ui", "/memories/config/select"),
         ("memory_admin_ui", "/memories/config/create"),
-        ("memory_admin_ui", "/memories/config/compression-save"),
-        ("memory_admin_ui", "/memories/config/compress"),
         ("memory_admin_ui", "/memories/browser/delete-point"),
         ("memory_admin_ui", "/memories/browser/delete-document"),
         ("memory_admin_ui", "/memories/auto-memory/claim-action"),
@@ -1733,9 +1733,8 @@ def test_memory_admin_visible_urls_use_registry_route_readpoints(monkeypatch) ->
         ("ops_config_backup", "/memories/reindex/run"),
         ("ops_config_backup", "/memories/reindex/save"),
         ("static_help_docs", "/help"),
-            ("memory_admin_ui", "/memories"),
-        ("config_ui", "/config/prompts"),
-    }.issubset(set(calls))
+    }
+    assert not (expected_routes - set(calls)), expected_routes - set(calls)
 
 
 def test_memories_nav_hides_admin_tools_when_admin_mode_is_off() -> None:
@@ -2129,7 +2128,7 @@ def test_memories_maintenance_page_groups_admin_tools() -> None:
 
     assert response.status_code == 200
     assert "Wartung" in response.text
-    assert "Kontext-Rollup" in response.text
+    assert "Kontext-Rollup" not in response.text
     assert "Memory Reindex" in response.text
     assert 'id="maint-reindex"' in response.text
     assert 'action="/memories/reindex/run"' in response.text
@@ -2144,8 +2143,19 @@ def test_memories_maintenance_page_groups_admin_tools() -> None:
     assert "aria_learning_candidates_tester" not in response.text
     assert "Learning Candidate: Official page excerpts first" not in response.text
     assert 'action="/memories/maintenance/reset-learning-suggestions"' in response.text
-    assert 'name="source_view" value="maintenance"' in response.text
+    assert 'name="source_view" value="maintenance"' not in response.text
     assert "Dokumente importieren" not in response.text
+
+
+def test_memories_maintenance_shows_read_only_rollup_count_only_when_nonzero() -> None:
+    empty = _build_memories_app().get("/memories/maintenance")
+    populated = _build_memories_app(legacy_rollup_count=3).get("/memories/maintenance")
+
+    assert "Older context rollups" not in empty.text
+    assert "Ältere Kontext-Rollups: 3 Einträge" in populated.text
+    assert "/memories/activity-journal" in populated.text
+    assert "schreibgeschützt" in populated.text
+    assert 'action="/memories/maintenance"' not in populated.text
 
 
 def test_memory_config_page_contains_reindex_scheduler() -> None:
@@ -2645,7 +2655,7 @@ def test_auto_memory_page_renders_only_the_personal_model() -> None:
     assert "short answers" in response.text
     assert "Presented / used" in response.text
     assert "4 / 3" in response.text
-    assert "Feedback +1/-0" in response.text
+    assert "Hilfreich: 1 · Nicht hilfreich: 0" in response.text
     assert 'action="/memories/auto-memory/claim-action"' in response.text
     assert 'action="/memories/auto-memory/delete-claim"' in response.text
     assert "Learning inventory" not in response.text
@@ -2971,13 +2981,7 @@ def test_memory_backend_save_always_keeps_backend_enabled(monkeypatch) -> None:
             enabled=True,
             qdrant_url="http://qdrant.local:6333",
             qdrant_api_key="secret-key",
-            compression_summary_prompt="prompts/memory_summary.md",
-            collections=SimpleNamespace(
-                sessions=SimpleNamespace(
-                    compress_after_days=7,
-                    monthly_after_days=30,
-                )
-            ),
+            collections=SimpleNamespace(sessions=SimpleNamespace()),
         ),
         auto_memory=SimpleNamespace(
             enabled=True,

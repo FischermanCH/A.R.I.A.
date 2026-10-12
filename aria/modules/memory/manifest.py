@@ -20,7 +20,6 @@ MODULE_MANIFEST: dict[str, Any] = {
         "memory_admin_ui",
         "document_memory",
         "memory_learning_bridge",
-        "memory_session_compression",
     ],
     "routes_prefixes": [
         "/memories",

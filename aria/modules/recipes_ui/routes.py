@@ -29,7 +29,7 @@ from aria.modules.recipe_store.wizard_save import (
     save_recipe_from_wizard_form,
 )
 from aria.modules.recipe_store.wizard_catalog import (
-    _RECIPE_TYPE_PRESETS,
+    _recipe_type_presets,
     _recipe_type_allowed_steps,
     _recipe_type_connection_choices,
     _recipe_type_followup_steps,
@@ -616,12 +616,12 @@ def register_recipe_routes(
                 "schedule": loaded_schedule,
                 "return_to": return_to,
                 "wizard_mode": wizard_mode,
-                "skill_type_options": _recipe_type_options(),
+                "skill_type_options": _recipe_type_options(lang),
                 "selected_skill_type": selected_recipe_type,
-                "skill_type_presets_json": _RECIPE_TYPE_PRESETS,
+                "skill_type_presets_json": _recipe_type_presets(lang),
                 "skill_type_allowed_steps_json": _recipe_type_allowed_steps(),
-                "skill_type_followup_steps_json": _recipe_type_followup_steps(),
-                "skill_type_connection_choices_json": _recipe_type_connection_choices(),
+                "skill_type_followup_steps_json": _recipe_type_followup_steps(lang),
+                "skill_type_connection_choices_json": _recipe_type_connection_choices(lang),
                 "connection_options_by_kind_json": _connection_options_by_kind(settings),
             },
         )

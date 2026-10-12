@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/overview_page.html" %}
+{% block page_body %}
 <main class="config-layout config-domain-layout config-domain-surface-layout config-admin-modules-layout">
   {% include "_admin_section_nav.html" %}
   {% include "_config_page_header.html" %}
@@ -128,12 +128,12 @@
     </div>
   </section>
   <section class="config-card floating-card config-domain-section">
-    <div class="module-registry-list" role="list">
+    <div class="module-registry-list" role="list" data-ui-technical-content data-ui-product-name>
       {% for row in module_status_rows %}
       <article class="module-registry-row" role="listitem">
         <div class="module-registry-main">
-          <strong class="module-registry-name">{{ row.name }}</strong>
-          <code class="module-registry-id">{{ row.id }}</code>
+          <strong class="module-registry-name" data-ui-product-name>{{ row.name }}</strong>
+          <code class="module-registry-id" data-ui-product-name>{{ row.id }}</code>
         </div>
         <div class="module-registry-meta" aria-label="{{ tr(request, 'config_modules.status', 'Status') }}">
           <span class="module-registry-badge module-registry-badge-status">{{ row.status }}</span>
@@ -160,7 +160,7 @@
             {{ row.lifecycle.activation_owner }}
           </span>
         </div>
-        <div class="module-registry-dependencies">
+        <div class="module-registry-dependencies" data-ui-product-name>
           <span>{{ tr(request, 'config_modules.depends_on', 'Modules') }}: {{ row.depends_on|join(', ') if row.depends_on else '-' }}</span>
           <span>{{ tr(request, 'config_modules.used_by', 'Consumers') }}: {{ row.used_by|join(', ') if row.used_by else '-' }}</span>
           <span>{{ tr(request, 'config_modules.external', 'External') }}: {{ row.external_dependencies|join(', ') if row.external_dependencies else '-' }}</span>

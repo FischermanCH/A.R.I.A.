@@ -1,9 +1,9 @@
-{% extends "base.html" %}
+{% extends "page_types/create_page.html" %}
 {% from "_icons.html" import icon %}
 <!--
   UI-Migrationshinweis:
   Der Wizard ist sichtbar recipe-first. Intern bleiben einige skill_*-Feldnamen
-  vorerst fuer alte Forms und Config-Backcompat bestehen.
+  vorerst für alte Formulare und Config-Abwärtskompatibilität bestehen.
 -->
 {% macro step_action_controls(request) -%}
 <div class="inline-actions wizard-advanced-only skill-step-icon-actions">
@@ -29,7 +29,7 @@
 {% set connections_ui_path = module_route_path('connections_ui_readonly', '/connections') %}
 <a class="nav-link ui-action-link" href="{{ connections_ui_path }}" target="_blank" rel="noopener noreferrer">{{ icon('connections', 'ui-action-icon') }}{{ tr(request, 'recipes.manage_connections', 'Verbindungen verwalten') }}</a>
 {%- endmacro %}
-{% block content %}
+{% block page_body %}
 <main class="skills-layout skills-clean-layout skills-surface-layout skills-wizard-layout" id="skills-wizard-root" data-wizard-mode="{{ wizard_mode or 'simple' }}" data-skill-loaded="{% if skill.id %}1{% else %}0{% endif %}">
   {% set recipes_ui_overview_path = module_route_path('recipes_ui', '/recipes') %}
   {% set recipes_ui_wizard_save_path = module_route_path('recipes_ui', '/recipes/wizard/save') %}
@@ -182,7 +182,7 @@
           </section>
           <section class="skill-summary" id="simple-followup-card">
             <h3>{{ tr(request, 'recipes.wizard_simple_followup_title', 'Sinnvolle nächste Schritte') }}</h3>
-            <p class="hint-text" id="simple-followup-hint">{{ tr(request, 'recipes.wizard_simple_followup_hint', 'Fuege mit einem Klick passende Folge-Schritte fuer diesen Rezept-Typ hinzu.') }}</p>
+            <p class="hint-text" id="simple-followup-hint">{{ tr(request, 'recipes.wizard_simple_followup_hint', 'Füge mit einem Klick passende Folge-Schritte für diesen Rezept-Typ hinzu.') }}</p>
             <div class="inline-actions skill-followup-actions" id="simple-followup-actions"></div>
           </section>
 
@@ -350,7 +350,7 @@
           </div>
 
           <div class="inline-actions">
-            <button type="button" id="add-step-btn" class="skill-action-button skill-add-step-button">
+            <button type="button" id="add-step-btn" class="skill-action-button skill-add-step-button ui-secondary-action">
               {{ icon('plus', 'skill-add-step-icon') }}
               <span id="add-step-btn-label">{{ tr(request, 'recipes.wizard_add_step_advanced', 'Enable additional step') }}</span>
             </button>
@@ -398,7 +398,7 @@
           onclick="return confirm('{{ tr(request, 'recipes.delete_confirm', 'Rezept wirklich löschen?') }}');"
         >{{ icon('trash', 'ui-action-icon') }}{{ tr(request, 'recipes.delete', 'Löschen') }}</button>
         {% endif %}
-        <a class="nav-link ui-action-link" href="{{ return_to or recipes_ui_overview_path }}">{{ icon('arrow_left', 'ui-action-icon') }}{{ tr(request, 'recipes.wizard_back_to_recipes', 'Back to recipes') }}</a>
+        <a class="nav-link ui-action-link" data-ui-back-link="true" href="{{ return_to or recipes_ui_overview_path }}">{{ icon('arrow_left', 'ui-action-icon') }}{{ tr(request, 'recipes.wizard_back_to_recipes', 'Back to recipes') }}</a>
       </div>
     </form>
   </section>

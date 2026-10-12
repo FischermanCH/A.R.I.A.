@@ -115,9 +115,18 @@ def test_admin_route_is_inert_on_get_rejects_non_admin_and_runs_once_on_post(tmp
     client = TestClient(app)
 
     assert client.get("/config/native-toolcall-selftest").status_code == 403
-    page = client.get("/config/native-toolcall-selftest", headers={"x-advanced": "1", "x-role": "admin"})
-    assert page.status_code == 200 and "Run native Tool-Call selftest" in page.text
+    page = client.get(
+        "/config/native-toolcall-selftest",
+        headers={"x-advanced": "1", "x-role": "admin"},
+        follow_redirects=False,
+    )
+    assert page.status_code == 303 and page.headers["location"] == "/config/llm"
     assert runs == []
-    result = client.post("/config/native-toolcall-selftest", headers={"x-advanced": "1", "x-role": "admin"})
-    assert result.status_code == 200 and "add_numbers" in result.text and "12" in result.text
+    result = client.post(
+        "/config/llm/toolcall-selftest",
+        headers={"x-advanced": "1", "x-role": "admin"},
+        follow_redirects=False,
+    )
+    assert result.status_code == 303 and "selftest_status=ok" in result.headers["location"]
+    assert "tool%3Dadd_numbers" in result.headers["location"]
     assert runs == [1]

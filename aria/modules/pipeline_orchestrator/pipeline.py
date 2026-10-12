@@ -150,7 +150,13 @@ class Pipeline(
         self._stored_recipes_dir = self._project_root / "data" / "recipes"
         self._config_path = self._project_root / "config" / "config.yaml"
         self._error_interpreter = ErrorInterpreter(self._project_root / "config" / "error_interpreter.yaml")
-        self._stored_recipe_cache: dict[str, Any] = {"sign": None, "rows": []}
+        self._stored_recipe_cache: dict[str, Any] = {
+            "sign": None,
+            "rows": [],
+            "errors": [],
+            "ready": False,
+        }
+        self._native_recipe_warmup_task: asyncio.Task[Any] | None = None
         self._ssh_runtime = SSHRuntime(
             settings=self.settings,
             error_interpreter=self._error_interpreter,
@@ -160,14 +166,7 @@ class Pipeline(
         )
         self._recipe_runtime = RecipeRuntime(
             settings=self.settings,
-            llm_client=self.llm_client,
-            memory_skill_getter=lambda: self.memory_skill,
             execute_custom_ssh_command=self._execute_custom_ssh_command,
-            extract_memory_store_text=self._extract_memory_store_text,
-            extract_memory_recall_query=self._extract_memory_recall_query,
-            facts_collection_for_user=self._facts_collection_for_user,
-            preferences_collection_for_user=self._preferences_collection_for_user,
-            normalize_spaces=self._normalize_spaces,
             truncate_text=self._truncate_text,
         )
         self._skill_runtime = self._recipe_runtime
@@ -626,6 +625,7 @@ class Pipeline(
         state = store.claim_confirmation_resume(job_id, user_id=user_id)
         if state is None:
             return "not_running"
+        store.record_confirmation_resolution(job_id, user_id=user_id, approved=approve)
         token = str(state.get("pending_token") or "")
         call_id = str(state.get("pending_call_id") or "")
         tool_name = str(state.get("pending_tool_name") or "")
@@ -730,8 +730,16 @@ class Pipeline(
         warning: str = "",
         terminal_result: PipelineResult | None = None,
     ) -> None:
+        journal_finalize = getattr(self, "_activity_journal_job_finalizer", None)
+        if callable(journal_finalize):
+            try:
+                record_for_journal = store.get(job_id)
+                if record_for_journal is not None:
+                    journal_finalize(record_for_journal)
+            except Exception:
+                pass
         notifier = getattr(self, "_agent_job_notifier", None)
-        if not callable(notifier) or not store.mark_notified(job_id):
+        if not callable(notifier):
             return
         safe_result = _bounded_agent_job_notice_result(result)
         safe_job_id = "".join(
@@ -803,28 +811,72 @@ class Pipeline(
             "Routing Debug: agent_job_duration "
             f"total_ms={total_duration_ms} segment_ms={max(0, segment_duration_ms)}"
         )
+        payload = {
+            "job_id": safe_job_id,
+            "text": text,
+            "badge_icon": badge_icon,
+            "badge_intent": f"agent_job_{status}",
+            "badge_tokens": tokens,
+            "badge_cost_usd": cost,
+            "badge_duration": f"{total_duration_ms / 1000:.1f}",
+            "badge_details": details,
+            "request_id": str(terminal_result.request_id or "") if terminal_result is not None else "",
+            "event_key": "terminal",
+        }
+        store.set_notice_payload(job_id, "terminal", payload)
+        reserved = store.reserve_notice(job_id, "terminal")
+        if reserved is None:
+            return
+        persisted_payload = dict(reserved.get("payload") or payload)
         try:
-            emitted = notifier(
-                user_id,
-                job_id=safe_job_id,
-                text=text,
-                badge_icon=badge_icon,
-                badge_intent=f"agent_job_{status}",
-                badge_tokens=tokens,
-                badge_cost_usd=cost,
-                badge_duration=f"{total_duration_ms / 1000:.1f}",
-                badge_details=details,
-                request_id=str(terminal_result.request_id or "") if terminal_result is not None else "",
-                event_key="terminal",
-            )
+            emitted = notifier(user_id, **persisted_payload)
             if inspect.isawaitable(emitted):
-                await emitted
+                emitted = await emitted
+            if emitted is False:
+                raise OSError("agent_job_notice_history_readback_failed")
+            store.mark_notice_delivered(job_id, "terminal")
+        except asyncio.CancelledError:
+            store.fail_notice(job_id, "terminal", "delivery_cancelled")
+            raise
         except Exception as exc:
+            store.fail_notice(job_id, "terminal", str(exc) or type(exc).__name__)
             LOGGER.warning(
                 "Agent job completion notice failed for %s (%s)",
                 safe_job_id,
                 type(exc).__name__,
             )
+
+    async def reconcile_agent_job_notices(
+        self, user_id: str, *, job_id: str = "",
+    ) -> int:
+        """Retry durable terminal notices for one user without duplicating chat rows."""
+
+        store = self.get_agent_job_store()
+        delivered = 0
+        language = str(getattr(getattr(self.settings, "ui", object()), "language", "en") or "en")
+        for notice in store.pending_notices_for_user(user_id, job_id=job_id, limit=20):
+            record = store.get(str(notice.get("job_id") or ""))
+            if record is None or record.user_id != str(user_id):
+                continue
+            before = store.get_notice(record.job_id, "terminal")
+            await self._notify_agent_job_terminal(
+                store=store,
+                job_id=record.job_id,
+                user_id=record.user_id,
+                language=language,
+                status=record.status,
+                result=record.result,
+                warning=record.warning,
+            )
+            after = store.get_notice(record.job_id, "terminal")
+            if (
+                before is not None
+                and str(before.get("delivery_state") or "") != "delivered"
+                and after is not None
+                and str(after.get("delivery_state") or "") == "delivered"
+            ):
+                delivered += 1
+        return delivered
 
     def delete_agent_job(self, user_id: str, job_id: str) -> str:
         record = self.get_agent_job_store().get(job_id)
@@ -854,10 +906,25 @@ class Pipeline(
         budget = float(getattr(loop, "async_agent_job_sync_budget_seconds", 25.0) or 25.0)
         stale_after = max(120.0, budget * 4.0)
         store = self.get_agent_job_store()
+        stale_active = store.stale_active(stale_before=current - stale_after)
         changed = store.mark_stale_interrupted(
             stale_before=current - stale_after,
             now=current,
         )
+        for record in stale_active:
+            try:
+                task = asyncio.create_task(self._notify_agent_job_terminal(
+                    store=store, job_id=record.job_id, user_id=record.user_id,
+                    language=str((record.resume_state or {}).get("language") or "en"),
+                    status="error", result="worker_restart",
+                ))
+                self._track_agent_job_task(task)
+            except RuntimeError:
+                journal_finalize = getattr(self, "_activity_journal_job_finalizer", None)
+                if callable(journal_finalize):
+                    refreshed = store.get(record.job_id)
+                    if refreshed is not None:
+                        journal_finalize(refreshed)
         paused_days = int(getattr(loop, "agent_job_stale_paused_days", 7) or 7)
         for record in store.stale_paused(stale_before=current - paused_days * 86400):
             self._invalidate_agent_job_pending_token(record)
@@ -932,14 +999,6 @@ class Pipeline(
     def _preferences_collection_for_user(self, user_id: str) -> str:
         prefix = self.settings.memory.collections.preferences.prefix.strip() or "aria_preferences"
         return f"{prefix}_{self._slug_user_id(user_id)}"
-
-    def _extract_memory_store_text(self, message: str, routing_profile: RoutingLanguageConfig | None = None) -> str:
-        del routing_profile
-        return self._normalize_spaces(message)
-
-    def _extract_memory_recall_query(self, message: str, routing_profile: RoutingLanguageConfig | None = None) -> str:
-        del routing_profile
-        return self._normalize_spaces(message)
 
     def _extract_web_search_query(self, message: str, routing_profile: RoutingLanguageConfig | None = None) -> str:
         del routing_profile
@@ -1090,35 +1149,6 @@ class Pipeline(
             model_name,
             model_aliases=getattr(self.settings.pricing, "model_aliases", {}),
         )
-
-    async def _run_skills(
-        self,
-        intents: list[str],
-        message: str,
-        user_id: str,
-        routing_profile: RoutingLanguageConfig,
-        language: str = "de",
-        runtime_recipes: list[dict[str, Any]] | None = None,
-        memory_collection: str | None = None,
-        session_collection: str | None = None,
-        suppress_web_search_note_context: bool = False,
-        query_overrides: dict[str, str] | None = None,
-        context_overrides: dict[str, Any] | None = None,
-    ) -> list[SkillResult]:
-        return await self._skill_runtime.run_skills(
-            intents=intents,
-            message=message,
-            user_id=user_id,
-            routing_profile=routing_profile,
-            language=language,
-            runtime_recipes=runtime_recipes,
-            memory_collection=memory_collection,
-            session_collection=session_collection,
-            suppress_web_search_note_context=suppress_web_search_note_context,
-            query_overrides=query_overrides,
-            context_overrides=context_overrides,
-        )
-
 
 
 
@@ -1354,13 +1384,10 @@ class Pipeline(
         user_id: str = "web",
         source: str = "web",
         language: str | None = None,
-        memory_collection: str | None = None,
-        session_collection: str | None = None,
         recent_history: list[dict[str, Any]] | None = None,
         auth_role: str = "",
         confirmation_token: str = "",
     ) -> PipelineResult:
-        del memory_collection, session_collection
         start = time.perf_counter()
         timing = StageTimingLedger(enabled=self._routing_debug_enabled())
         request_id = str(uuid4())
@@ -1501,6 +1528,13 @@ class Pipeline(
                             for line in terminal_result.detail_lines
                         ):
                             terminal_warning = "native_agent_summary_unavailable"
+                        if terminal_result is not None:
+                            store.set_journal_context(
+                                job_id,
+                                connection_kinds=terminal_result.journal_connection_kinds,
+                                connection_refs=terminal_result.journal_connection_refs,
+                                mcp_servers=terminal_result.journal_mcp_servers,
+                            )
                         store.set_terminal(
                             job_id,
                             status="error" if failed else "done",

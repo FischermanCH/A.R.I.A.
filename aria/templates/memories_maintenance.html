@@ -1,44 +1,38 @@
-{% extends "base.html" %}
+{% extends "page_types/tool_page.html" %}
 {% from "_icons.html" import icon %}
-{% block content %}
+{% block page_body %}
 {% set memory_admin_config_path = module_route_path('memory_admin_ui', '/memories/config') %}
 {% set memory_export_path = module_route_path('memory_export', '/memories/export') %}
 {% set ops_memory_reindex_run_path = module_route_path('ops_config_backup', '/memories/reindex/run') %}
-{% set memory_maintenance_rollup_path = module_route_path('memory_admin_ui', '/memories/maintenance') %}
 {% set memory_learning_suggestions_reset_path = module_route_path('memory_admin_ui', '/memories/maintenance/reset-learning-suggestions') %}
 {% set memory_legacy_learning_cleanup_path = module_route_path('memory_admin_ui', '/memories/maintenance/cleanup-legacy-learning') %}
 <main class="config-layout memory-maintenance-layout memory-domain-shell">
   {% include "_memories_nav.html" %}
-  {% if focus not in ['rollup', 'reset', 'cleanup', 'reindex'] and error_message %}
+  {% if focus not in ['reset', 'cleanup', 'reindex'] and error_message %}
   <section class="floating-card">
     <div class="alert err">{{ error_message }}</div>
   </section>
   {% endif %}
-  {% if focus not in ['rollup', 'reset', 'cleanup', 'reindex'] and info_message %}
+  {% if focus not in ['reset', 'cleanup', 'reindex'] and info_message %}
   <section class="floating-card">
     <div class="alert ok">{{ info_message }}</div>
   </section>
   {% endif %}
 
-  <section id="maint-rollup" class="floating-card config-domain-section">
+  <section class="floating-card config-domain-section">
     <div class="page-title-row">
       <span>{{ icon('settings', 'page-title-icon') }}</span>
       <h2>{{ tr(request, 'memories_maintenance.title', 'Wartung') }}</h2>
     </div>
-    <p>{{ tr(request, 'memories_maintenance.subtitle', 'Technische Memory-Werkzeuge liegen hier, damit der Gedächtnis-Browser View-only bleibt.') }}</p>
+    <p class="ui-page-purpose">{{ tr(request, 'memories_maintenance.subtitle', 'Führe klar abgegrenzte Wartungsaktionen aus, ohne gespeicherte Erinnerungen oder Dokumente im Browser zu bearbeiten.') }}</p>
   </section>
 
   {% if request.state.can_access_advanced_config %}
-  <section class="floating-card config-domain-section">
-    <div class="page-title-row"><span>{{ icon('refresh', 'page-title-icon') }}</span><h3>{{ tr(request, 'memories.rollup', 'Kontext-Rollup') }}</h3></div>
-    <p class="hint-text">{{ tr(request, 'memories_maintenance.rollup_desc', 'Verdichtet alten Tages-Kontext in Rollup-Collections.') }}</p>
-    <form method="post" action="{{ memory_maintenance_rollup_path }}" class="config-actions-row" data-busy-immediate="true">
-      <input type="hidden" name="source_view" value="maintenance">
-      <button type="submit" class="primary-action">{{ icon('refresh', 'btn-icon') }} {{ tr(request, 'memories_maintenance.rollup_run', 'Rollup starten') }}</button>
-    </form>
-    {% if focus == 'rollup' and error_message %}<div class="alert err">{{ error_message }}</div>{% endif %}
-    {% if focus == 'rollup' and info_message %}<div class="alert ok">{{ info_message }}</div>{% endif %}
+  {% if legacy_rollup_count %}
+  <section class="floating-card config-domain-section ui-info-panel">
+    <p class="hint-text">{{ tr(request, 'memories_maintenance.legacy_rollup_read_only', 'Ältere Kontext-Rollups: {count} Einträge (schreibgeschützt).')|replace('{count}', legacy_rollup_count|string) }} <a href="{{ module_route_path('activity_journal', '/memories/activity-journal') }}">{{ tr(request, 'memories_maintenance.open_activity_journal', 'Im Aktivitätsjournal ansehen und übernehmen') }}</a></p>
   </section>
+  {% endif %}
 
   {% set index_status = inventory_index_status or {} %}
   <section id="maint-reindex" class="floating-card config-domain-section">
@@ -64,7 +58,7 @@
     <div class="config-submenu">
       <a class="config-submenu-item" href="{{ memory_admin_config_path }}">
         <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'memories.setup', 'Memory-Setup') }}</span><span class="submenu-desc">{{ tr(request, 'memories_maintenance.setup_desc', 'Qdrant, aktive Collection und Kompression konfigurieren.') }}</span></span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'memories.setup', 'Memory-Setup') }}</span><span class="submenu-desc">{{ tr(request, 'memories_maintenance.setup_desc', 'Qdrant und die aktive Collection konfigurieren.') }}</span></span>
       </a>
       <a class="config-submenu-item" href="{{ memory_export_path }}?type=all&sort=updated_desc">
         <span class="submenu-icon-wrap">{{ icon('download', 'submenu-icon') }}</span>

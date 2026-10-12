@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime, timezone
 import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -141,10 +143,34 @@ class RuntimeManager:
         refresher: Callable[[], Awaitable[dict[str, Any]]],
         *,
         force_refresh: bool = False,
+        passive: bool = False,
     ) -> dict[str, Any]:
         current = self.get_startup_diagnostics()
-        if force_refresh or not current.get("checked_at"):
-            refreshed = await refresher()
+        if passive:
+            return current
+        needs_refresh = force_refresh or not current.get("checked_at")
+        if not needs_refresh:
+            statuses = {
+                str(row.get("status") or "")
+                for row in current.get("checks", ())
+                if isinstance(row, dict) and str(row.get("status") or "")
+            }
+            if statuses & {"error", "warn"}:
+                try:
+                    checked = datetime.fromisoformat(str(current.get("checked_at") or "").replace("Z", "+00:00"))
+                    if checked.tzinfo is None:
+                        checked = checked.replace(tzinfo=timezone.utc)
+                    needs_refresh = (datetime.now(timezone.utc) - checked).total_seconds() >= 300
+                except ValueError:
+                    needs_refresh = True
+        if needs_refresh:
+            try:
+                refreshed = await asyncio.wait_for(refresher(), timeout=5.0) if not force_refresh else await refresher()
+            except asyncio.TimeoutError:
+                stale = dict(current)
+                stale["stale"] = True
+                stale["refresh_error"] = "timeout"
+                return stale
             return self.set_startup_diagnostics(refreshed)
         return current
 

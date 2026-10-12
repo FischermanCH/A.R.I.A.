@@ -107,8 +107,31 @@ class ConnectionAdminHelpers:
                 raise ConnectionAdminError("profile_not_found")
             if ref != original_ref_clean and ref in rows:
                 raise ConnectionAdminError("profile_exists", ref=ref)
+            if ref != original_ref_clean and self._connection_ref_is_used_by_recipe(original_ref_clean):
+                raise ConnectionAdminError("profile_ref_used_by_recipe", ref=original_ref_clean)
         store = self._deps.get_secure_store(raw)
         return raw, store, rows, ref, original_ref_clean, is_create
+
+    def _connection_ref_is_used_by_recipe(self, connection_ref: str) -> bool:
+        """Fail closed when a known recipe still points at a ref being renamed."""
+
+        loader = getattr(self._deps.pipeline, "_load_stored_recipe_runtime", None)
+        if not callable(loader):
+            return True
+        try:
+            recipes = loader()
+        except Exception:
+            return True
+        for recipe in recipes if isinstance(recipes, (list, tuple)) else ():
+            if not isinstance(recipe, dict):
+                continue
+            for step in recipe.get("steps", ()) if isinstance(recipe.get("steps", ()), list) else ():
+                if not isinstance(step, dict):
+                    continue
+                params = step.get("params", {})
+                if isinstance(params, dict) and str(params.get("connection_ref") or "").strip() == connection_ref:
+                    return True
+        return False
 
     def _rename_connection_secret(self, store: Any, key_from: str, key_to: str) -> None:
         if not store or key_from == key_to:

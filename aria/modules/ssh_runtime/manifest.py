@@ -18,6 +18,7 @@ MODULE_MANIFEST: dict[str, Any] = {
         "execution_dry_run",
         "execution_dry_run_payloads",
         "pipeline_contracts",
+        "platform_primitives",
         "recipe_runtime",
         "runtime_result_summary",
         "runtime_execution_registry",

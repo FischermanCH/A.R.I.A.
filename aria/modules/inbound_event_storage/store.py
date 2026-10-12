@@ -310,3 +310,34 @@ class InboundEventStore:
             item["technical_fields"] = json.loads(item.pop("technical_fields_json"))
             result.append(item)
         return result
+
+    def prune_expired(
+        self, *, retention_days: int = 30,
+        max_events_per_source: int = DEFAULT_MAX_EVENTS_PER_SOURCE,
+        now: float | None = None,
+    ) -> dict[str, int]:
+        """Apply age and per-source bounds to stored inbound events."""
+
+        current = float(datetime.now(timezone.utc).timestamp() if now is None else now)
+        cutoff = datetime.fromtimestamp(
+            current - max(1, int(retention_days or 30)) * 86400, timezone.utc,
+        ).isoformat()
+        limit = max(1, min(int(max_events_per_source or DEFAULT_MAX_EVENTS_PER_SOURCE), 100_000))
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            age = connection.execute(
+                "DELETE FROM inbound_events WHERE received_at < ?", (cutoff,),
+            )
+            sources = [str(row[0]) for row in connection.execute(
+                "SELECT DISTINCT source_ref FROM inbound_events"
+            ).fetchall()]
+            removed_cap = 0
+            for source in sources:
+                cursor = connection.execute(
+                    """DELETE FROM inbound_events WHERE source_ref=? AND event_id NOT IN (
+                    SELECT event_id FROM inbound_events WHERE source_ref=?
+                    ORDER BY received_at DESC,event_id DESC LIMIT ?)""",
+                    (source, source, limit),
+                )
+                removed_cap += max(0, int(cursor.rowcount or 0))
+        return {"removed_age": max(0, int(age.rowcount or 0)), "removed_cap": removed_cap}

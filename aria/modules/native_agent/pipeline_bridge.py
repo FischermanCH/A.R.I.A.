@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import re
 import time
@@ -25,6 +27,50 @@ from aria.modules.native_agent.tool_registry import (
 )
 from aria.modules.pipeline_contracts.result import PipelineResult
 from aria.modules.pipeline_contracts.text import pipeline_text
+
+
+def warm_native_agent_local_state(
+    owner: Any,
+    *,
+    confirmation_ledger: ActionConfirmationLedger | None = None,
+) -> dict[str, Any]:
+    """Create cheap local native-agent stores before the first user turn."""
+
+    runtime_root = Path(getattr(owner, "_project_root", Path.cwd())) / "data" / "runtime"
+    pending_store = getattr(owner, "_native_pending_store", None)
+    if pending_store is None:
+        pending_store = NativePendingStore(runtime_root / "native_pending_actions.sqlite3")
+        owner._native_pending_store = pending_store
+    ledger = getattr(owner, "_native_confirmation_ledger", None)
+    if ledger is None:
+        ledger = confirmation_ledger or ActionConfirmationLedger(
+            runtime_root / "action_confirmations.sqlite3"
+        )
+        owner._native_confirmation_ledger = ledger
+    observed_sequence_store = getattr(owner, "_native_observed_sequence_store", None)
+    if observed_sequence_store is None:
+        observed_sequence_store = ObservedSequenceStore(runtime_root / "observed_sequences.json")
+        owner._native_observed_sequence_store = observed_sequence_store
+    observed_claim_store = getattr(owner, "_native_observed_claim_store", None)
+    if observed_claim_store is None:
+        observed_claim_store = ObservedClaimStore(runtime_root / "observed_claims.json")
+        owner._native_observed_claim_store = observed_claim_store
+    suggestion_store = getattr(owner, "_native_cross_host_recipe_suggestions", None)
+    if suggestion_store is None:
+        suggestion_store = CrossHostRecipeSuggestionStore()
+        owner._native_cross_host_recipe_suggestions = suggestion_store
+    recipe_embedding_cache = getattr(owner, "_native_recipe_embedding_cache", None)
+    if recipe_embedding_cache is None:
+        recipe_embedding_cache = {}
+        owner._native_recipe_embedding_cache = recipe_embedding_cache
+    return {
+        "pending_store": pending_store,
+        "confirmation_ledger": ledger,
+        "observed_sequence_store": observed_sequence_store,
+        "observed_claim_store": observed_claim_store,
+        "suggestion_store": suggestion_store,
+        "recipe_embedding_cache": recipe_embedding_cache,
+    }
 
 
 def _web_debug_detail_lines(details: Any) -> list[str]:
@@ -55,6 +101,20 @@ def _native_llm_timing_detail_line(outcome: Any) -> str:
         f"tools={max((int(getattr(call, 'tool_count', 0) or 0) for call in calls), default=0)} "
         f"input_tokens={sum(int(getattr(call, 'input_tokens', 0) or 0) for call in calls)}"
     )
+
+
+def _native_tool_timing_detail_line(outcome: Any) -> str:
+    timings = tuple(getattr(outcome, "tool_timings", ()) or ())
+    if not timings:
+        return ""
+    detail = "Routing Debug: tool_timing"
+    for name, duration_ms in timings:
+        part = f" {str(name)[:96]}={max(0, int(duration_ms))}ms"
+        if len(detail) + len(part) > 900:
+            detail += " truncated=yes"
+            break
+        detail += part
+    return detail
 
 
 def _safe_mcp_status_value(value: object, *, limit: int = 80) -> str:
@@ -177,6 +237,7 @@ def native_agent_enabled(settings: Any) -> bool:
         or getattr(config, "native_agent_recipe_learn_enabled", False)
         or getattr(config, "native_agent_memory_learn_enabled", False)
         or getattr(config, "native_agent_mcp_enabled", False)
+        or getattr(config, "activity_journal_enabled", False)
     ))
 
 
@@ -193,6 +254,7 @@ async def run_native_agent_first_stage(
     resume_state: dict[str, Any] | None = None,
     language: str = "en",
 ) -> PipelineResult | None:
+    bridge_started_at = time.perf_counter()
     if not native_agent_enabled(owner.settings):
         return None
     config = owner.settings.agentic_loop
@@ -210,16 +272,27 @@ async def run_native_agent_first_stage(
             "native_agent_recipe_learn_enabled",
             "native_agent_memory_learn_enabled",
             "native_agent_mcp_enabled",
+            "activity_journal_enabled",
         )
         if bool(getattr(config, flag, False))
     }
     mcp_detail_lines: list[str] = []
     mcp_statuses: tuple[Any, ...] = ()
+    mcp_discovery_ms = 0
+    mcp_discovery_reports: tuple[Any, ...] = ()
     mcp_client = getattr(owner, "_native_mcp_client", None)
     if "native_agent_mcp_enabled" in enabled_flags and mcp_client is not None:
+        mcp_started_at = time.perf_counter()
         discover = getattr(mcp_client, "discover_all", None)
         if callable(discover):
-            await discover(block_cold=True)
+            # A turn only consumes the current discovery snapshot.  Cold and
+            # stale probes are scheduled by the manager and by startup warmup;
+            # they must never spend the synchronous chat budget.
+            await discover(block_cold=False)
+        mcp_discovery_ms = max(0, int((time.perf_counter() - mcp_started_at) * 1000))
+        discovery_report = getattr(mcp_client, "discovery_report", None)
+        if callable(discovery_report):
+            mcp_discovery_reports = tuple(discovery_report())
         statuses = getattr(mcp_client, "statuses", None)
         if callable(statuses):
             mcp_statuses = tuple(statuses())
@@ -233,11 +306,26 @@ async def run_native_agent_first_stage(
                 if status.error:
                     line += f" error={str(status.error)[:80]}"
                 mcp_detail_lines.append(line)
+        for report in mcp_discovery_reports:
+            server = ''.join(
+                character if character.isalnum() or character in '_-' else '_'
+                for character in str(getattr(report, "server_name", ""))
+            )[:64]
+            mcp_detail_lines.append(
+                "Routing Debug: mcp_discovery_ms="
+                f"{mcp_discovery_ms} blocked={'yes' if bool(getattr(report, 'blocked', False)) else 'no'} "
+                f"server={server or '-'} backoff_s={max(0, int(getattr(report, 'backoff_seconds', 0) or 0))}"
+            )
+    bindings_started_at = time.perf_counter()
     bindings = assemble_native_tools(
         MODULE_MANIFESTS, runtime_owner=owner, enabled_rollout_flags=enabled_flags,
     )
+    bindings_ms = max(0, int((time.perf_counter() - bindings_started_at) * 1000))
+    filter_started_at = time.perf_counter()
     bindings = filter_tools_by_configured_connections(bindings, owner.settings)
+    connection_filter_ms = max(0, int((time.perf_counter() - filter_started_at) * 1000))
     tool_selector_detail = ""
+    selector_stage_ms = 0
     if not str(confirmation_token or "").strip():
         tool_selector_total = len(bindings)
         tool_selector_has_extras = any(
@@ -251,6 +339,7 @@ async def run_native_agent_first_stage(
             selector=tool_selector,
             top_k=int(getattr(config, "native_tool_selector_top_k", 16) or 16),
         )
+        selector_stage_ms = max(0, int((time.perf_counter() - tool_selector_started) * 1000))
         if tool_selector_total > NATIVE_TOOL_RELEVANCE_THRESHOLD and tool_selector_has_extras:
             selector_telemetry = getattr(tool_selector, "last_telemetry", None)
             selector_ms = max(0, int(getattr(selector_telemetry, "duration_ms", 0) or 0))
@@ -262,36 +351,38 @@ async def run_native_agent_first_stage(
                 f"fallback={'yes' if bool(getattr(selector_telemetry, 'fallback', False)) else 'no'}"
             )
 
-    runtime_root = Path(getattr(owner, "_project_root", Path.cwd())) / "data" / "runtime"
-    pending_store = getattr(owner, "_native_pending_store", None)
-    if pending_store is None:
-        pending_store = NativePendingStore(runtime_root / "native_pending_actions.sqlite3")
-        owner._native_pending_store = pending_store
-    confirmation_ledger = getattr(owner, "_native_confirmation_ledger", None)
-    if confirmation_ledger is None:
-        confirmation_ledger = ActionConfirmationLedger(runtime_root / "action_confirmations.sqlite3")
-        owner._native_confirmation_ledger = confirmation_ledger
-    observed_sequence_store = getattr(owner, "_native_observed_sequence_store", None)
-    if observed_sequence_store is None:
-        observed_sequence_store = ObservedSequenceStore(runtime_root / "observed_sequences.json")
-        owner._native_observed_sequence_store = observed_sequence_store
-    observed_claim_store = getattr(owner, "_native_observed_claim_store", None)
-    if observed_claim_store is None:
-        observed_claim_store = ObservedClaimStore(runtime_root / "observed_claims.json")
-        owner._native_observed_claim_store = observed_claim_store
-    suggestion_store = getattr(owner, "_native_cross_host_recipe_suggestions", None)
-    if suggestion_store is None:
-        suggestion_store = CrossHostRecipeSuggestionStore()
-        owner._native_cross_host_recipe_suggestions = suggestion_store
-    recipe_embedding_cache = getattr(owner, "_native_recipe_embedding_cache", None)
-    if recipe_embedding_cache is None:
-        recipe_embedding_cache = {}
-        owner._native_recipe_embedding_cache = recipe_embedding_cache
-    recipe_loader = getattr(owner, "_load_stored_recipe_runtime", None)
+    stores_started_at = time.perf_counter()
+    local_state = warm_native_agent_local_state(owner)
+    pending_store = local_state["pending_store"]
+    confirmation_ledger = local_state["confirmation_ledger"]
+    observed_sequence_store = local_state["observed_sequence_store"]
+    observed_claim_store = local_state["observed_claim_store"]
+    suggestion_store = local_state["suggestion_store"]
+    recipe_embedding_cache = local_state["recipe_embedding_cache"]
+    stores_ms = max(0, int((time.perf_counter() - stores_started_at) * 1000))
+    recipes_started_at = time.perf_counter()
+    recipe_snapshot = getattr(owner, "_stored_recipe_runtime_snapshot", None)
+    recipe_warmup_task = getattr(owner, "_native_recipe_warmup_task", None)
+    if (
+        callable(recipe_snapshot)
+        and recipe_warmup_task is not None
+        and not recipe_warmup_task.done()
+        and not bool(getattr(owner, "_stored_recipe_cache", {}).get("ready", False))
+    ):
+        try:
+            await asyncio.wait_for(asyncio.shield(recipe_warmup_task), timeout=0.2)
+        except asyncio.TimeoutError:
+            pass
+    recipe_loader = (
+        recipe_snapshot
+        if callable(recipe_snapshot)
+        else getattr(owner, "_load_stored_recipe_runtime", None)
+    )
     try:
         existing_recipes = tuple(recipe_loader()) if callable(recipe_loader) else ()
     except Exception:
         existing_recipes = ()
+    recipes_ms = max(0, int((time.perf_counter() - recipes_started_at) * 1000))
 
     usage_meter = getattr(owner, "usage_meter", None) or getattr(owner.settings, "_aria_usage_meter", None)
     async def personal_claim_semantic_checker(
@@ -305,6 +396,14 @@ async def run_native_agent_first_stage(
         return bool(await checker(user_id=user_id, embedding=embedding, top_k=top_k))
 
     owner._native_web_debug_details = None
+    pre_handler_elapsed_ms = max(0, int((time.perf_counter() - start) * 1000))
+    upstream_ms = max(0, int((bridge_started_at - start) * 1000))
+    named_bridge_ms = (
+        mcp_discovery_ms + bindings_ms + connection_filter_ms + selector_stage_ms
+        + stores_ms + recipes_ms
+    )
+    bridge_elapsed_ms = max(0, int((time.perf_counter() - bridge_started_at) * 1000))
+    pre_loop_other_ms = max(0, bridge_elapsed_ms - named_bridge_ms)
     outcome = await run_native_agent_turn(
         message=message, user_id=user_id, auth_role=auth_role,
         turn_id=request_id, llm_config=owner.settings.llm,
@@ -315,7 +414,10 @@ async def run_native_agent_first_stage(
         confirmation_token=confirmation_token,
         usage_meter=usage_meter,
         completion=getattr(owner, "_native_agent_completion", None),
-        trace_root=Path("data/modules/native_agent"),
+        trace_root=Path(getattr(owner, "_project_root", Path.cwd())) / "data" / "modules" / "native_agent",
+        trace_detail_level=str(
+            getattr(getattr(owner.settings, "native_trace", None), "detail_level", "minimal") or "minimal"
+        ),
         observed_sequence_store=observed_sequence_store,
         existing_recipes=existing_recipes,
         embedding_client=getattr(owner, "embedding_client", None),
@@ -339,23 +441,78 @@ async def run_native_agent_first_stage(
         mcp_vision_max_lifetime_images=int(
             getattr(config, "native_agent_mcp_vision_max_lifetime_images", 24) or 24
         ),
+        connection_settings=getattr(owner.settings, "connections", None),
         max_steps=int(getattr(config, "native_agent_max_steps", 32) or 32),
         max_provider_calls=int(getattr(config, "native_agent_max_provider_calls", 32) or 32),
         language=language,
     )
     duration_ms = int((time.perf_counter() - start) * 1000)
-    native_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    meter_snapshot: dict[str, Any] = {}
     snapshot_scope_fn = getattr(usage_meter, "snapshot_scope", None)
     if callable(snapshot_scope_fn):
         try:
-            snap_usage = (snapshot_scope_fn(None) or {}).get("usage") or {}
-            native_usage = {
-                "prompt_tokens": int(snap_usage.get("prompt_tokens", 0) or 0),
-                "completion_tokens": int(snap_usage.get("completion_tokens", 0) or 0),
-                "total_tokens": int(snap_usage.get("total_tokens", 0) or 0),
-            }
+            meter_snapshot = dict(snapshot_scope_fn(None) or {})
         except Exception:
-            native_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            meter_snapshot = {}
+    metered_usage = dict(meter_snapshot.get("usage") or {})
+    metered_embedding_usage = dict(meter_snapshot.get("embedding_usage") or {})
+    journal_usage = {
+        "input_tokens": max(0, int(metered_usage.get("prompt_tokens", 0) or 0)),
+        "output_tokens": max(0, int(metered_usage.get("completion_tokens", 0) or 0)),
+        "embedding_tokens": max(0, int(metered_embedding_usage.get("total_tokens", 0) or 0)),
+        "cost_usd": meter_snapshot.get("total_cost_usd"),
+    }
+    journal_detail = ""
+    is_detached_job = str(source or "").startswith("agent_job")
+    if not is_detached_job and callable(detached_check):
+        try:
+            detached_value = detached_check()
+            if inspect.isawaitable(detached_value):
+                detached_value = await detached_value
+            is_detached_job = bool(detached_value)
+        except Exception:
+            is_detached_job = False
+    if not is_detached_job:
+        journal_finalize = getattr(owner, "_activity_journal_turn_finalizer", None)
+        if callable(journal_finalize):
+            try:
+                journal_id = journal_finalize(
+                    user_id=user_id,
+                    turn_id=request_id,
+                    started_at=time.time() - max(0, duration_ms) / 1000,
+                    finished_at=time.time(),
+                    goal=message,
+                    used_tool_names=tuple(outcome.used_tool_names or ()),
+                    outcome_status=(
+                        "ok" if outcome.kind == "final_answer" else
+                        "needs_confirmation" if outcome.kind == "pending_confirmation" else
+                        "error"
+                    ),
+                    outcome_phrase=outcome.message or outcome.reason,
+                    connection_kinds=tuple(outcome.journal_connection_kinds or ()),
+                    connection_refs=tuple(outcome.journal_connection_refs or ()),
+                    confirmations={
+                        "asked": 1 if outcome.kind == "pending_confirmation" else 0,
+                        "approved": 1 if confirmation_token and outcome.kind == "final_answer" else 0,
+                        "rejected": 1 if outcome.kind == "confirmation_refused" else 0,
+                    },
+                    corrected=False,
+                    usage=journal_usage,
+                )
+                if journal_id:
+                    journal_detail = (
+                        "Routing Debug: activity_journal written "
+                        f"id={journal_id} tools={len(tuple(outcome.used_tool_names or ()))}"
+                    )
+            except Exception:
+                journal_detail = ""
+    native_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    if meter_snapshot:
+        native_usage = {
+            "prompt_tokens": int(metered_usage.get("prompt_tokens", 0) or 0),
+            "completion_tokens": int(metered_usage.get("completion_tokens", 0) or 0),
+            "total_tokens": int(metered_usage.get("total_tokens", 0) or 0),
+        }
     if outcome.accumulated_usage:
         native_usage = {
             key: max(0, int(native_usage.get(key, 0) or 0))
@@ -392,6 +549,12 @@ async def run_native_agent_first_stage(
         f"used_tools={','.join(outcome.used_tool_names)} reason={outcome.reason or '-'}"
     )
     detail_lines = [detail, _native_llm_timing_detail_line(outcome)]
+    if journal_detail:
+        detail_lines.append(journal_detail)
+    tool_timing_detail = _native_tool_timing_detail_line(outcome)
+    if tool_timing_detail:
+        detail_lines.append(tool_timing_detail)
+    detail_lines.extend(str(line)[:600] for line in outcome.tool_detail_lines[:24])
     detail_lines.append(
         "Routing Debug: native_finish_reason="
         + (str(getattr(outcome, "finish_reason", "") or "-")[:80])
@@ -408,6 +571,14 @@ async def run_native_agent_first_stage(
     if tool_selector_detail:
         detail_lines.append(tool_selector_detail)
     detail_lines.extend(mcp_detail_lines)
+    detail_lines.append(
+        "Routing Debug: pre_loop_timing "
+        f"mcp={mcp_discovery_ms}ms selector={selector_stage_ms}ms "
+        f"bindings={bindings_ms}ms filter={connection_filter_ms}ms "
+        f"stores={stores_ms}ms recipes={recipes_ms}ms upstream={upstream_ms}ms "
+        f"context={max(0, int(getattr(outcome, 'pre_loop_context_ms', 0) or 0))}ms "
+        f"bridge_other={pre_loop_other_ms}ms"
+    )
     if int(getattr(outcome, "mcp_vision_images", 0) or 0) > 0:
         detail_lines.append(
             "Routing Debug: mcp_vision "
@@ -449,7 +620,9 @@ async def run_native_agent_first_stage(
     detail_lines.append(memory_learning_detail)
     detail_lines.append(
         "Routing Debug: semantic "
-        f"match_recipe={outcome.semantic_match_recipe or '-'} sim={outcome.semantic_similarity:.2f}"
+        f"match_recipe={outcome.semantic_match_recipe or '-'} sim={outcome.semantic_similarity:.2f} "
+        f"source_connection={getattr(outcome, 'semantic_source_connection', '') or '-'} "
+        f"target_connection={getattr(outcome, 'semantic_target_connection', '') or '-'}"
     )
     if bool(getattr(config, "native_web_debug_details", False)):
         detail_lines.extend(_web_debug_detail_lines(getattr(owner, "_native_web_debug_details", None)))
@@ -509,4 +682,11 @@ async def run_native_agent_first_stage(
         duration_ms=duration_ms, detail_lines=list(detail_lines),
         clear_routed_action_affordance=outcome.clear_confirmation_affordance,
         suggestion_affordance=dict(outcome.suggestion_affordance) if outcome.suggestion_affordance else None,
+        journal_connection_kinds=list(outcome.journal_connection_kinds or ()),
+        journal_connection_refs=list(outcome.journal_connection_refs or ()),
+        journal_mcp_servers=sorted({
+            parts[1]
+            for name in tuple(outcome.used_tool_names or ())
+            if len(parts := str(name).split("__", 2)) == 3 and parts[0] == "mcp"
+        }),
     )

@@ -25,3 +25,6 @@ class PipelineResult:
     clear_routed_action_affordance: bool = False
     suggestion_affordance: dict[str, str] | None = None
     agent_job_id: str = ""
+    journal_connection_kinds: list[str] = field(default_factory=list)
+    journal_connection_refs: list[str] = field(default_factory=list)
+    journal_mcp_servers: list[str] = field(default_factory=list)

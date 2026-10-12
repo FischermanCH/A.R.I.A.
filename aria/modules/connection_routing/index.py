@@ -9,7 +9,7 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 from uuid import NAMESPACE_URL, uuid5
 
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, PointIdsList, PointStruct, VectorParams
 
 from aria.modules.connections_catalog.catalog import connection_kind_label
 from aria.modules.connections_catalog.catalog import connection_routing_spec
@@ -381,6 +381,8 @@ class RoutingIndexStore:
     async def upsert_documents(self, documents: list[RoutingDocument], *, index_hash: str = "") -> dict[str, Any]:
         rows = [document for document in documents if str(document.text or "").strip()]
         if not rows:
+            for collection in await self._owned_collection_names(defaults={self.collection_name}):
+                await self._remove_stale_points(collection, set())
             return {"documents": 0, "collections": [], "embedding_usage": {}, "embedding_model": "", "routing_index_hash": ""}
         routing_index_hash = str(index_hash or routing_documents_fingerprint(rows)).strip()
         vectors, usage, model = await self._embed([document.text for document in rows], operation="upsert_connections")
@@ -404,6 +406,11 @@ class RoutingIndexStore:
 
         for collection, points in grouped.items():
             await self.qdrant.upsert(collection_name=collection, points=points)
+        for collection in await self._owned_collection_names(defaults=set(grouped)):
+            await self._remove_stale_points(
+                collection,
+                {str(point.id) for point in grouped.get(collection, ())},
+            )
 
         return {
             "documents": sum(len(points) for points in grouped.values()),
@@ -412,6 +419,62 @@ class RoutingIndexStore:
             "embedding_model": model,
             "routing_index_hash": routing_index_hash,
         }
+
+    async def _owned_collection_names(self, *, defaults: set[str]) -> list[str]:
+        names = set(defaults)
+        get_collections = getattr(self.qdrant, "get_collections", None)
+        if callable(get_collections):
+            try:
+                result = await get_collections()
+                names.update(
+                    str(getattr(row, "name", "") or "")
+                    for row in list(getattr(result, "collections", ()) or ())
+                    if str(getattr(row, "name", "") or "") == self.collection_name
+                    or str(getattr(row, "name", "") or "").startswith(f"{self.collection_name}_dim_")
+                )
+            except Exception:
+                pass
+        return sorted(name for name in names if name)
+
+    async def _remove_stale_points(self, collection_name: str, expected_ids: set[str]) -> int:
+        """Reconcile module-owned routing points after a full authoritative rebuild."""
+
+        scroll = getattr(self.qdrant, "scroll", None)
+        delete = getattr(self.qdrant, "delete", None)
+        if not callable(scroll) or not callable(delete):
+            return 0
+        try:
+            if not await self.qdrant.collection_exists(collection_name=collection_name):
+                return 0
+            existing: set[str] = set()
+            offset: Any = None
+            while True:
+                result = await scroll(
+                    collection_name=collection_name,
+                    limit=256,
+                    offset=offset,
+                    with_payload=False,
+                    with_vectors=False,
+                )
+                points, next_offset = result if isinstance(result, tuple) else (
+                    getattr(result, "points", ()) or (), getattr(result, "next_page_offset", None),
+                )
+                existing.update(str(getattr(point, "id", "")) for point in points if getattr(point, "id", None) is not None)
+                if next_offset is None:
+                    break
+                offset = next_offset
+            stale = sorted(existing - expected_ids)
+            if stale:
+                await delete(
+                    collection_name=collection_name,
+                    points_selector=PointIdsList(points=stale),
+                    wait=True,
+                )
+            return len(stale)
+        except Exception:
+            # Upserted current points remain authoritative even when an older
+            # Qdrant client cannot expose the optional reconciliation APIs.
+            return 0
 
     @staticmethod
     def _extract_hits(query_result: Any) -> list[Any]:

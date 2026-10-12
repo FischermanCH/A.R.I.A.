@@ -43,7 +43,7 @@ Danach zuerst pruefen:
 ARIA hat zwei Arbeitsmodi:
 
 - **User-Modus**: reduzierte Arbeitsansicht fuer den Alltag
-- **Admin-Modus**: zusaetzliche System-, Routing-, Security-, Workbench- und Config-Seiten
+- **Admin-Modus**: zusätzliche System-, Routing-, Sicherheits-, Workbench- und Konfigurationsseiten
 
 Wenn technische Konfigurationsseiten fehlen, pruefe im Account-Menue bzw. unter `/config/admin-mode`, ob **Erweiterte Ansicht** eingeschaltet ist.
 
@@ -55,7 +55,7 @@ Im Chat kannst du normal fragen oder natuerliche Arbeitsauftraege geben, zum Bei
 - `check mal die festplatten von meinen servern und melde mir falls handlungsbedarf besteht`
 - `pruef ob die api erreichbar ist`
 - `zeige mir die folder auf dem share Example Share`
-- `mach mir eine zusammenfassung der letzten it-security news`
+- `fass mir die neuesten IT-Sicherheitsnachrichten zusammen`
 
 ARIA versucht dann:
 
@@ -158,8 +158,8 @@ RSS-Antworten sollen nicht nur sagen, dass es Treffer gibt. ARIA liefert fuer Di
 
 Beispiele:
 
-- `mach mir eine zusammenfassung der letzten it-security news`
-- `was gibt es neues bei security news`
+- `fass mir die neuesten IT-Sicherheitsnachrichten zusammen`
+- `was gibt es Neues bei IT-Sicherheitsnachrichten`
 
 ## Statistiken, Tokens und Kosten
 
@@ -185,7 +185,7 @@ Der sichere Public-Pfad ist `aria-setup` / Managed Compose. Der Update-Helper er
 
 Vor einem Recreate prueft der Host-Update-Helper den geplanten Host-Port. Wenn ein anderer Prozess oder Container den Port belegt, bricht das Update vor Veraenderungen am laufenden Service ab.
 
-## Security
+## Sicherheit
 
 ARIA ist fuer kontrollierte Umgebungen gebaut:
 
@@ -228,5 +228,5 @@ ARIA ist fuer kontrollierte Umgebungen gebaut:
 - `/help?doc=agentic`
 - `/help?doc=skills`
 - `/help?doc=pricing`
-- `/help?doc=security`
+- [Sicherheit](/help?doc=security)
 - `/help?doc=releases`

@@ -51,6 +51,7 @@ from aria.modules.connections_mutations.support_helpers import (
 from aria.modules.connections_mutations.admin_helpers import ConnectionAdminHelperDeps, ConnectionAdminHelpers
 from aria.modules.connections_ui_readonly.context_helpers import ConnectionContextHelperDeps, build_connection_context_helpers
 from aria.modules.connections_ui_readonly.detail_routes import ConnectionDetailRouteDeps, register_connection_detail_routes
+from aria.modules.connections_ui_readonly.ia_routes import canonicalize_connection_ui_redirect, connection_canonical_url
 from aria.modules.connections_ui_readonly.metadata_routes import ConnectionMetadataRouteDeps, register_connection_metadata_routes
 from aria.modules.connections_mutations.routes import ConnectionMutationRouteDeps, register_connection_mutation_routes
 from aria.modules.connections_mutations.handlers import (
@@ -805,34 +806,6 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             reload_runtime=_reload_runtime,
         ),
     )
-    register_connection_detail_routes(
-        app,
-        ConnectionDetailRouteDeps(
-            templates=TEMPLATES,
-            base_dir=BASE_DIR,
-            render_connection_page=_render_connection_page,
-            base_connections_page_context=_base_connections_page_context,
-            build_ssh_connections_context=_build_ssh_connections_context,
-            build_discord_connections_context=_build_discord_connections_context,
-            build_sftp_connections_context=_build_sftp_connections_context,
-            build_smb_connections_context=_build_smb_connections_context,
-            build_webhook_connections_context=_build_webhook_connections_context,
-            build_email_connections_context=_build_email_connections_context,
-            build_imap_connections_context=_build_imap_connections_context,
-            build_http_api_connections_context=_build_http_api_connections_context,
-            build_google_calendar_connections_context=_build_google_calendar_connections_context,
-            build_rss_connections_context=_build_rss_connections_context,
-            build_website_connections_context=_build_website_connections_context,
-            build_mqtt_connections_context=_build_mqtt_connections_context,
-            build_rss_status_groups=build_rss_status_groups,
-            load_cached_rss_status_groups=load_cached_rss_status_groups,
-            save_cached_rss_status_groups=save_cached_rss_status_groups,
-            connection_template_name=connection_template_name,
-            pipeline=pipeline,
-            msg=_msg,
-        ),
-    )
-
     _connection_mutation_handlers = build_connection_mutation_handlers(
         ConnectionMutationHandlerDeps(
             base_dir=BASE_DIR,
@@ -843,6 +816,8 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             write_raw_config=_write_raw_config,
             reload_runtime=_reload_runtime,
             redirect_with_return_to=_redirect_with_return_to,
+            canonicalize_ui_redirect=canonicalize_connection_ui_redirect,
+            connection_canonical_url=connection_canonical_url,
             sanitize_connection_name=_sanitize_connection_name,
             delete_connection_profile=_delete_connection_profile,
             get_connection_delete_spec=_get_connection_delete_spec,
@@ -887,11 +862,13 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         ConnectionMutationRouteDeps(
             rss_poll_interval_save=_connection_mutation_handlers.rss_poll_interval_save,
             connection_delete=_connection_mutation_handlers.connection_delete,
+            credential_rotate=_connection_mutation_handlers.credential_rotate,
             ssh_save=_connection_mutation_handlers.ssh_save,
             discord_save=_connection_mutation_handlers.discord_save,
             sftp_save=_connection_mutation_handlers.sftp_save,
             smb_save=_connection_mutation_handlers.smb_save,
             webhook_save=_connection_mutation_handlers.webhook_save,
+            webhook_test=_connection_mutation_handlers.webhook_test,
             smtp_save=_connection_mutation_handlers.smtp_save,
             imap_save=_connection_mutation_handlers.imap_save,
             http_api_save=_connection_mutation_handlers.http_api_save,
@@ -905,5 +882,35 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             ssh_keygen=_connection_mutation_handlers.ssh_keygen,
             ssh_key_exchange=_connection_mutation_handlers.ssh_key_exchange,
             ssh_test=_connection_mutation_handlers.ssh_test,
+        ),
+    )
+    # Canonical /new and /<ref> presentation routes are registered after all
+    # provider action endpoints so a profile ref can never shadow routes such
+    # as /rss/export-opml or /ssh/suggest-metadata.
+    register_connection_detail_routes(
+        app,
+        ConnectionDetailRouteDeps(
+            templates=TEMPLATES,
+            base_dir=BASE_DIR,
+            render_connection_page=_render_connection_page,
+            base_connections_page_context=_base_connections_page_context,
+            build_ssh_connections_context=_build_ssh_connections_context,
+            build_discord_connections_context=_build_discord_connections_context,
+            build_sftp_connections_context=_build_sftp_connections_context,
+            build_smb_connections_context=_build_smb_connections_context,
+            build_webhook_connections_context=_build_webhook_connections_context,
+            build_email_connections_context=_build_email_connections_context,
+            build_imap_connections_context=_build_imap_connections_context,
+            build_http_api_connections_context=_build_http_api_connections_context,
+            build_google_calendar_connections_context=_build_google_calendar_connections_context,
+            build_rss_connections_context=_build_rss_connections_context,
+            build_website_connections_context=_build_website_connections_context,
+            build_mqtt_connections_context=_build_mqtt_connections_context,
+            build_rss_status_groups=build_rss_status_groups,
+            load_cached_rss_status_groups=load_cached_rss_status_groups,
+            save_cached_rss_status_groups=save_cached_rss_status_groups,
+            connection_template_name=connection_template_name,
+            pipeline=pipeline,
+            msg=_msg,
         ),
     )

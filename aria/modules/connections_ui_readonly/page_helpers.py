@@ -4,13 +4,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlencode
-
+from urllib.parse import urlsplit
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from aria.modules import module_route_path, module_template_name
+from aria.modules.connections_ui_readonly.ia_routes import connection_canonical_url
 
 GenericConnectionContextBuilder = Callable[..., dict[str, Any]]
 UsernameResolver = Callable[[Request], str]
@@ -56,50 +56,13 @@ def build_connection_page_helpers(deps: ConnectionPageHelperDeps) -> ConnectionP
     _attach_connection_edit_urls = deps.attach_connection_edit_urls
     connection_template_name = deps.connection_template_name
 
-    def _normalize_connection_mode(mode: str | None) -> str:
-        clean = str(mode or "edit").strip().lower()
-        return "create" if clean in {"create", "new", "add"} else "edit"
-
-    def _connection_mode_anchor(mode: str | None) -> str:
-        return "#create-new" if _normalize_connection_mode(mode) == "create" else "#manage-existing"
-
-    def _connection_mode_url(request: Request, mode: str) -> str:
-        target_mode = _normalize_connection_mode(mode)
-        ref_query_keys = {
-            "ref",
-            "ssh_ref",
-            "sftp_ref",
-            "smb_ref",
-            "discord_ref",
-            "rss_ref",
-            "website_ref",
-            "webhook_ref",
-            "http_api_ref",
-            "google_calendar_ref",
-            "mqtt_ref",
-            "email_ref",
-            "imap_ref",
-        }
-        pairs = []
-        for key, value in parse_qsl(request.url.query, keep_blank_values=True):
-            if key == "mode":
-                continue
-            if target_mode == "create" and key in ref_query_keys:
-                continue
-            pairs.append((key, value))
-        pairs.append(("mode", target_mode))
-        query = urlencode(pairs)
-        base = f"{request.url.path}?{query}" if query else str(request.url.path)
-        return f"{base}{_connection_mode_anchor(mode)}"
-
-    def _has_any_connection_refs(context: dict[str, Any]) -> bool:
-        for key, value in context.items():
-            clean_key = str(key)
-            if clean_key != "refs" and not clean_key.endswith("_refs"):
-                continue
-            if isinstance(value, list) and value:
-                return True
-        return False
+    def _normalize_connection_page_type(page_type: str | None) -> str:
+        clean = str(page_type or "overview").strip().lower()
+        if clean in {"create", "new", "add"}:
+            return "create"
+        if clean in {"detail", "edit"}:
+            return "detail"
+        return "overview"
 
     def _connection_ui_template_name(kind: str, template_name: str) -> str:
         module_id_by_kind = {
@@ -128,6 +91,32 @@ def build_connection_page_helpers(deps: ConnectionPageHelperDeps) -> ConnectionP
         if resolved is None:
             raise RuntimeError(f"config_ui route is not registered: {route_path}")
         return resolved
+
+    def _connections_surface_path(route_path: str) -> str:
+        resolved = module_route_path("connections_ui_readonly", route_path)
+        if resolved is None:
+            raise RuntimeError(f"connections_ui_readonly route is not registered: {route_path}")
+        return resolved
+
+    def _connection_parent_url(request: Request) -> str:
+        canonical = _connections_surface_path("/connections")
+        allowed = {
+            canonical,
+            _connections_surface_path("/connections/status"),
+            _connections_surface_path("/connections/types"),
+            _connections_surface_path("/connections/templates"),
+        }
+        requested = str(request.query_params.get("return_to", "") or "").strip()
+        parsed = urlsplit(requested)
+        if (
+            requested
+            and not parsed.scheme
+            and not parsed.netloc
+            and parsed.path in allowed
+            and parsed.path != str(request.url.path)
+        ):
+            return requested
+        return canonical
 
     def build_generic_connections_context(
         kind: str,
@@ -173,20 +162,34 @@ def build_connection_page_helpers(deps: ConnectionPageHelperDeps) -> ConnectionP
         info: str,
         error: str,
         *,
-        mode: str = "edit",
+        kind: str = "rss",
+        page_type: str = "overview",
+        connection_ref: str = "",
     ) -> dict[str, Any]:
         settings = _get_settings()
-        connection_mode = _normalize_connection_mode(mode)
-        return_to = _set_logical_back_url(request, fallback=_config_ui_path("/config"))
+        normalized_page_type = _normalize_connection_page_type(page_type)
+        return_to = _connection_parent_url(request)
         return {
             "title": settings.ui.title,
             "username": _get_username_from_request(request),
             "saved": bool(saved),
             "info_message": info,
             "error_message": error,
-            "connection_mode": connection_mode,
-            "connection_mode_edit_url": _connection_mode_url(request, "edit"),
-            "connection_mode_create_url": _connection_mode_url(request, "create"),
+            "connection_page_type": normalized_page_type,
+            "connection_mode": "create" if normalized_page_type == "create" else "edit",
+            "connection_overview_url": connection_canonical_url(kind, "overview"),
+            "connection_create_url": connection_canonical_url(kind, "create"),
+            "connection_detail_url": (
+                connection_canonical_url(kind, "detail", connection_ref=connection_ref)
+                if connection_ref
+                else ""
+            ),
+            "connection_mode_edit_url": (
+                connection_canonical_url(kind, "detail", connection_ref=connection_ref)
+                if connection_ref
+                else connection_canonical_url(kind, "overview")
+            ),
+            "connection_mode_create_url": connection_canonical_url(kind, "create"),
             "return_to": return_to,
         }
 
@@ -198,17 +201,31 @@ def build_connection_page_helpers(deps: ConnectionPageHelperDeps) -> ConnectionP
         info: str,
         error: str,
         context_builder: Callable[..., dict[str, Any]],
-        mode: str = "edit",
+        page_type: str = "overview",
+        connection_ref: str = "",
         **builder_kwargs: Any,
     ) -> HTMLResponse:
-        context = base_connections_page_context(request, saved, info, error, mode=mode)
+        selected_ref = str(connection_ref or builder_kwargs.get("selected_ref_raw", "") or "").strip()
+        if selected_ref:
+            builder_kwargs["selected_ref_raw"] = selected_ref
+        context = base_connections_page_context(
+            request,
+            saved,
+            info,
+            error,
+            kind=kind,
+            page_type=page_type,
+            connection_ref=selected_ref,
+        )
         builder_kwargs.setdefault("lang", str(getattr(request.state, "lang", "de") or "de"))
         context.update(context_builder(**builder_kwargs))
-        if context.get("connection_mode") == "edit" and not _has_any_connection_refs(context):
-            context["connection_mode"] = "create"
         if isinstance(context.get("connection_intro"), dict):
             context["connection_intro"] = dict(context["connection_intro"])
-            context["connection_intro"]["back_url"] = context.get("return_to") or _config_ui_path("/config")
+            context["connection_intro"]["back_url"] = (
+                context.get("connection_overview_url")
+                if context.get("connection_page_type") in {"create", "detail"}
+                else context.get("return_to") or _connections_surface_path("/connections")
+            )
         return TEMPLATES.TemplateResponse(
             request=request,
             name=_connection_ui_template_name(kind, connection_template_name(kind)),

@@ -1,0 +1,46 @@
+name: Regenerate website release content
+
+on:
+  push:
+    tags:
+      - "v0.1.0-alpha.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: website-release-content
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main with tags
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Refresh public tags
+        run: git fetch --force --tags origin
+
+      - name: Generate release pages
+        run: python3 website/scripts/generate_releases.py
+
+      - name: Validate all website content
+        run: python3 website/scripts/check_content.py
+
+      - name: Commit generated release content
+        shell: bash
+        run: |
+          git add website/content/en/releases.md website/content/de/releases.md website/release-tags.txt
+          if git diff --cached --quiet; then
+            echo "Website release content is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs(website): regenerate releases for ${GITHUB_REF_NAME}"
+          git push origin HEAD:main

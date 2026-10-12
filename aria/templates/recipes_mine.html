@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "page_types/overview_page.html" %}
+{% block page_body %}
 <main class="skills-layout skills-clean-layout skills-surface-layout">
   {% set recipes_ui_save_path = module_route_path('recipes_ui', '/recipes/save') %}
   {% include "_recipes_nav.html" %}

@@ -8,7 +8,7 @@ MODULE_MANIFEST: dict[str, Any] = {
     "lifecycle": "bootstrap_static",
     "description": "Owns SSH config templates, provider route registration, page context, metadata helpers, and save/key adapters without invoking probe/runtime operations.",
     "routes_prefixes": ["/config/connections/ssh"],
-    "routes": ["/config/connections/save", "/config/connections/key-exchange", "/config/connections/keygen", "/config/connections/ssh", "/config/connections/ssh/suggest-metadata"],
+    "routes": ["/config/connections/save", "/config/connections/test", "/config/connections/key-exchange", "/config/connections/keygen", "/config/connections/ssh", "/config/connections/ssh/suggest-metadata"],
     "templates": ["config_connections_ssh.html"],
     "python": ["aria/modules/ssh_admin_ui/context.py", "aria/modules/ssh_admin_ui/metadata.py", "aria/modules/ssh_admin_ui/mutations.py", "aria/modules/ssh_admin_ui/reader.py", "aria/modules/ssh_admin_ui/support.py"],
     "tests": ["tests/test_config_routes.py", "tests/test_connection_admin.py", "tests/test_module_registry.py"],

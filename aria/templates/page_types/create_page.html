@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="ui-page-frame ui-page-frame--create" data-page-type-base="create" data-ui-section-header="{{ canonical_parent_section(request) if canonical_parent_section is defined else '' }}" data-ui-canonical-parent-href="{{ canonical_parent_href(request) if canonical_parent_href is defined else '' }}">
+  {% block page_header %}{% endblock %}
+  <div class="ui-page-create-flow" data-page-slot="create-flow">{% block page_body %}{% endblock %}</div>
+  <div class="ui-page-information" data-page-slot="information">{% block page_information %}{% endblock %}</div>
+  <div class="ui-page-danger" data-page-slot="final-danger">{% block page_danger %}{% endblock %}</div>
+</div>
+{% endblock %}
