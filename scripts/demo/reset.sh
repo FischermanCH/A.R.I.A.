@@ -3,6 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 mkdir -p "${DEMO_ROOT}/demo/generated"
 "${DEMO_ROOT}/.venv/bin/python" "${DEMO_ROOT}/scripts/demo/seed.py" --root "${DEMO_ROOT}"
+"${DEMO_ROOT}/.venv/bin/python" "${DEMO_ROOT}/scripts/demo/seed_notes.py" --root "${DEMO_ROOT}"
 require_demo_names
 demo_compose down -v --remove-orphans
 demo_compose --profile seed run --rm seed
