@@ -1,13 +1,227 @@
 # Changelog
 
-## 0.1.0-alpha1007 - 2026-10-12
+## 0.1.0-alpha1044 - 2026-10-19 [intern]
+
+- Ergänzt die installierbare iOS-Web-App samt Safe Areas, korrigiert Zwei-Lauf-Fenster in Querformat/iPad, stellt die iPad-Fensterwahl wieder her und trennt Terminal-Hinweis sowie Laufaktionen am Handy sauber. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1043 - 2026-10-19 [intern]
+
+- Verbessert in Vibe:Lab den zweiten Lauf am Handy, das Layout mit iOS-Tastatur, die Terminal-Tastenleiste, LLM-Menü/Modell-Chip und den iPad-Fensterkopf. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1042 - 2026-10-18 [intern]
+
+- Alle geöffneten Vibe:Lab-Popups sind am Phone messbar, erreichbar, gegenseitig exklusiv und per Aussenklick oder Escape schliessbar.
+- Kompakte Phone-Laufaktionen und Transcript-Platz im kurzen Landscape wurden wiederhergestellt; Modell/Aufwand bleiben pro Fenster gespeichert und der Modell-Chip lesbar.
+
+## 0.1.0-alpha1041 - 2026-10-18 [intern]
+
+- Korrigiert Vibe:Lab-Terminalnavigation/-Layout auf dem Phone, Freigabesteuerung, Codex-Denkaufwand-Transport und -Anzeige sowie umbrechende Lauf-Footer; ergänzt das dauerhafte 3×3-Basics-Smoke-Gate. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1040 - 2026-10-18 [intern]
+
+- Macht die in Vibe:Lab gewählte Modell- und Denkaufwand-Konfiguration verbindlich und anhand der Provider-Antwort prüfbar, konsolidiert die Telefonregeln, hält Freigabeaktionen in kompakten Karten und lässt `/clear` und `/cls` das ganze Fenster mit sicherem Stoppen und Rückgängig archivieren. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1039 - 2026-10-18 [intern]
+
+- Hält verschachtelte Codex-Kommentare aus dem Endergebnis, verdrahtet persistierte Modell- und Denkaufwand-Erkennung mit den echten Vibe:Lab-Bedienelementen, begrenzt breite Ergebnisse und Befehle am sichtbaren Lauf und korrigiert das freigegebene Touch-Layout. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1038 - 2026-10-18 [intern]
+
+- Behebt JSON-RPC-ID-Kollisionen bei Codex-Freigaben, ergänzt Modell- und Denkaufwandwahl mit ehrlicher modellbezogener Kostenanzeige, korrigiert Vibe:Lab-Exporte und Markdown-Begrenzung und setzt das freigegebene Telefon-/Tablet-Layout um. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1037 - 2026-10-18 [intern]
+
+- Stabilisiert in Vibe:Lab das Stoppen, lange Live-Läufe samt Abschlusserkennung, Host-Metrik-Timeouts und vollständige serverseitige Markdown-Exporte. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1036 - 2026-10-17 [intern]
+
+- Nähert Vibe:Lab auf dem Desktop der Codex-App an: kompakter Kopf, Stopp/Leeren/Zurücksetzen, Projektdatei-Erwähnungen, eingefügte Bilder, Kontext-Ring und optionale Abschluss-/Freigabesignale. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1035 - 2026-10-17 [intern]
+
+- Baut Vibe:Lab auf Telefonen und Tablets im Hochformat als Vollbild-Touch-Raster mit stets sichtbarer Eingabe neu, stellt Inline-SVG-Bedienelemente und Fenstereinstellungen wieder her und korrigiert Ergebnis-Fallback, Zählung und Kopierbeschriftung. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1034 - 2026-10-17 [intern]
+
+- Ersetzt das feste 180-Sekunden-Limit in Vibe:Lab durch konfigurierbare Inaktivitäts- und Gesamtgrenzen, die während Owner-Freigaben pausieren, ergänzt den freigegebenen kompakten iPhone/iPad-Modus und verfeinert Live-Ergebnisse, Vorschauen, Ringe, Grammatik und Coding-Agent-Statistik. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1033 - 2026-10-17 [intern]
+
+- Verfeinert Vibe:Lab auf iPhone und Desktop mit vollhohem Chat, beschrifteten Ringen, hervorgehobenen phasenbasierten Ergebnissen, ruhigen gleich grossen Aktionen und vollständigen Live-Freigabekarten; die Coding-Agent-Statistik erhält ein kompaktes Kontingent- und Reset-Datum-Layout. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1032 - 2026-10-17 [intern]
+
+- Vibe:Lab nutzt nun dieselbe Zeitleisten-Darstellung live und nach dem Laden, gemeinsames Scrollen zur neuesten Nachricht, kompakte Ringanzeigen in der Titelleiste und zuverlässig nachgeladene Coding-Agent-Statistiken.
+
+## 0.1.0-alpha1031 - 2026-10-17 [intern]
+
+- Behebt in Vibe:Lab Arbeitsverlauf, Rückmeldung beim Verwerfen committeter Änderungen, Coding-Agent-Statistik, Laufarchiv, Upload-Speicherung ausserhalb des Projekt-Repositories und die kompakte Fünf-Zellen-Metrikzeile. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1030 - 2026-10-17 [intern]
+
+- Ergänzt Codex-Arbeitsverlauf, Wochenkontingent und geschätzte Laufkosten; trennt Coding-Agent-Kosten auf `/stats`; erklärt Übernehmen oder Verwerfen isolierter Änderungen; und archiviert ältere Läufe gesammelt. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1029 - 2026-10-17 [intern]
+
+- Behebt den abgeschnittenen Versionshinweis in `/stats` und verfeinert Vibe:Lab mit Gedanken pro Turn, kontextuellen Slash-Befehlen, beschrifteten Laufaktionen, strukturierten farbigen Diffs und Zusammenführen-Vorabprüfung. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1028 - 2026-10-17 [intern]
+
+- Die Statistikseite hebt die installierte Version jetzt deutlich hervor, und das feste Account-Menü ist in Arbeiten, Wissen und System gegliedert. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1027 - 2026-10-17 [intern]
+
+- Vibe:Lab zeigt neue Dateien im Review, committet bestätigte Agent-Änderungen lokal auf dem Sitzungszweig, lehnt leere Merges ab und hält jeden aufklappbaren Diff beim zugehörigen Lauf.
+- Live-, neu geladene und ältere aufgeklappte Läufe verwenden denselben Server-Renderer, mit einer Gedanken-Zusammenfassung und kompakten Freigabe-/Statusdetails. `/stats` zeigt wieder installierte Version und gecachten Update-Status. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1026 - 2026-10-17 [intern]
+
+- Behebt die Vibe:Lab-Freigabezustellung: Wartende Antworten werden auch ohne neues Codex-Ereignis zugestellt, ein fehlender Pending-Eintrag macht aus Erlauben niemals Ablehnen, und die Karte zeigt sofort gesendet, wartend, fehlgeschlagen oder abgelaufen.
+- Spielt eine bereinigte echte Codex-0.157-Aufzeichnung für einen L1-Schreibvorgang nach; Gedanken-Zusammenfassungen ersetzen doppelte Protokollteile, Freigabewarten unterdrückt veraltete Heartbeats und jeder Lauf zeigt den Start nur einmal.
+- Ältere Coding-Agent-Läufe lassen sich barrierearm an Ort und Stelle mit vollständigem Verlauf, Freigaben, Statusmenü und sichtbaren Aktionssymbolen öffnen. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1025 - 2026-10-16 [intern]
+
+- Vibe:Lab-Fenster mit einem anderen Projekt als die Arbeitsfläche funktionieren wieder: Terminal, Metriken, Uploads und Agent-Läufe leiten ihre Berechtigung aus der Fensterbindung ab.
+- Coding-Agent-Läufe folgen nun dem freigegebenen ruhigen Verlauf mit chronologischen Laufzeilen, einem aktuellen Laufrahmen, kompakten Freigaben und einer Status-/Aktionszeile.
+- Mehrlauf-Exporte wurden korrigiert; bei der Serverauslastung stehen Bezeichnung und Wert nun gemeinsam vor dem LED-Balken.
+
+## 0.1.0-alpha1024 - 2026-10-16 [intern]
+
+- Vibe:Lab setzt jetzt exakt den gespeicherten Codex-Thread im selben Lauf fort und zeigt Läufe in chronologischer Chat-Reihenfolge.
+- Terminal-Sitzungen sind nach Projekt und SSH-Ziel getrennt, ersetzen defekte Sitzungen, blockieren sich beim Aufbau nicht global und vermeiden enges Polling; Neu verbinden und Beenden liegen im gemeinsamen Menü.
+- Auf Telefonen und Tablets bleiben Eingabe beziehungsweise Terminal im sichtbaren Bereich; hinzu kommen kompakte Bedienelemente und eine Touch-Tastenleiste.
+- Coding-Agent-Läufe können vom Anbieter gelieferte Gedanken-Zusammenfassungen und Pläne live anzeigen; pro Projekt stehen aus, kurz und ausführlich zur Wahl.
+- Exporte, Dateiänderungs-Bezeichnungen, Projekt-Git-Status und die Stylesheet-Wiederherstellung liefern vollständige, lokalisierte Diagnosen.
+
+## 0.1.0-alpha1023 - 2026-10-16 [intern]
+
+- Ersetzt in Vibe:Lab die alte Kombination aus Wurzel und relativem Pfad durch einen absoluten Projektordner, einschliesslich zerstörungsfreier Upgrade-Migration und sichtbarer Fehler direkt am Feld.
+- Ergänzt einen ausdrücklichen lokalen Git-Assistenten mit rein lesender Grössen-/Speichervorschau, Ausschluss eingebetteter Repositories und Bestätigung vor dem ersten Commit; ein Remote wird nie angelegt oder verändert.
+- Vervollständigt echte Codex-Dateiänderungsdetails, Fortsetzen-Aktionen abgeschlossener Läufe, kompaktes Archiv-Löschen mit exakter Bereinigung des Entwicklungsverlaufs sowie Terminal-Wiederanbindung bei Layoutwechseln.
+- Behebt Fensterladen-Steuerung und Überlauf bei schmalen Breiten, ohne die funktionierenden Freigabe-, Thread-, Terminal- und Löschvorschau-Pfade aus alpha1022 zu verändern.
+
+## 0.1.0-alpha1022 - 2026-10-16 [intern]
+
+- Die Codex-Thread-ID wird in Vibe:Lab korrekt gespeichert; bestehende Läufe werden aus ihren gespeicherten realen `threadId`-Ereignissen nachgetragen. Läufe ohne alte Thread-ID lassen sich sicher löschen, aber nicht kontextlos fortsetzen.
+- Die Vibe:Lab-Verwaltungsseiten und die Arbeitsfläche sind an ARIAs bestehende Seitenkarten ausgerichtet. Eine neue Linter-Regel verhindert undefinierte Layout- und Kopfklassen.
+- Das Terminal liegt transparent auf der gemeinsamen Stage. Das Laufarchiv ist direkt erreichbar und lokalisiert; Datei-Freigaben zeigen begrenzte Details, Agent-Antworten werden sicher als Markdown dargestellt.
+
+## 0.1.0-alpha1021 - 2026-10-15 [intern]
+
+- Gleicht Seitenrahmen, Symbolnavigation, Titelsteuerung, Menüs, Coding-Agent-Karten und die Verwaltung der Standard-Guardrails an ARIAs vorhandene gemeinsame Bausteine an.
+- Trennt mehrere Vibe:Lab-Fenster deutlicher, ohne die alpha1020-Bühnenoberfläche zu verändern, und zeigt die Live-Auslastung ohne überflüssige Fensterknöpfe dauerhaft an.
+- Gruppiert Coding-Agent-Läufe und ergänzt dauerhaftes Archivieren, Wiederherstellen sowie eine ausdrückliche Löschvorschau mit exakt Thread-begrenzter Codex-Sitzungsbereinigung; automatisch wird nie gelöscht.
+- Die öffentliche Version bleibt `0.1.0-alpha1007`; dieser interne Build verwendet keine Provider- oder Live-Systemaufrufe.
+
+## 0.1.0-alpha1020 - 2026-10-15 [intern]
+
+- Jedes Vibe:Lab-Fenster verwendet nun dasselbe 38-Pixel-Raster, denselben transparent-dunklen Bühnenkörper, Akzentrand, 14-Pixel-Radius und sanften Leuchteffekt wie die Gedächtnis-Browser-Bühne.
+- Die Bühnenfarben liegen in gemeinsamen Theme-Tokens; die Oberfläche des Gedächtnis-Browsers bleibt erhalten und die inneren Vibe:Lab-Ebenen sind transparent.
+- Die öffentliche Version bleibt `0.1.0-alpha1007`; dieser interne Build ändert kein Vibe:Lab-Verhalten.
+
+## 0.1.0-alpha1019 - 2026-10-15 [intern]
+
+- Korrigiert die Vibe:Lab-Autonomie: L0 fragt bei jeder Aktion, L1 nutzt eine schreibgeschützte Sandbox und jede Änderung braucht eine Freigabe; L2/L3 behalten ihre dokumentierten Rechte innerhalb der nicht übersteuerbaren ARIA-Untergrenze.
+- Ergänzt Sicherheit → Standard-Guardrails mit der standardmässig aktiven Regel „Coding-Agents nur im Vibe:Lab“, ausdrücklichen SSH-Ausnahmen, getippter Bestätigung beim Abschwächen und Protokollierung im Aktivitätsjournal.
+- Macht das Projekt zur einzigen Quelle der Autonomiestufe, erkennt unbestätigte Änderungen bei L0/L1 und ergänzt sicheres Verwerfen, Aufbewahrung, Speicherwarnung und Aufräumen sauberer zusammengeführter Arbeitskopien.
+- Gleicht Vibe:Lab-Fenster, Menüs, Upload, Verlauf und Export an die geprüften Chat- und Gedächtnis-Bausteine an; der geschützte Gedächtnis-Browser bleibt unverändert.
+- Die öffentliche Version bleibt `0.1.0-alpha1007`; ein echter provider-gestützter Agent-Lauf gehört nicht zum Offline-Gate dieses Builds.
+
+## 0.1.0-alpha1018 - 2026-10-15 [intern]
+
+- Den Codex-Freigabeweg in Vibe:Lab korrigiert: Ein nicht verfügbarer oder fehlgeschlagener Kanal wird protokolliert und sichtbar angezeigt, statt fälschlich als erlaubt zu gelten; die Diagnose enthält die Antwort und alle folgenden Protokollnachrichten.
+- Jedes Vibe:Lab-Fenster ist nun an sein eigenes Projekt, seine Dateien und seinen Entwicklungsverlauf gebunden; die globale Dateien-Seitenleiste nimmt keinen Platz mehr weg.
+- Das Chat-Aktionsmenü wird in LLM- und Coding-Agent-Fenstern wiederverwendet, während der CRT-/Glas-Look der Vibe:Lab-Fenster erhalten bleibt.
+- L1–L3-Codex-Sitzungen verwenden die Rückfrage-Policy, damit gewöhnliche Lesezugriffe im Arbeitsordner nicht unnötig nachfragen; die harte ARIA-Sicherheitsuntergrenze entscheidet weiterhin über jede Agent-Anfrage.
+
+## 0.1.0-alpha1017 - 2026-10-15 [intern]
+
+- Vervollständigt den Codex-Freigabe-Rückweg in Vibe:Lab: ARIA behält die vom Server vergebene JSON-RPC-Request-ID und antwortet im dokumentierten, anfrageabhängigen Format an genau den eigenen App-Server-Prozess.
+- Macht Agent-Aktivität nachvollziehbar: begrenzte redigierte Start-, Freigabeantwort-, Folge-, stderr- und Exit-Diagnose, eine aktualisierte Lebenszeichen-Zeile sowie ein ehrliches Zeitlimit mit der noch erwarteten Anfrage.
+- Bündelt gestreamte Agent-Deltas zu einer wachsenden Antwort, rendert das Endergebnis über ARIAs sicheren Markdown-Renderer, lokalisiert alte Agent-Statuswerte und richtet die Ein-Fenster-Leiste an der Standardseitenbreite aus.
+- Ergänzt gemeinsames Enter-zum-Senden, Shift+Enter für Zeilenumbrüche, Befehlshinweise und bereichsspezifische Aktionsmenüs für Vibe:Lab. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1016 - 2026-10-14 [intern]
+
+- Ersetzt den versehentlichen Proxy in den Codex-Dienst des Owners durch genau einen isolierten `codex app-server --stdio`-Prozess je Vibe:Lab-Turn und setzt den dokumentierten Initialize-/Thread-/Turn-Handshake für Codex CLI 0.157.0 um.
+- Zeigt und speichert Auftrag, Fortschritt, Freigaben, Antwort, Lebenszeichen, ehrliche Zeitüberschreitungen sowie begrenzte redigierte Diagnose im ursprünglichen Coding-Agent-Bereich; Abbrechen beendet ausschliesslich ARIAs Sitzungsprozess.
+- Ergänzt konkrete Git-/Worktree-Vorprüfungen, leere Diffs mit Basis-Commit, Ampeln für Anmeldung und Kompatibilität sowie ARIAs konservative Bestätigungsuntergrenze für jede Autonomiestufe.
+- Verfeinert die Vibe:Lab-Fenster mit einem Theme-Token-basierten Glas-/Monitorstil, lesbaren aktiven Layoutknöpfen, zentriertem Standardformat für ein Fenster und einer zu `df` passenden Plattenberechnung.
+- Öffentlich bleibt `0.1.0-alpha1007`. Die strukturierten Gates verwenden ausschliesslich Contract-Fakes; ein echter providergebundener Agent-Lauf bleibt bewusst unbewiesen und dem Owner-Test vorbehalten.
+
+## 0.1.0-alpha1015 - 2026-10-14 [intern]
+
+- Nutzt in Vibe:Lab den gesamten verbleibenden Bildschirm als echte Fensterfläche mit dauerhaft gespeicherten Ein-, Zwei-, Drei- und Vier-Fenster-Anordnungen, ziehbaren Trennlinien, Fenstertausch sowie Maximieren/Wiederherstellen.
+- Verschiebt Austauschdateien und Entwicklungsverlauf in eine standardmässig geschlossene Leiste; das Upload-Ziel erscheint nur noch im Büroklammer-Dialog und am jeweiligen Dateieintrag.
+- Stellt die Schreibweise **Vibe:Lab** in der deutschen und englischen Oberfläche durchgängig wieder her; Modul-ID und Routen bleiben unverändert.
+- Ergänzt auf `/stats` den üblichen grossen, abgerundeten Seitenrahmen, ohne Prüfungen, Daten oder Laufzeitverhalten zu ändern.
+- Die öffentliche Version bleibt `0.1.0-alpha1007`; der geprüfte globale ARIA-Kopf und alle Seiten ausserhalb von Vibe:Lab bleiben unverändert.
+
+## 0.1.0-alpha1014 - 2026-10-14 [intern]
+
+- Behebt die Eingabe im direkten Terminal: Der rohe xterm-Datenstrom wird nun gegen ein PTY mit echter Zeilendisziplin geprüft, sodass `pwd` und Enter genau einen Befehl und ein Ergebnis erzeugen.
+- Zeigt CPU, RAM, Last und Platte mit zehn proportional leuchtenden, sauber ausgerichteten und in allen Themes sichtbaren grünen, gelben oder roten Segmenten.
+- Ersetzt rohe JSON-Daten und interne Zustände der Coding-Agent-Freigabe durch lokalisierte, menschenlesbare Karten, Statusbezeichnungen und zurückhaltende Zweigangaben; der Rohinhalt bleibt nur in eingeklappten technischen Details.
+- Verwendet für LLM- und Coding-Agent-Bereiche denselben Eingabebaustein mit Upload und Senden in einer Zeile, ersetzt Emoji-Symbole durch SVGs und verbessert Bereichsauswahl und Austauschdateien.
+- Härtet den alpha1011-Vergleich für Nicht-Vibe-Seiten mit ausdrücklich benannten Textmasken und unmaskierten Geometrie-, Abstand- und Positionsprüfungen. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1013 - 2026-10-14 [intern]
+
+- Stellt alle Seitenköpfe ausserhalb von Vibe:Lab exakt auf die abgenommene alpha1011-Struktur zurück und entfernt das verworfene seitenweite R34-Kopfexperiment.
+- Baut die Vibe:Lab-Arbeitsfläche unter ARIAs unverändertem Kopf auf, entfernt den doppelten Upload und macht Projektlesezugriffe exklusiv, begrenzt und bei Fehlern ehrlich deutsch lokalisiert.
+- Ergänzt strukturierte Adapter für Claude Code und den Codex App Server, ARIA-eigene L0–L3-Untergrenzen, dauerhafte Sitzungen, atomare Freigabekarten mit 15 Minuten Ablauf, Worktree-Zweige und Kostenbudget-Prüfungen.
+- Ergänzt einen admin-geschützten direkten SSH-PTY-Bereich mit lokalem xterm.js, ohne Aufzeichnung von Ein-/Ausgabe, begrenzter Laufzeit und kompakten LED-Messern auf dem bestehenden 15-Sekunden-Metrikcache.
+- Öffentlich bleibt `0.1.0-alpha1007`; ein echter providergebundener Coding-Agent-Lauf gehört bewusst nicht zum automatisierten Gate.
+
+## 0.1.0-alpha1012 - 2026-10-14 [intern]
+
+- Ein verpflichtender, registergestützter Seitenkopf vereinheitlicht alle authentifizierten Seitentypen; die neue Browser-Regel R34 prüft DOM und Typografie.
+- Die Entwicklungsoberfläche heisst sichtbar **Vibe:Lab** und übernimmt im Vollbild ARIA-Identität, Menü, Bereiche, Eingabe und eine überlauffreie Seitenleiste.
+- LLM-Bereiche erhalten projektgebundene, rein lesende Datei-, Baum-, Such- und Git-Zugriffe mit Realpath-Grenze, Geheimnis-Sperre, begrenzten Ergebnissen und kompaktem Journal.
+- Fertigmeldungen abgekoppelter Vibe:Lab-Jobs landen genau einmal im Ursprungsbereich und nicht mehr im Hauptchat.
+- Bestätigtes Anlegen von Projektordnern innerhalb der erlaubten Wurzel, optionales `git init -b main`, sichtbare Upload-Ziele ausserhalb des Repositorys und Formular-/Listen-Feinschliff.
+
+## 0.1.0-alpha1011 - 2026-10-13 [intern]
+
+- Behebt die leere Vibe:Lab-Arbeitsfläche beim Erstdurchlauf: fehlende alte Bereiche werden repariert, stets erscheint ein nutzbarer Bereich oder eine klare Stufe-2-Sperrkarte, und die Erweiterung auf ein bis vier Bereiche ist deterministisch.
+- Überführt Projekt- und Coding-Agent-Einrichtung in die gemeinsamen Seitenlayouts, mit echten SSH-/Agent-/Profil-Auswahllisten, Feldhilfen, Ordner-Browser, erhaltenen Validierungsfehlern, geführter Navigation und automatischem lesendem Fähigkeitstest.
+- Akzeptiert absolute Repository-Pfade innerhalb einer erlaubten entfernten Wurzel und speichert sie normalisiert relativ; Pfade ausserhalb der Wurzel, fehlende Ordner und nicht erreichbare Ziele erscheinen konkret am Feld, ohne Eingaben zu verlieren.
+- Stellt die frühe Veröffentlichung der Startprüfungen auf `/stats` wieder her, behandelt noch nicht geladene Lazy-Prüfungen neutral und erklärt gelbe Preisabdeckung mit der konkreten Zahl unbepreister Websuchen.
+- Ergänzt Erstdurchlauf- und Upgrade-Regressionsabdeckung; die Coding-Agent-Ausführung bleibt bis Stufe 2 gesperrt. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1010 - 2026-10-13 [intern]
+
+- Ergänzt Vibe:Lab Stufe 1 als eigenen Hauptarbeitsbereich mit dauerhaften Ein- bis Vier-Bereichs-Layouts, Projektverwaltung, mobilem Bereichswechsel und einer theme-konsistenten Vollbild-LLM-Arbeitsfläche.
+- Verwendet für Vibe:Lab-LLM-Bereiche ARIAs vorhandene Pipeline und den normalen nutzergetrennten Chatverlauf; ergänzt werden nur Projekt-/Bereichsmetadaten und kompakte redigierte Projektverlaufsprojektionen.
+- Ergänzt admin-geschützte Coding-Agent-Verbindungen auf bestehenden SSH-Profilen, erlaubte Wurzeln und rein lesende Fähigkeits-Snapshots; die Coding-Agent-Ausführung bleibt bis Stufe 2 hart gesperrt.
+- Ergänzt begrenzte Projekt-Uploads über einen neutralen Remote-Workspace-Port mit MIME-/Hash-Prüfung, einstellbarer Quote, Einzel-Löschen, bildmodellabhängiger Bildübergabe und fortsetzbarer Projektbereinigung.
+- Ergänzt Vorschau und gezieltes Löschen des Entwicklungsverlaufs, gecachte lesende Host-Metriken sowie ehrlichere Upload-Zeiten und Anzeigenamen für bestehende Dokumente. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1009 - 2026-10-13 [intern]
+
+- Überarbeitet „Dokumente verwalten“ zu eingeklappten Sammlungszeilen mit lesbaren Namen, Dokumenttabellen, lokalen Upload-Zeiten, zurückhaltender getippter Löschbestätigung und einem gemeinsamen Technik-Bereich.
+- Ergänzt eine private Quell-Aufbewahrung je Sammlung (`aus`, extrahierter Text oder Originaldatei), standardmässig extrahierter Text für neue Sammlungen, mit einstellbarer Nutzerquote und Freiplatzprüfung vor dem Schreiben; bestehende Sammlungen bleiben aus.
+- Ergänzt ein getrenntes, geheimnisfreies Dokument-Backup mit Manifest, aufbewahrten Quellen und Prüfsummen sowie Besitzer-, Integritäts- und Quotenprüfung beim Wiederherstellen.
+- Ergänzt bestätigte Agent-Jobs zum Neu-Einbetten je Sammlung oder für alle Dokumente: Quellenvorschau, Schatten-Generationen, Pause/Fortsetzen/Abbruch an Dokumentgrenzen, Validierung und beibehaltene Rückfallgenerationen.
+- Hält Embedding-Modellwechsel bei vorhandenen Dokumenten ausstehend und aktiviert das Zielmodell erst nach einem vollständig geprüften Gesamt-Reindex. ARIA-Snapshots brauchen weiterhin eine eigene getippte Extra-Bestätigung. Öffentlich bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1008 - 2026-10-13 [intern]
+
+- Ergänzt ein nutzergetrenntes Dokument-Lebenszyklusmanifest und ein dauerhaftes Operationsjournal mit exakter Vorschau, fortsetzbaren Checkpoints, temporärem Rückrollnachweis und zerstörungsfreiem Nachtrag bestehender Importe.
+- Ergänzt die getrennte Seite „Dokumente verwalten“ mit vollständigem Löschen von Dokumenten und Sammlungen, Konsistenzbefunden, ausdrücklicher Aufräumvorschau und getippter Bestätigung für riskante Verwaistenklassen.
+- Leitet Dokumentlöschungen aus dem Gedächtnis-Browser über die Lebenszyklusautorität und lehnt das Löschen einzelner Dokument-Chunks ab; Browser-Template und DOM bleiben unverändert.
+- Zeigt tatsächlich belegte Qdrant-Blöcke getrennt von logischer Reservierung, Dokument-Verwaltungsdaten und Snapshots; Wachstum beginnt erst nach zwei echten Tagesmessungen.
+- Entfernt den veralteten öffentlichen Website-Content-Workflow und den doppelten Agent-Job-Link. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1007 - 2026-10-12 [public]
 
 - Die Owner-Statistik wurde nachgeschärft: doppelte Meta-Prüfungen entfernt, lokale Startzeit und lesbare Kostenachsen ergänzt sowie Ressourcenpfade im Container korrigiert.
 - Routing-Rebuilds sind jetzt autoritativ und entfernen veraltete Einträge gelöschter oder umbenannter Verbindungsprofile.
 - Antworten von A.R.I.A. nutzen die volle Chatbreite; die alte Tool-Box wurde durch ein kompaktes, tastaturbedienbares Aktionsmenü ersetzt.
 - Abgeschlossene Agent-Jobs zeigen live und nach dem Neuladen nur noch „Job ansehen“.
 
-## 0.1.0-alpha1006 - 2026-10-12
+## 0.1.0-alpha1006 - 2026-10-12 [intern]
 
 - Hält alle drei Prüfblöcke auf `/stats` beim ersten Laden geschlossen; gespeicherte Zähler-Pills und die konkrete verlinkte Problemliste bleiben sofort sichtbar.
 - Lädt Prüfkacheln erst beim Öffnen als authentifizierte HTML-Fragmente nach, mit Ladeanzeige, wiederholbarem Fehlerzustand und DOM-Cache für den Seitenaufruf.
@@ -15,7 +229,7 @@
 - Lädt Routing-Index und Rezept-Gedächtnis nur bei Bedarf parallel aus Qdrant, ohne Provider- oder Embedding-Aufruf und mit ehrlichem gelbem Timeout-Zustand nach spätestens drei Sekunden.
 - Aktualisiert die Unterlagen und Demo-Statistikbilder des nächsten Public-Kandidaten. Die veröffentlichte Version bleibt bis zu einer getrennten Freigabe `0.1.0-alpha983`.
 
-## 0.1.0-alpha1005 - 2026-10-12
+## 0.1.0-alpha1005 - 2026-10-12 [intern]
 
 - Stellt den Funktionsumfang der öffentlichen Alpha983-Statistik im neuen Owner-Layout wieder her: Jede frühere Prüfung und Modellrolle ist zugeordnet oder nachvollziehbar als bewusst entfernt dokumentiert.
 - Bringt auf jeder Prüfkachel sichtbare grüne, gelbe und rote Statusampeln sowie drei Zähler-Pills je Blockkopf zurück; die berechneten Farben werden in allen elf Themes geprüft.
@@ -23,23 +237,23 @@
 - Zeigt im Technikbereich wieder Chat-, Embedding- und Web-/Suchmodell samt API-Basis je Rolle, Shared-/Split-Gateway, Usage-Meter, Token-Protokoll, Web-Anfragen, native Suchen und deren lokale Kostenabdeckung.
 - Hält `/stats` passiv: Beim Öffnen erfolgen keine Provider-, Verbindungs-, MCP-, Qdrant- oder externen Preislisten-Aufrufe. Public bleibt bis zur separaten Freigabe `0.1.0-alpha983`.
 
-## 0.1.0-alpha1004 - 2026-10-12
+## 0.1.0-alpha1004 - 2026-10-12 [intern]
 
 - Bringt auf `/stats` drei kompakte, getrennt einklappbare Prüfblöcke zurück: Startprüfung, Laufzeit & Dienste sowie Betrieb & Release. Fehlerfreie Blöcke bleiben geschlossen; Warnungen und Fehler öffnen ihren Block automatisch.
-- Hält die Statistikseite passiv: Sie verwendet ausschließlich bereits lokal vorhandene Start- und Laufzeit-Snapshots. Beim Öffnen erfolgen keine Provider-, Verbindungs-, MCP-, Qdrant- oder externen Preislisten-Aufrufe.
+- Hält die Statistikseite passiv: Sie verwendet ausschliesslich bereits lokal vorhandene Start- und Laufzeit-Snapshots. Beim Öffnen erfolgen keine Provider-, Verbindungs-, MCP-, Qdrant- oder externen Preislisten-Aufrufe.
 - Ersetzt den vollständigen LiteLLM-Katalog durch höchstens 20 konfigurierte, manuell bepreiste oder tatsächlich verwendete Modellzeilen; die kompakte Preisverwaltung bleibt erhalten.
 - Entfernt den leeren abgerundeten Statusbalken über der Chat-Eingabe. Dasselbe Element erscheint nur noch, wenn es echten Fortschrittsinhalt trägt.
 - Aktualisiert die Unterlagen und betroffenen Demo-Screenshots des nächsten Public-Kandidaten. Die veröffentlichte Version bleibt bis zu einer getrennten Freigabe `0.1.0-alpha983`.
 
-## 0.1.0-alpha1003 - 2026-10-12
+## 0.1.0-alpha1003 - 2026-10-12 [intern]
 
 - Ersetzt den verschachtelten Chat-Nachrichten-Scroller auf iPhones durch normales Seitenscrollen, einen strikt einzeiligen Kopf ohne Umbruch und eine Safe-Area-fähige, unten haftende Eingabe für alle Ansichten bis 900 px Breite oder 500 px Höhe.
 - Ergänzt das nur für Admins sichtbare Diagnose-Overlay `?layout_debug=1` mit echten Viewport-Daten, Element-Rechtecken, Scroll-Container, User-Agent und CSS-Version für die Prüfung auf dem Gerät.
-- Wendet den gemeinsamen Anzeige-Zeitzonen-Helfer auf serverseitige und dynamisch eingefügte Chat-Zeitstempel einschließlich Agent-Job-Meldungen an; beim ersten Browser-Aufruf wird der UTC-Fallback lokal korrigiert.
+- Wendet den gemeinsamen Anzeige-Zeitzonen-Helfer auf serverseitige und dynamisch eingefügte Chat-Zeitstempel einschliesslich Agent-Job-Meldungen an; beim ersten Browser-Aufruf wird der UTC-Fallback lokal korrigiert.
 - Versioniert gerenderte und im Stylesheet referenzierte statische Assets, damit ein aktualisiertes iPhone nicht still altes Chat-CSS oder JavaScript behält.
 - Erweitert WebKit- und Seitenlayout-Gates um 844×390 und 667×320, Tippen/Senden, Kopfzeilen-Geometrie, Overflow-Ahnen und versionierte Assets. Public bleibt bis zur separaten Freigabe Alpha983.
 
-## 0.1.0-alpha1002 - 2026-10-12
+## 0.1.0-alpha1002 - 2026-10-12 [intern]
 
 - Überarbeitet das Chat-Layout auf iPhones in Safari: kompakter einzeiliger Kopf und Composer, dynamische Visual-Viewport-Nachführung, separat scrollende Nachrichten und reservierter Platz für den Nach-unten-Knopf in Hoch- und Querformat.
 - Ersetzt die ständig sichtbaren Datumsfelder des Aktivitätsjournals durch die eindeutige Zeitraumwahl Alle/Heute/7 Tage/30 Tage/Benutzerdefiniert; Datums-Deep-Links bleiben erhalten.
@@ -47,7 +261,7 @@
 - Erweitert WebKit- und Seitenprüfer-Abdeckung um iPhone-Formate, Scrollbarkeit im Querformat, sichtbaren Zeitraumzustand und lokale Tagesgruppierung.
 - Aktualisiert die Unterlagen und betroffenen Screenshots des nächsten Public-Kandidaten von Alpha1001 auf Alpha1002; die Veröffentlichung bleibt separat freizugeben, Public bleibt vorerst Alpha983.
 
-## 0.1.0-alpha1001 - 2026-10-11
+## 0.1.0-alpha1001 - 2026-10-11 [intern]
 
 - Bereitet den nächsten Public-Release-Kandidaten mit einem nicht blockierenden Native-Rezept-Snapshot vor: Persistente Manifest-Scans laufen in einer providerfreien Startup-Task; der erste Turn wartet höchstens 200 ms und führt den langsamen Dateisystemlauf nie selbst aus.
 - Hält ungefilterte Datumsfelder des Aktivitätsjournals bei Neuladen, Verlauf-Navigation und WebKit-/Safari-artiger Formularwiederherstellung leer; ausdrücklich gesetzte Query-Daten bleiben erhalten.
@@ -55,7 +269,7 @@
 - Ergänzt eine ehrliche öffentliche Zusammenfassung seit Alpha983, aktualisierte README-/Docker-Hub-Texte, GitHub-Release-Notes und ein nicht veröffentlichendes Alpha1001-Runbook.
 - Die veröffentlichte Version bleibt bis zu einer getrennten Freigabe `0.1.0-alpha983`.
 
-## 0.1.0-alpha1000 - 2026-10-11
+## 0.1.0-alpha1000 - 2026-10-11 [intern]
 
 - Hält kalte oder nicht erreichbare MCP-Erkennung vollständig aus dem synchronen Turn-Budget heraus und macht den warmen Pfad des deterministischen Rezept-Caches metadatenbasiert.
 - Rendert Ergebnisse von Hintergrund-Jobs mit derselben sicheren Markdown-Pipeline wie der Chat, protokolliert abgekoppelte Jobs genau einmal samt Verbindungskontext und speichert Journal-Kurztexte ohne Markdown-Syntax.
@@ -63,23 +277,23 @@
 - Belegt die vierstellige Alpha-Sortierung in Update-Erkennung, lokaler TAR-Auswahl, Image-Tags, Retention und Changelog-Auswertung.
 - Die öffentliche Version bleibt `0.1.0-alpha983`.
 
-## 0.1.0-alpha999 - 2026-10-11
+## 0.1.0-alpha999 - 2026-10-11 [intern]
 
-- Ordnet `/stats` nach vier Owner-Fragen neu: Gesundheit, Kosten, Aktivitäten und Ressourcen, mit passiven Cache-Daten, Ortszeit-/Gebietsschema-Formatierung, serverseitigem 30-Tage-Diagramm, einem Technikbereich und abschließender bestätigter Gefahrenzone.
+- Ordnet `/stats` nach vier Owner-Fragen neu: Gesundheit, Kosten, Aktivitäten und Ressourcen, mit passiven Cache-Daten, Ortszeit-/Gebietsschema-Formatierung, serverseitigem 30-Tage-Diagramm, einem Technikbereich und abschliessender bestätigter Gefahrenzone.
 - Aggregiert den ganzen Kalendermonat aus aktivem und archiviertem Nutzungslog, ergänzt numerische Meter-Werte in nutzergetrennten Journal-Einträgen und hält den Statistik-GET frei von Provider-, Verbindungs-, MCP- und Preislisten-Aufrufen.
 - Ergänzt einen dauerhaften, isolierten `aria-demo`-Compose-Stack auf Port 8090 mit reproduzierbaren erfundenen Daten, dokumentiertem Demo-Login, Start-/Stopp-/Reset-Befehlen und zweisprachigem Sicherheits-Scan aller gerenderten Seiten.
 - Stellt die öffentlichen Alpha982-/Alpha983-Image-TARs wieder her und schützt die Public-TARs Alpha604/Alpha982/Alpha983 dauerhaft vor lokaler Retention.
 - Die öffentliche Version bleibt `0.1.0-alpha983`.
 
-## 0.1.0-alpha998 - 2026-10-10
+## 0.1.0-alpha998 - 2026-10-10 [intern]
 
 - Hält das Chat-Eingabefeld bei langen Verläufen, Neuladen, Polling-Aktualisierungen, mobilen Ansichten und allen elf Themes stets im sichtbaren Viewport; nur die Nachrichtenliste scrollt.
 - Begrenzt breite Markdown-Tabellen in Antworten auf einen eigenen horizontalen Scrollbereich, sodass sie weder die Seite verbreitern noch das Eingabefeld verdrängen.
-- Rendert gespeicherte und per Polling eingefügte Agent-Job-Meldungen über denselben maskierenden Markdown-Renderer wie normale Antworten, einschließlich Tabellen, Fettdruck, Inline- und Codeblöcken sowie Listen.
+- Rendert gespeicherte und per Polling eingefügte Agent-Job-Meldungen über denselben maskierenden Markdown-Renderer wie normale Antworten, einschliesslich Tabellen, Fettdruck, Inline- und Codeblöcken sowie Listen.
 - Ergänzt die Seitenprüfer-Regel R31 und einen produktionsnahen Browser-Regressionsfall mit langer Job-Meldung, allen Themes, Desktop- und Mobilformat, Neuladen, Fokus und Senden.
 - Die öffentliche Version bleibt `0.1.0-alpha983`.
 
-## 0.1.0-alpha997 - 2026-10-10
+## 0.1.0-alpha997 - 2026-10-10 [intern]
 
 - Zustellung abgeschlossener Hintergrund-Aufträge mit dauerhafter SQLite-Ausgangsqueue, wiederholbarer Bestätigung, prozessübergreifender Chat-History-Sperre und Nachholen beim Polling sowie Neuladen abgesichert.
 - Auftragsseite mit Ortszeit und relativer Zeit, knappen lokalisierten Schritten, eingeklappten Technikdaten, sicher gerenderten responsiven Markdown-Ergebnissen und kompakten bestätigten Aufräumaktionen überarbeitet.
@@ -88,37 +302,31 @@
 - Symmetrische zweisprachige Seitenprüfung wieder aktiviert und R28–R30 für Rohwerte, Gebietsschema-Formatierung und Formulargeometrie ergänzt; `/stats` besitzt nur die geprüften befristeten Alpha998-Ausnahmen.
 - Die öffentliche Version bleibt `0.1.0-alpha983`.
 
-## 0.1.0-alpha996 - 2026-10-10
+## 0.1.0-alpha996 - 2026-10-10 [intern]
 
 - Ergänzt ein kompaktes nutzergetrenntes Aktivitätsjournal für abgeschlossene Native-Tool-Turns und Agent-Jobs im Endzustand, mit begrenzten redigierten Feldern und fehlerisolierten Abschluss-Hooks.
 - Ergänzt das nur bei Bedarf verwendete Read-only-Tool `activity_journal_read`; das Journal wird nie automatisch in Prompts eingefügt. Die Core-Registry umfasst bei aktivem Journal 38 Tools und bei ausgeschaltetem Journal 37.
 - Ergänzt eine zweisprachige Gedächtnis-Übersichtsseite mit Tagesgruppen, Filtern, Details, JSON-Export, Behalten-/Löschen-Aktionen, einstellbarer Aufbewahrung von 7–365 Tagen und getippter Bestätigung für Bereichslöschungen.
-- Übernimmt alte Kontext-Rollups einschließlich Embedding-Dimensionsvarianten nur nach ausdrücklicher Bestätigung idempotent; eine getrennte nutzerbezogene Löschaktion entfernt niemals nicht übernommene Rollups.
+- Übernimmt alte Kontext-Rollups einschliesslich Embedding-Dimensionsvarianten nur nach ausdrücklicher Bestätigung idempotent; eine getrennte nutzerbezogene Löschaktion entfernt niemals nicht übernommene Rollups.
 - Macht Startdiagnosen resilient gegen vorübergehende Container-Startreihenfolgen und aktualisiert veraltete Warn-/Fehler-Snapshots mit nützlichen, redigierten Fehlerdetails.
 
-> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
-
-## 0.1.0-alpha995 - 2026-10-10
+## 0.1.0-alpha995 - 2026-10-10 [intern]
 
 - Friert den stillgelegten Tages-Kontext-Rollup-Schreiber ein: Start und Wartung verdichten, löschen, überschreiben oder betten alte Tages-Kontext- und Rollup-Collections nicht mehr neu ein.
-- Vorhandene Wochen- und Monats-Rollups bleiben über Memory-Recall, Export, Browser-Ansicht und bestätigtes Einzel-Löschen lesbar, einschließlich Collections mit Embedding-Dimensionssuffix.
+- Vorhandene Wochen- und Monats-Rollups bleiben über Memory-Recall, Export, Browser-Ansicht und bestätigtes Einzel-Löschen lesbar, einschliesslich Collections mit Embedding-Dimensionssuffix.
 - Entfernt die veralteten Rollup-Aktionen und Einstellungen. Alte POST-URLs leiten ohne Datenänderung weiter; die Wartungsseite zeigt bei vorhandenen Daten einen nur lesbaren nutzerbezogenen Rollup-Zähler.
 - Entfernt die tote Session-Collection-Durchreichung im Chat, den ungenutzten Recipe-Skill-Pfad, das synthetische Tages-Recall-Ziel und das stillgelegte Kompressionsmodul. Alte Konfigurationsdateien laden mit einem Info-Loghinweis weiter.
 - Verbleibende Memory-Embedding-Aufrufe werden korrekt im Usage-Meter erfasst; ein isoliertes Neustart-Szenario schützt die Unveränderlichkeit alter Daten.
 
-> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+## 0.1.0-alpha994 - 2026-10-09 [intern]
 
-## 0.1.0-alpha994 - 2026-10-09
-
-- Stellt das RSS-Verbindungsinventar im neuen Übersichts-Seitentyp wieder her: aufklappbare Kategorien, sichtbare Anzahlen, eine Standardgruppe für nicht zugeordnete Feeds und ein Filter für große Sammlungen.
+- Stellt das RSS-Verbindungsinventar im neuen Übersichts-Seitentyp wieder her: aufklappbare Kategorien, sichtbare Anzahlen, eine Standardgruppe für nicht zugeordnete Feeds und ein Filter für grosse Sammlungen.
 - Erweitert den gerenderten Seiten-Prüfer mit R25 auf die englische Oberfläche; deutsche UI-Texte blockieren, Eigennamen und Nutzereingaben bleiben ausgenommen. Mitgelieferte Beispiel-Verbindungen besitzen nun lokalisierte Beschreibungen.
 - Prüft Zurück-Aktionen mit R26 als echte kanonische Links und entfernt über R27 doppelte Anlegen-Aktionen aus Verbindungsübersichten.
-- Verschärft R4: Alle 13 mit Testdaten befüllten Verbindungsarten müssen exakt so viele Inventarkarten rendern wie Einträge vorhanden sind, einschließlich eines RSS-Scale-Fixtures mit 32 Feeds.
+- Verschärft R4: Alle 13 mit Testdaten befüllten Verbindungsarten müssen exakt so viele Inventarkarten rendern wie Einträge vorhanden sind, einschliesslich eines RSS-Scale-Fixtures mit 32 Feeds.
 - Lässt den grafischen Gedächtnis-Browser, Tages-Kontext, Kontext-Rollup, Verbindungs-Laufzeit und das Public-Release unverändert.
 
-> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
-
-## 0.1.0-alpha993 - 2026-10-09
+## 0.1.0-alpha993 - 2026-10-09 [intern]
 
 - Definiert Primär-, Sekundär-, Tertiär-, Danger-, Reiter-/Filter-, Chip- und Eingabefeld-Rollen einmal zentral, damit dieselbe Aktion in jedem Theme dieselbe Form und Gewichtung behält.
 - Reduziert alle elf Themes auf Farb-/Schrift-Tokens und dekorative Hintergründe; Theme-spezifische Komponenten-Overrides entfallen, während Palette und Hintergrundcharakter erhalten bleiben.
@@ -126,9 +334,7 @@
 - Hält den grafischen Gedächtnis-Browser byte-identisch und ändert weder Verhalten noch Routen oder gespeicherte Theme-Auswahlen.
 - Dokumentiert die bereits umgesetzte LICENSE-Korrektur: Lizenzgeber ist jetzt `Fischerman.ch`.
 
-> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
-
-## 0.1.0-alpha992 - 2026-10-09
+## 0.1.0-alpha992 - 2026-10-09 [intern]
 
 - Gibt jeder registrierten Seite genau einen kanonischen Navigations-Elternbereich; Hilfe, Qdrant-Hinweise und Lizenzen teilen nun auch bei zusätzlichen Abkürzungen den Hilfe-Kopf.
 - Verfeinert Verbindungsdetails mit nur einer Beschreibung, einer reinen Textreferenz samt kompakter sicherer Umbenennen-Aktion und genau einer primären Speichern-Aktion je Einstellungsabschnitt.
@@ -136,19 +342,15 @@
 - Härtet den gerenderten Seiten-Prüfer auf R1-R18: effektive Darstellung, Summary-/Body-Dopplungen, unveränderliche Detailkennungen und kanonische Elternbereiche werden geprüft.
 - Ergänzt dauerhafte Regressions-Fixtures und aktualisierte Dark-/Light-Selbstprüfung; der grafische Gedächtnis-Browser bleibt byte-identisch.
 
-> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
-
-## 0.1.0-alpha991 - 2026-10-09
+## 0.1.0-alpha991 - 2026-10-09 [intern]
 
 - Ergänzt je authentifiziertem Seitentyp genau eine vererbte Jinja-Basis (Übersicht, Detail, Neu anlegen, Einstellungen und Werkzeug), damit die Seitenstruktur eine gemeinsame Konstruktionsgrenze besitzt.
 - Ergänzt den gerenderten Seiten-Prüfer R1-R16, eine explizite Ausnahmeliste, Markdown-/JSON-Evidence und die isolierte Selbstprüfung in dunklem und hellem Theme.
 - Verbessert Verbindungsübersichten und -details, hält Verbindungsreferenzen bis zur ausdrücklichen Umbenennen-Aktion schreibgeschützt und blockiert unsichere Umbenennungen bei bekannten Rezeptverweisen.
-- Macht das persönliche Modell mit deutschen Prädikatbezeichnungen, Filterreitern, lokalisierten Statusfeldern und technischen IDs ausschließlich im eingeklappten Expertenbereich lesbarer.
+- Macht das persönliche Modell mit deutschen Prädikatbezeichnungen, Filterreitern, lokalisierten Statusfeldern und technischen IDs ausschliesslich im eingeklappten Expertenbereich lesbarer.
 - Richtet Hilfe und Lizenzen an der gemeinsamen Seitenstruktur, aktuellen Routen, echten Links und dem heutigen Produktverhalten aus.
 
-> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
-
-## 0.1.0-alpha990 - 2026-10-09
+## 0.1.0-alpha990 - 2026-10-09 [intern]
 
 - Richtet Verbindungsübersichten und Modell-Einstellungen an den freigegebenen ARIA-Mockups aus, entfernt den allgemeinen Füllsatz und ergänzt zugängliche, gemerkte Klappbereiche.
 - Macht das Persönliche Modell lesbar und direkt bedienbar; Gedächtnis-Browser, Claim-Routen, Wartung und Datensemantik bleiben erhalten.
@@ -156,80 +358,70 @@
 - Schlüsselt die Erst-Turn-Zeit in benannte Stufen auf, macht Rezept-Diagnosen verbindungsbewusst und vermeidet Action-Claim-Fehlalarme bei Beschreibungen bereits gespeicherter Daten.
 - Ergänzt die befüllten Browser-Prüfungen U10-U14 in dunklem und hellem Theme. Die öffentliche Version bleibt auf 0.1.0-alpha983 gepinnt.
 
-## 0.1.0-alpha989
+## 0.1.0-alpha989 - 2026-10-08 [intern]
 
 ### Einheitliche Informationsarchitektur der Administration
 
 - Das freigegebene Seitenmodell für Übersicht, Neu anlegen, Bearbeiten, Einstellungen und Werkzeuge gilt jetzt für alle 55 Nicht-Memory-Seiten. Verbindungen besitzen stabile Übersichts-, `/new`- und `/<Referenz>`-URLs; alte Query- und Anchor-URLs leiten weiter, ohne Rückmeldungsparameter zu verlieren.
 - Inventar, Neuanlage und Bearbeitung sind für jede Verbindungsart getrennt. Detailseiten zeigen nur den gewählten Eintrag, einmalige Setup-Werte bleiben in der Neuanlage und Zugangsdaten werden über eine eigene Aktion ersetzt, die vorhandene Secrets nie in HTML zurückrendert.
-- Einheitliche Status-Badges, Zweckzeilen und Rücksprünge, themengerechte Formularelemente, lesbare Info-Zusammenfassungen und abschließende Gefahrenzonen mit Folgenliste vereinheitlichen die Oberfläche. Geprüfte deutsche Fallback-Texte verwenden echte Umlaute; Protokollbezeichner und akzeptierte ASCII-Eingabemuster bleiben unverändert.
+- Einheitliche Status-Badges, Zweckzeilen und Rücksprünge, themengerechte Formularelemente, lesbare Info-Zusammenfassungen und abschliessende Gefahrenzonen mit Folgenliste vereinheitlichen die Oberfläche. Geprüfte deutsche Fallback-Texte verwenden echte Umlaute; Protokollbezeichner und akzeptierte ASCII-Eingabemuster bleiben unverändert.
 - Route- und Redirect-Tests sowie die isolierten Browser-Szenarien U7-U9 prüfen die verschobenen Formulare und erzeugen einen Dunkel-/Hell-Screenshot-Index bei 1280 × 800 für alle 55 Seiten. Die sechs `/memories*`-Templates und ihr Verhalten bleiben unverändert.
 
-> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+## 0.1.0-alpha988 - 2026-10-08 [intern]
 
-## 0.1.0-alpha988
-
-- Das gemeinsame UI-Klarheitsmuster gilt jetzt für die SSH- und Webhook-Verwaltung: sichtbare Neuanlage, gebündelte Einstellungen, eigener Verbindungstest, Statusinformationen und eine abschließende Gefahrenzone zum Löschen.
+- Das gemeinsame UI-Klarheitsmuster gilt jetzt für die SSH- und Webhook-Verwaltung: sichtbare Neuanlage, gebündelte Einstellungen, eigener Verbindungstest, Statusinformationen und eine abschliessende Gefahrenzone zum Löschen.
 - Geprüfte ASCII-Umschreibungen in deutschen UI-Texten wurden durch echte Umlaute und `ß` ersetzt; ein Katalogtest mit ausdrücklicher Ausnahmeliste verhindert Rückfälle.
 - Die Backup-Zähler benennen nun eindeutig den Inhalt des Backups, die Wiederherstellung ist als Vorsichtsaktion gestaltet und der Logs-Abschnitt beschreibt Aufbewahrung, Statistik und Native-Traces passend.
 - Die isolierten Browser-Szenarien U4-U6 prüfen SSH-/Webhook-Lebenszyklen, die Musterregeln und repräsentative deutsche Oberflächen.
 
-## 0.1.0-alpha987
+## 0.1.0-alpha987 - 2026-10-08 [intern]
 
 ### Klarere Bedienoberfläche
 
 - Ein gemeinsames UI-Muster trennt gedämpfte einklappbare Informationen, eindeutige Einzelaktionen, Einstellungsabschnitte mit genau einem Speichern-Button und eine abgesetzte Gefahrenzone mit getippter Bestätigung. Ein öffentlicher Leitfaden macht diese Regeln für künftige Seiten und alle ausgelieferten Themes verbindlich.
-- Backup & Wiederherstellung zeigt das secret-freie Herunterladen als erste Hauptaktion. Das verschlüsselte Zugangsdaten-Bundle ist eine ausdrücklich aktivierbare, standardmäßig ausgeschaltete Option; Wiederherstellung und persönlicher Memory-Export sind getrennte Aktionen, technische Details liegen in einem einklappbaren Info-Panel.
-- Logs & Retention trennt Trace-Einstellungen, eine Aufräumaktion, einklappbare Token-Log-Statistik und die abschließende rote Gefahrenzone für Statistik-Reset und Factory Reset. Das Backup-, Restore-, Trace- und Cleanup-Verhalten aus Alpha986 bleibt unverändert.
+- Backup & Wiederherstellung zeigt das secret-freie Herunterladen als erste Hauptaktion. Das verschlüsselte Zugangsdaten-Bundle ist eine ausdrücklich aktivierbare, standardmässig ausgeschaltete Option; Wiederherstellung und persönlicher Memory-Export sind getrennte Aktionen, technische Details liegen in einem einklappbaren Info-Panel.
+- Logs & Retention trennt Trace-Einstellungen, eine Aufräumaktion, einklappbare Token-Log-Statistik und die abschliessende rote Gefahrenzone für Statistik-Reset und Factory Reset. Das Backup-, Restore-, Trace- und Cleanup-Verhalten aus Alpha986 bleibt unverändert.
 - Backup & Wiederherstellung steht nun unter Sicherheit & Zugriff statt Betrieb; `/config/backup` bleibt stabil. Ein isolierter Browser-Audit bei 1280 × 800 erfasst alle authentifizierten UI-Routen für einen späteren eigenen Cleanup-Build. Memory-Seiten wurden nur auditiert und nicht verändert.
 
-> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
+## 0.1.0-alpha986 - 2026-10-08 [intern]
 
-## 0.1.0-alpha986
+### Sicherheit
 
-### Sicherheit und Privatsphaere
-
-- Konfigurations-Backups sind standardmaessig secret-frei: entschluesselte Zugangsdaten und Passwort-Hashes fehlen, sensible Konfig-Felder werden geleert, und ein Manifest nennt Erinnerungen, Dokumente, Notizen, Chats, Jobs, Qdrant-Daten und persistente Volumes ausdruecklich als nicht enthalten. Optional kann ein Administrator ein mit Passphrase, scrypt und AES-256-GCM geschuetztes Zugangsdaten-Bundle beilegen; eine falsche Passphrase scheitert vor dem ersten Restore-Schreibzugriff, waehrend alte Klartext-Backups mit Warnung lesbar bleiben.
-- Native-Agent-Traces verwenden standardmaessig ein minimales Format mit begrenzten Metadaten, Bytezahlen und SHA-256-Fingerprints statt roher Argumente oder Tool-Ausgaben. Einstellbar sind 7/30/90 oder 1–365 Tage, ein Default-Limit von 50 MiB und ein klar gewarnter Vollmodus.
-- Startup- und periodische Retention loeschen abgelaufene Web-Evidence, Pending-Bestaetigungen, Ledger-Claims, LLM-Audit-Zeilen, Inbound-Events und Token-Archive jetzt physisch. Persoenliche Erinnerungen, Dokumente, Notizen und Rezepte werden von diesen Sweeps nie beruehrt.
+- Konfigurations-Backups sind standardmässig secret-frei: entschlüsselte Zugangsdaten und Passwort-Hashes fehlen, sensible Konfig-Felder werden geleert, und ein Manifest nennt Erinnerungen, Dokumente, Notizen, Chats, Jobs, Qdrant-Daten und persistente Volumes ausdrücklich als nicht enthalten. Optional kann ein Administrator ein mit Passphrase, scrypt und AES-256-GCM geschütztes Zugangsdaten-Bundle beilegen; eine falsche Passphrase scheitert vor dem ersten Restore-Schreibzugriff, während alte Klartext-Backups mit Warnung lesbar bleiben.
+- Native-Agent-Traces verwenden standardmässig ein minimales Format mit begrenzten Metadaten, Bytezahlen und SHA-256-Fingerprints statt roher Argumente oder Tool-Ausgaben. Einstellbar sind 7/30/90 oder 1–365 Tage, ein Default-Limit von 50 MiB und ein klar gewarnter Vollmodus.
+- Startup- und periodische Retention löschen abgelaufene Web-Evidence, Pending-Bestätigungen, Ledger-Claims, LLM-Audit-Zeilen, Inbound-Events und Token-Archive jetzt physisch. Persönliche Erinnerungen, Dokumente, Notizen und Rezepte werden von diesen Sweeps nie berührt.
 
 ### Betrieb
 
 - Managed-Stack-Migrationsbackups erhalten Modus 0600 und werden erst nach erfolgreichem Health-Check auf zwei Generationen begrenzt. Ausgelieferte Compose-Dienste rotieren json-file-Logs mit 10 MiB × 3 Dateien.
-- Terminale Agent-Jobs verwerfen Resume-/Korrekturstatus und rohe Schritt-Zusammenfassungen; pro Nutzer bleiben hoechstens 500 Jobs, wobei die aeltesten terminalen Jobs zuerst entfernt werden.
+- Terminale Agent-Jobs verwerfen Resume-/Korrekturstatus und rohe Schritt-Zusammenfassungen; pro Nutzer bleiben höchstens 500 Jobs, wobei die ältesten terminalen Jobs zuerst entfernt werden.
 - Factory Reset umfasst nun auch ARIA-eigene Notizen, Native-Traces, Token-Archive, Pricing-Caches und Runtime-Dateien; Host-Pfade ausserhalb der ARIA-data/config-Mounts bleiben unangetastet.
 
-> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
-
-## 0.1.0-alpha985
+## 0.1.0-alpha985 - 2026-10-08 [intern]
 
 ### Behoben
 
 - Dokument-Search-/Answer-Ergebnisse tragen jetzt vollständige, begrenzte Chunk-Auszüge als strukturierte Quellenmetadaten, statt sie aus Zeilen des alten 1.500-Zeichen-Recall-Strings zu rekonstruieren. Mehrzeiliger Text und Unicode bleiben erhalten.
-- Der Dokumentabruf ergänzt für jeden führenden Treffer den Folge-Chunk und bei kurzen oder überschriftenartigen Treffern auch den vorherigen Chunk. Nachbarn stammen ausschließlich aus demselben owner-sichtbaren Dokument und derselben Collection, werden dedupliziert und innerhalb eines begrenzten Tool-Budgets in Lesereihenfolge geliefert.
+- Der Dokumentabruf ergänzt für jeden führenden Treffer den Folge-Chunk und bei kurzen oder überschriftenartigen Treffern auch den vorherigen Chunk. Nachbarn stammen ausschliesslich aus demselben owner-sichtbaren Dokument und derselben Collection, werden dedupliziert und innerhalb eines begrenzten Tool-Budgets in Lesereihenfolge geliefert.
 - Wiederholte MCP-Discovery-Fehler verwenden jetzt einen serverbezogenen exponentiellen Backoff von 30 Sekunden bis höchstens 10 Minuten. Turns im Backoff-Fenster bleiben nicht-blockierend; explizites Reconnect und erfolgreiche Discovery setzen den Zeitplan zurück, und die Details ordnen MCP- sowie übrige Pre-Loop-Latenz zu.
 
-> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
-
-## 0.1.0-alpha984
+## 0.1.0-alpha984 - 2026-10-08 [intern]
 
 ### Behoben
 
-- Das Dokumentinventar liest jetzt direkt aus dem nutzerbezogenen Guide-Katalog und nutzt einen begrenzten, gecachten Chunk-Fallback nur noch fuer nicht katalogisierte Legacy-Dokument-Collections. Die Details nennen Katalog/Fallback und Aufbauzeit; die Vollstaendigkeitsgrenze von 200 Dokumenten bleibt.
-- Fuer Inventar und Inhaltsabruf ist der gespeicherte Dokument-Owner massgeblich, auch wenn die Collection beliebig benannt wurde. Der Collection-Name gilt nur noch fuer Legacy-Punkte ohne Owner, sodass ein passender fremder Benutzername keine fremden Dokument-Chunks sichtbar macht.
-- Native- und MCP-Tool-Aufrufe liefern begrenzte Wall-Time-Diagnostik, auch ueber pausierte oder abgekoppelte Agent-Jobs hinweg.
-- Connection-gebundene Native Tools akzeptieren exakte konfigurierte Referenzen, Anzeigenamen oder Host/FQDN/IP und frieren vor der Bestaetigung die kanonische Referenz ein. Mehrdeutige und fehlende Namen liefern ehrlich Kandidaten, ohne fuzzy auszufuehren.
+- Das Dokumentinventar liest jetzt direkt aus dem nutzerbezogenen Guide-Katalog und nutzt einen begrenzten, gecachten Chunk-Fallback nur noch für nicht katalogisierte Legacy-Dokument-Collections. Die Details nennen Katalog/Fallback und Aufbauzeit; die Vollständigkeitsgrenze von 200 Dokumenten bleibt.
+- Für Inventar und Inhaltsabruf ist der gespeicherte Dokument-Owner massgeblich, auch wenn die Collection beliebig benannt wurde. Der Collection-Name gilt nur noch für Legacy-Punkte ohne Owner, sodass ein passender fremder Benutzername keine fremden Dokument-Chunks sichtbar macht.
+- Native- und MCP-Tool-Aufrufe liefern begrenzte Wall-Time-Diagnostik, auch über pausierte oder abgekoppelte Agent-Jobs hinweg.
+- Connection-gebundene Native Tools akzeptieren exakte konfigurierte Referenzen, Anzeigenamen oder Host/FQDN/IP und frieren vor der Bestätigung die kanonische Referenz ein. Mehrdeutige und fehlende Namen liefern ehrlich Kandidaten, ohne fuzzy auszuführen.
 - Behauptete abgeschlossene Aktionen nach ausschliesslich lesenden Tool-Beobachtungen laufen jetzt durch denselben einmaligen Korrektur-/Absage-Guard wie Behauptungen ganz ohne Tools; nur ein erfolgreiches effektvolles Tool autorisiert eine Abschlussbehauptung.
 
-> Nur interner Build. Das Public-Release bleibt `0.1.0-alpha983`.
-
-## 0.1.0-alpha983
+## 0.1.0-alpha983 - 2026-10-07 [public]
 
 ### Behoben
 
-- Den in `0.1.0-alpha982` eingefuehrten Dokumentinventar-Fallback repariert: Fragen wie „Welche Dokumente, PDFs oder Beipackzettel hast du?“ liefern wieder eine benannte, collection-gebundene Zeile pro importiertem Dokument, statt keine Dokumente oder eine unvollstaendige Liste aus Suchauszuegen zu melden.
-- Das Inventar fordert jetzt explizit bis zu 200 Dokumenteintraege an und faellt nicht mehr still auf das MemorySkill-Defaultlimit 12 zurueck. Search- und Answer-Ergebnisse behalten bei vorhandenen Metadaten ebenfalls Dokumentname und Collection.
-- **Es gingen keine Daten verloren.** Die importierten Dokumente waren durchgehend gespeichert; defekt war nur die vollstaendige Inventardarstellung des nativen Tools.
+- Den in `0.1.0-alpha982` eingeführten Dokumentinventar-Fallback repariert: Fragen wie „Welche Dokumente, PDFs oder Beipackzettel hast du?“ liefern wieder eine benannte, collection-gebundene Zeile pro importiertem Dokument, statt keine Dokumente oder eine unvollständige Liste aus Suchauszügen zu melden.
+- Das Inventar fordert jetzt explizit bis zu 200 Dokumenteinträge an und fällt nicht mehr still auf das MemorySkill-Defaultlimit 12 zurück. Search- und Answer-Ergebnisse behalten bei vorhandenen Metadaten ebenfalls Dokumentname und Collection.
+- **Es gingen keine Daten verloren.** Die importierten Dokumente waren durchgehend gespeichert; defekt war nur die vollständige Inventardarstellung des nativen Tools.
 
 ## 0.1.0-alpha982
 

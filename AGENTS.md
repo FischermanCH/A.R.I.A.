@@ -98,3 +98,71 @@ At the end of each block, report:
 - exactly who acts next and which grant is needed.
 
 Never leave the user with only diagnosis or an unexplained pause.
+
+## 8. Lean Execution (owner decision 2026-10-17, cost/time)
+
+Measured on alpha1025: ~55 % of tokens went into tests/builds, ~33 % alone into
+polling long-running commands every 30 s with a ~188k-token context. Therefore:
+
+- **One fresh Codex conversation per work-order.** Everything needed is in this
+  file and the acceptance JSON; do not rely on earlier conversation history.
+- **Minimal reading.** For a scoped work-order (e.g. Vibe:Lab) read only this
+  file, the active acceptance JSON and the code you touch. Read the documents in
+  section 6 only when the work-order changes architecture/routing/agent semantics.
+- **No polling.** Run long commands (full suite, e2e, docker build/export) as ONE
+  blocking command with a long timeout, or redirect to a log file and read the
+  log ONCE when it finished. Never poll with short yield intervals. Print only
+  summaries/failures (e.g. `pytest -q`, `| tail -n 40`), never full logs.
+- **Gate tiers** (the acceptance JSON may override):
+  - *Every change:* focused tests for the touched area + `import aria.main`.
+  - *Internal build (owner installs a TAR):* the full pytest suite once after the
+    version bump + only the e2e scenarios of the touched area + a secret scan of
+    the diff. No fresh-install/upgrade matrix, no theme matrix, no full e2e, no
+    visual baseline unless the work-order touches shared/global UI or migrations.
+    Before every build, run `tests/e2e/test_basics_smoke.py`; all nine Vibe:Lab
+    combinations (desktop, touch tablet, WebKit phone × llm, agent, terminal)
+    must pass and must be reported individually.
+  - *Migration/persistence changes:* add ONE upgrade test from the installed
+    baseline version.
+  - *Public release only:* full e2e, fresh-install, upgrades from the public
+    versions, theme pass, visual baseline.
+- **Real behaviour over fakes.** Flows that talk to external tools (Codex
+  app-server, SSH, browser UI) need at least one test against the REAL shape:
+  recorded real protocol fixtures or a real local run. Hand-made fakes alone do
+  not prove a user flow.
+- **Fixed TAR location (owner's updater depends on it):** every build exports to
+  `/mnt/NAS/aria-images/aria-alpha<N>-local.tar` AND updates the alias
+  `/mnt/NAS/aria-images/aria-alpha-local.tar` (byte-identical, verify sha256).
+  Never only to `dist/` or any other path; keep at most the last 5 internal
+  builds (KEEP_TARS=5; public TARs 604/982/983/1007 and the demo image are always kept).
+- **Short report** (max ~15 lines): what changed, which gates ran, what is
+  unproven, the TAR path. No long tables unless the acceptance JSON asks.
+- **Never add scope** beyond the acceptance JSON; no extra features, no
+  refactors outside the named files.
+
+## 9. CHANGELOG.de.md Format (owner decision 2026-10-20)
+
+`CHANGELOG.de.md` is parsed by the WordPress plugin on aria-agent.dev (single
+source of truth for the public changelog, internal builds included as roadmap).
+Every new or edited entry from `0.1.0-alpha983` upward must follow this format;
+entries older than alpha983 stay untouched (the parser stops there).
+`CHANGELOG.md` (English) is not covered by this rule.
+
+- Version heading, exactly:
+  `## 0.1.0-alpha<N> - <YYYY-MM-DD> [public|intern]`
+  Check regex: `^## 0\.1\.0-alpha\d+ - \d{4}-\d{2}-\d{2} \[(public|intern)\]$`
+  No brackets around the version, no dot before the number (`alpha983`, not
+  `alpha.983`). The date is the build date of that version.
+- `[intern]` for every internal build. `[public]` only for versions the owner
+  released publicly; only the owner switches a version to `[public]`.
+- Sub-headings (`### `) are optional and free-form (thematic titles are fine).
+  `### Sicherheit` is reserved: security content uses exactly `### Sicherheit`,
+  never a variant such as `### Security`, `### Sicherheit und …`.
+  Preferred standard titles: `### Highlights`, `### Neu`, `### Geändert`,
+  `### Behoben`, `### Upgrade-Hinweise`, `### Bekannte Einschränkungen`.
+- No status notes like `> Nur interner Build …`; the `[intern]`/`[public]` tag
+  in the version heading carries that information.
+- Content as Markdown bullets (`- `); hard-wrapped bullets are allowed.
+- Language in prose: real umlauts (ä/ö/ü/Ä/Ö/Ü), Swiss `ss` instead of `ß`.
+  Never change text inside backticks, code blocks, URLs, paths or identifiers.
+- Newest version on top; one heading per version.
