@@ -6,6 +6,6 @@ if [[ ! -f "${DEMO_ENV}" ]]; then
   exit
 fi
 require_demo_names
-demo_compose up -d qdrant aria
+demo_compose up -d qdrant llm-stub aria
 wait_demo_health
 echo "ARIA demo: http://localhost:${ARIA_DEMO_PORT:-8090} (demo-admin / aria-demo-access)"

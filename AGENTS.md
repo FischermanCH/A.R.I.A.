@@ -166,3 +166,24 @@ entries older than alpha983 stay untouched (the parser stops there).
 - Language in prose: real umlauts (ä/ö/ü/Ä/Ö/Ü), Swiss `ss` instead of `ß`.
   Never change text inside backticks, code blocks, URLs, paths or identifiers.
 - Newest version on top; one heading per version.
+
+## 10. Website Feature Page (owner decision 2026-10-21)
+
+The «Funktionen» page on aria-agent.dev is generated from `main`: n8n runs
+`python3 scripts/export_features.py --ref main` daily. Texts and order live in
+`docs/website/features.json`; images in
+`docs/assets/screenshots/features/<lang>/<id>.webp` and
+`docs/assets/screenshots/themes/<lang>/<theme>.webp`.
+
+- When a UI function described in `docs/website/features.json` changes (route,
+  selector, behaviour, new or removed function), update `features.json` in the
+  same commit: text `de` and `en`, and `shot`.
+- On every public release (not on internal builds): reset and start the demo
+  (`scripts/demo/reset.sh`), then run
+  `.venv/bin/python scripts/release/capture_feature_screenshots.py` in addition
+  to `capture_public_screenshots.py`. Look at the images and commit them with
+  the release. Do not run pytest while capturing
+  (`tests/test_alpha999_demo_instance.py` rewrites `demo/generated`).
+- Texts: Swiss Standard German (ä/ö/ü and ss, never ß); the English version is
+  written on its own, not a literal translation; no internal hostnames, IPs or
+  paths.

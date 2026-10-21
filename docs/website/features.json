@@ -1,0 +1,358 @@
+{
+  "schema": 1,
+  "intro": {
+    "de": "Bei der Entwicklung von A.R.I.A. wurde vor allem Wert auf **einfache Bedienbarkeit**, **Kontrolle** und **lokale Datenhaltung** gelegt.\n\nDie folgenden Bildschirmaufnahmen zeigen eine Auswahl der Funktionen. Um die Komplexität auf Wunsch niedrig zu halten, sind die meisten davon nur im «Admin-Modus» sichtbar.",
+    "en": "A.R.I.A. was built with a focus on **ease of use**, **control** and **local data storage**.\n\nThe screenshots below show a selection of its features. To keep complexity low if you want, most of them are only visible in «admin mode»."
+  },
+  "sections": [
+    { "id": "bedienung", "title": { "de": "Chat & Bedienung", "en": "Chat & navigation" } },
+    { "id": "gedaechtnis", "title": { "de": "Gedächtnis & Wissen", "en": "Memory & knowledge" } },
+    { "id": "automatisierung", "title": { "de": "Automatisierung", "en": "Automation" } },
+    { "id": "verbindungen", "title": { "de": "Verbindungen", "en": "Connections" } },
+    { "id": "kontrolle", "title": { "de": "Kontrolle & Sicherheit", "en": "Control & security" } },
+    { "id": "modelle", "title": { "de": "KI-Modelle", "en": "AI models" } },
+    { "id": "anpassen", "title": { "de": "Anpassen", "en": "Personalisation" } },
+    { "id": "betrieb", "title": { "de": "Betrieb & Werkzeuge", "en": "Operations & tools" } }
+  ],
+  "features": [
+    {
+      "id": "chat",
+      "section": "bedienung",
+      "title": { "de": "AI-Chat", "en": "AI chat" },
+      "text": {
+        "de": "Moderner AI-**Chat-Client**, läuft in jedem Browser, getestet auf Desktop, iPad und iPhone.\n\nSequentielle **History des Chats**, kann als `*.md` exportiert oder in Notizen überführt werden.",
+        "en": "Modern AI **chat client** that runs in any browser, tested on desktop, iPad and iPhone.\n\nSequential **chat history** that can be exported as `*.md` or turned into notes."
+      },
+      "shot": { "route": "/", "focus": "#messages .msg-assistant:has(table)" }
+    },
+    {
+      "id": "menu",
+      "section": "bedienung",
+      "title": { "de": "EIN Menü", "en": "ONE menu" },
+      "text": {
+        "de": "In A.R.I.A. gibt es genau **EIN Menü**.\n\nAlle Einstellungen, alle Konfigurationen und sogar das komplette Hilfesystem sind über dieses Menü erreichbar.\n\nFalls ein Update von A.R.I.A. verfügbar ist, markiert A.R.I.A. das prominent mit einem zusätzlichen Menüpunkt.",
+        "en": "A.R.I.A. has exactly **ONE menu**.\n\nAll settings, all configuration and even the complete help system are reached through this menu.\n\nIf an A.R.I.A. update is available, A.R.I.A. highlights it with an extra menu item."
+      },
+      "shot": { "route": "/", "click": ["details.app-menu > summary"], "wait_for": "details.app-menu[open] .user-menu-panel", "focus": "#messages .msg-assistant:has(table)" }
+    },
+    {
+      "id": "admin-view",
+      "section": "bedienung",
+      "title": { "de": "Admin-Modus", "en": "Admin mode" },
+      "text": {
+        "de": "Ohne Admin-Modus blendet A.R.I.A. Dinge aus, die man in A.R.I.A. nicht jeden Tag braucht – ein Schalter, und die Oberfläche bleibt aufgeräumt.",
+        "en": "Without admin mode, A.R.I.A. hides everything you don't need in A.R.I.A. every day – one switch keeps the interface tidy."
+      },
+      "shot": { "route": "/config/admin-mode" }
+    },
+    {
+      "id": "memory-browser",
+      "section": "gedaechtnis",
+      "title": { "de": "Memory Browser", "en": "Memory browser" },
+      "text": {
+        "de": "**Komplette Kontrolle** über jeden Chunk in der lokalen Datenbank.\n\n**Hierarchie-Browser** zur einfacheren Navigation.\n\nAls **eigenes Fenster** ausklappbar, um in die eigenen Gedanken reinzunerden ;-)",
+        "en": "**Full control** over every chunk in the local database.\n\n**Hierarchy browser** for easy navigation.\n\nCan be popped out into **its own window** to nerd out on your own thoughts ;-)"
+      },
+      "shot": { "route": "/memories", "focus": ".memory-domain-shell" }
+    },
+    {
+      "id": "semantic-browser",
+      "section": "gedaechtnis",
+      "title": { "de": "Semantischer Browser", "en": "Semantic browser" },
+      "text": {
+        "de": "Der **semantische Browser** zeigt Daten und Chunks aus der Vektor-Datenbank genau so, wie sie abgespeichert sind.\n\nEr ist eine Unterfunktion des Memory Browsers und kann, sobald Chunks vorhanden sind, jederzeit **dynamisch umgeschaltet** werden.",
+        "en": "The **semantic browser** shows data and chunks from the vector database exactly as they are stored.\n\nIt is part of the memory browser and can be **switched on the fly** as soon as chunks exist."
+      },
+      "shot": { "route": "/memories", "click": ["[data-memory-browser-select-collection='collection-aria-facts-demo-admin']", "[data-memory-browser-mode='semantic']", "[data-brain-zoom='in']", "[data-brain-zoom='in']"], "wait_for": "[data-memory-browser-mode='semantic'][aria-pressed='true']", "viewport": [1280, 1100] }
+    },
+    {
+      "id": "own-memories",
+      "section": "gedaechtnis",
+      "title": { "de": "Eigene Erinnerungen", "en": "Your own memories" },
+      "text": {
+        "de": "**Eigene Erinnerungen** können über eine Eingabemaske erfasst werden.\n\nDie gleiche Funktion ist auch **direkt im Chat** verfügbar («*merke Dir*»).",
+        "en": "**Your own memories** can be added through a form.\n\nThe same works **right in the chat** («*remember*»)."
+      },
+      "shot": { "route": "/memories/create" }
+    },
+    {
+      "id": "document-upload",
+      "section": "gedaechtnis",
+      "title": { "de": "Dokumente hochladen (Mini-RAG)", "en": "Document upload (mini RAG)" },
+      "text": {
+        "de": "**Dokumente importieren** und neuen oder bestehenden Memory-Kollektionen zuweisen.\n\nErmöglicht den Aufbau spezifischer KI-**Wissensdatenbanken**.",
+        "en": "**Import documents** and assign them to new or existing memory collections.\n\nLets you build dedicated AI **knowledge bases**."
+      },
+      "shot": { "route": "/memories/import" }
+    },
+    {
+      "id": "personal-model",
+      "section": "gedaechtnis",
+      "title": { "de": "Persönliches Gedankenmodell", "en": "Personal thought model" },
+      "text": {
+        "de": "**Verwaltung** der persönlichen Erinnerungen auf granularer Ebene.\n\n**Selbstgelernte** und **beigebrachte Erinnerungen** können einzeln gelöscht oder verändert werden.",
+        "en": "**Manage** personal memories at a granular level.\n\n**Self-learned** and **taught memories** can be edited or deleted one by one."
+      },
+      "shot": { "route": "/memories/auto-memory", "focus": ".learning-ledger-item" }
+    },
+    {
+      "id": "notes",
+      "section": "gedaechtnis",
+      "title": { "de": "Notizen", "en": "Notes" },
+      "text": {
+        "de": "A.R.I.A. hat eine eigene **Notizfunktion**. Alle Notizen werden direkt in der Vektor-Datenbank abgelegt, was die Bearbeitung mit künstlicher Intelligenz vereinfacht.",
+        "en": "A.R.I.A. has its own **notes**. Every note is stored directly in the vector database, which makes working on it with AI easy."
+      },
+      "shot": { "route": "/notes" }
+    },
+    {
+      "id": "memory-maintenance",
+      "section": "gedaechtnis",
+      "title": { "de": "Erinnerungen verwalten", "en": "Memory maintenance" },
+      "text": {
+        "de": "Für die Verwaltung der Erinnerungen stehen **diverse Werkzeuge** zur Verfügung.\n\nVom Reindex über die Verfeinerung des Kontexts, der an das LLM geschickt wird, bis zu Setup und Export ist hier alles zu finden, was es braucht, um seine **eigenen Erinnerungen zu verwalten**.",
+        "en": "**Various tools** are available to maintain your memories.\n\nFrom reindexing and fine-tuning the context sent to the LLM to setup and export – everything you need to **manage your own memories** is here."
+      },
+      "shot": { "route": "/memories/maintenance" }
+    },
+    {
+      "id": "agent-jobs",
+      "section": "automatisierung",
+      "title": { "de": "Autonome Jobs", "en": "Autonomous jobs" },
+      "text": {
+        "de": "**Agent-Jobs** laufen im Hintergrund und melden sich im Hauptchat, wenn sie erledigt sind.\n\nTechnische Details zur **Kontrolle** sind jederzeit verfügbar.\n\n**Abbrechen** und **Weiterführen** eines Jobs ist jederzeit möglich.",
+        "en": "**Agent jobs** run in the background and report back in the main chat when they are done.\n\nTechnical details for **oversight** are available at any time.\n\nJobs can be **cancelled** and **resumed** at any time."
+      },
+      "shot": { "route": "/jobs/panel", "focus": "[data-agent-job-card]" }
+    },
+    {
+      "id": "recipes-personal",
+      "section": "automatisierung",
+      "title": { "de": "Persönliche Rezepte", "en": "Personal recipes" },
+      "text": {
+        "de": "Die eigenen **Rezepte** werden übersichtlich dargestellt und können direkt in der Benutzeroberfläche aktiviert, bearbeitet, kopiert oder gelöscht werden.",
+        "en": "Your own **recipes** are listed clearly and can be enabled, edited, copied or deleted right in the interface."
+      },
+      "shot": { "route": "/recipes/mine" }
+    },
+    {
+      "id": "recipes-templates",
+      "section": "automatisierung",
+      "title": { "de": "Rezept-Vorlagen", "en": "Recipe templates" },
+      "text": {
+        "de": "A.R.I.A. liefert **Vorlagen für Rezepte** mit.\n\nRezepte können auch exportiert und importiert werden.",
+        "en": "A.R.I.A. ships with **recipe templates**.\n\nRecipes can also be exported and imported."
+      },
+      "shot": { "route": "/recipes/templates" }
+    },
+    {
+      "id": "connections",
+      "section": "verbindungen",
+      "title": { "de": "Verbindungen", "en": "Connections" },
+      "text": {
+        "de": "Viele Verbindungen sind vorgefertigt direkt in der Benutzeroberfläche verfügbar.\n\nAktuell unterstützt: ***SSH, SFTP, SMB, Discord, RSS, Websites, Webhook, HTTP API, Google Calendar, MQTT, SMTP, IMAP und MCP***.\n\nWeitere Verbindungen können modular hinzugefügt werden.",
+        "en": "Many connections are available ready-made in the interface.\n\nCurrently supported: ***SSH, SFTP, SMB, Discord, RSS, websites, webhook, HTTP API, Google Calendar, MQTT, SMTP, IMAP and MCP***.\n\nMore connections can be added as modules."
+      },
+      "shot": { "route": "/connections/types" }
+    },
+    {
+      "id": "connections-live",
+      "section": "verbindungen",
+      "title": { "de": "Live-Status der Verbindungen", "en": "Live connection status" },
+      "text": {
+        "de": "Alle Verbindungen lassen sich **live** auf einer Seite auf ihre Funktionstüchtigkeit prüfen.\n\nEin Klick auf eine Verbindung öffnet ihre Details.",
+        "en": "All connections can be checked **live** on a single page.\n\nClick a connection to open its details."
+      },
+      "shot": { "route": "/connections/status" }
+    },
+    {
+      "id": "connection-templates",
+      "section": "verbindungen",
+      "title": { "de": "Vorlagen für Verbindungen", "en": "Connection templates" },
+      "text": {
+        "de": "Damit man nicht jedes Mal bei null anfangen muss, kommt A.R.I.A. mit einem Set an **Vorlagen für Verbindungen**, die helfen, «*einfach*» eine neue Verbindung zu konfigurieren.",
+        "en": "So you don't have to start from scratch every time, A.R.I.A. comes with a set of **connection templates** that make configuring a new connection «*easy*»."
+      },
+      "shot": { "route": "/connections/templates" }
+    },
+    {
+      "id": "context-metadata",
+      "section": "verbindungen",
+      "title": { "de": "Kleine Helfer", "en": "Little helpers" },
+      "text": {
+        "de": "Überall in A.R.I.A. findet man kleine Helfer – wie hier, wo ein **LLM-Knopf** die ganze Arbeit erledigt und Metadaten erfasst, die später dem Routing helfen zu entscheiden, welcher Kontext an das LLM geschickt wird ;-)",
+        "en": "Little helpers are everywhere in A.R.I.A. – like here, where an **LLM button** does all the work and fills in metadata that later helps routing decide which context is sent to the LLM ;-)"
+      },
+      "shot": { "route": "/config/connections/ssh/workshop", "click": ["button.ui-secondary-action[data-connection-meta-llm-kind='ssh']"], "focus": ".connection-meta-block" }
+    },
+    {
+      "id": "guardrails",
+      "section": "kontrolle",
+      "title": { "de": "Guardrails", "en": "Guardrails" },
+      "text": {
+        "de": "Eine **Guardrail** wird definiert und einer Verbindung angehängt. Alle Befehle, die über diese Verbindung abgesetzt werden, durchlaufen dann die entsprechende Guardrail.",
+        "en": "A **guardrail** is defined and attached to a connection. Every command sent through that connection then passes through the guardrail."
+      },
+      "shot": { "route": "/config/security?guardrail_ref=demo-safe-maintenance", "focus": "details[open] .skill-summary.connection-flow-note" }
+    },
+    {
+      "id": "guardrail-suggestions",
+      "section": "kontrolle",
+      "title": { "de": "Guardrail-Vorschläge", "en": "Guardrail suggestions" },
+      "text": {
+        "de": "Um die Komplexität der Guardrail-Definition zu verringern, ist auf Wunsch ein **Vorschlag vom LLM** verfügbar.",
+        "en": "To make defining guardrails simpler, an **LLM suggestion** is available on request."
+      },
+      "shot": { "route": "/config/security", "fill": { "#guardrail_draft_instruction": { "de": "Auf den Ubuntu-Servern sollen keine sudo-Befehle ausgeführt werden.", "en": "No sudo commands should run on the Ubuntu servers." } }, "click": ["details:has(#guardrail-draft-form) > summary", "#guardrail-draft-submit"], "wait_for": "details:has(#guardrail-draft-form) article.config-group-card", "focus": "details:has(#guardrail-draft-form) article.config-group-card" }
+    },
+    {
+      "id": "statistics",
+      "section": "kontrolle",
+      "title": { "de": "Kosten & Statistiken", "en": "Costs & statistics" },
+      "text": {
+        "de": "Granulare **Kostenkontrolle** über den Token-Verbrauch bei den LLM-Providern.\n\n**Historischer Verbrauch** und wofür in A.R.I.A. die Tokens verbraucht wurden (Trends).",
+        "en": "Granular **cost control** over token usage at your LLM providers.\n\n**Historical usage** and what in A.R.I.A. the tokens were spent on (trends)."
+      },
+      "shot": { "route": "/stats", "focus": "[data-stats-section='costs']" }
+    },
+    {
+      "id": "activity-journal",
+      "section": "kontrolle",
+      "title": { "de": "Aktivitäts-Journal", "en": "Activity journal" },
+      "text": {
+        "de": "Im **Aktivitäts-Journal** sind alle Interaktionen mit den LLMs übersichtlich aufgelistet.\n\nFilter sorgen für eine klare Darstellung bei der Suche nach der «Nadel im Heuhaufen».",
+        "en": "The **activity journal** lists every interaction with the LLMs.\n\nFilters keep things clear when you are looking for the «needle in the haystack»."
+      },
+      "shot": { "route": "/memories/activity-journal", "focus": ".activity-journal-entry" }
+    },
+    {
+      "id": "backup",
+      "section": "kontrolle",
+      "title": { "de": "Backup & Restore", "en": "Backup & restore" },
+      "text": {
+        "de": "Mit **Backup & Restore** lässt sich eine Sicherung von A.R.I.A. erstellen und später wieder einspielen.\n\nAus Sicherheitsgründen wird angezeigt, wie viele «Secrets» im Backup enthalten sind. Auf Wunsch lässt sich das Backup **ohne Secrets** erstellen oder **mit einem Passwort schützen**.",
+        "en": "**Backup & restore** creates a copy of A.R.I.A. that you can restore later.\n\nFor security, A.R.I.A. shows how many «secrets» the backup contains. If you like, the backup can be created **without secrets** or **protected with a password**."
+      },
+      "shot": { "route": "/config/backup" }
+    },
+    {
+      "id": "llm",
+      "section": "modelle",
+      "title": { "de": "LLM-Konfiguration", "en": "LLM configuration" },
+      "text": {
+        "de": "A.R.I.A. ist kompatibel mit den gängigsten **LLM-Providern**.\n\nVerschiedene **Profile** können konfiguriert und benutzt werden. Auf Wunsch übernimmt ein günstigeres Modell mit Tool-Calling die Websuche.\n\nFür eine flexible Konfiguration wird ein LLM-Proxy wie [LiteLLM](https://www.litellm.ai/) empfohlen.",
+        "en": "A.R.I.A. works with the most common **LLM providers**.\n\nSeveral **profiles** can be configured and used. If you want, a cheaper model with tool calling handles web search.\n\nFor flexible setups an LLM proxy such as [LiteLLM](https://www.litellm.ai/) is recommended."
+      },
+      "shot": { "route": "/config/llm" }
+    },
+    {
+      "id": "embeddings",
+      "section": "modelle",
+      "title": { "de": "Embeddings", "en": "Embeddings" },
+      "text": {
+        "de": "Wie bei den LLMs unterstützt A.R.I.A. auch bei den **Embeddings** die gängigsten Provider.\n\nAuch wenn es möglich ist, mehr als ein Embedding-Modell zu konfigurieren, wird davon abgeraten: Verschiedene Embeddings könnten die persönliche Vektor-Datenbank durcheinanderbringen.",
+        "en": "As with LLMs, A.R.I.A. supports the most common providers for **embeddings**.\n\nConfiguring more than one embedding model is possible but not recommended: different embeddings can mix up your personal vector database."
+      },
+      "shot": { "route": "/config/embeddings" }
+    },
+    {
+      "id": "settings",
+      "section": "anpassen",
+      "title": { "de": "Umfangreiche Einstellungen", "en": "Extensive settings" },
+      "text": {
+        "de": "Umfangreiche Möglichkeiten zur **Einstellung** vieler **Parameter** und **Funktionen**.\n\nVon der Optik (Theme) bis zur Sicherheit (Guardrails) ist alles Wichtige zentral an einem Ort zu finden.",
+        "en": "Extensive options to **configure** many **parameters** and **features**.\n\nFrom looks (themes) to security (guardrails), everything important is in one central place."
+      },
+      "shot": { "route": "/config" }
+    },
+    {
+      "id": "themes",
+      "section": "anpassen",
+      "title": { "de": "Themes", "en": "Themes" },
+      "text": {
+        "de": "11 verschiedene **Farbschemata** mit passendem Hintergrund, um A.R.I.A. deinen persönlichen Vorlieben **optisch anzupassen** – [alle Themes in der Galerie](#themes).",
+        "en": "11 different **colour schemes** with matching backgrounds to **make A.R.I.A. look** the way you like – [see all themes in the gallery](#themes)."
+      },
+      "shot": { "route": "/config/appearance" }
+    },
+    {
+      "id": "personality",
+      "section": "anpassen",
+      "title": { "de": "Persönlichkeit anpassen", "en": "Personality" },
+      "text": {
+        "de": "Die Textdateien, welche die **Persönlichkeit** von A.R.I.A. steuern oder beeinflussen, lassen sich bequem über die **Benutzeroberfläche ändern**.",
+        "en": "The text files that shape A.R.I.A.'s **personality** can be **edited** comfortably **in the interface**."
+      },
+      "shot": { "route": "/config/persona" }
+    },
+    {
+      "id": "language",
+      "section": "anpassen",
+      "title": { "de": "Mehrsprachigkeit", "en": "Multilingual" },
+      "text": {
+        "de": "A.R.I.A. unterstützt aktuell **Deutsch** und **Englisch**. Weitere Übersetzungen können modular hinzugefügt werden.",
+        "en": "A.R.I.A. currently supports **German** and **English**. More languages can be added as modules."
+      },
+      "shot": { "route": "/config/language" }
+    },
+    {
+      "id": "update",
+      "section": "betrieb",
+      "title": { "de": "Update", "en": "Updates" },
+      "text": {
+        "de": "Ein einfaches Update war von Anfang an auf der «Must-have»-Liste für A.R.I.A.\n\nA.R.I.A. prüft selbstständig, ob eine neue Version veröffentlicht wurde, und installiert das neue Image von Docker Hub **auf Knopfdruck**.",
+        "en": "Simple updates were on A.R.I.A.'s «must-have» list from day one.\n\nA.R.I.A. checks by itself whether a new version has been released and installs the new image from Docker Hub **with one click**."
+      },
+      "shot": { "route": "/updates" }
+    },
+    {
+      "id": "users",
+      "section": "betrieb",
+      "title": { "de": "Benutzerverwaltung", "en": "User management" },
+      "text": {
+        "de": "Obwohl A.R.I.A. aktuell als Einzelbenutzer-System ausgelegt ist, lassen sich mehrere Benutzer erfassen.\n\nDas vor allem, damit bei einem späteren Mehrbenutzer-Betrieb von Anfang an kein Durcheinander in der Vektor-Datenbank entsteht.",
+        "en": "A.R.I.A. is currently designed as a single-user system, but more than one user can be created.\n\nThis mainly ensures that the vector database stays clean if multi-user support arrives later."
+      },
+      "shot": { "route": "/config/users" }
+    },
+    {
+      "id": "logs",
+      "section": "betrieb",
+      "title": { "de": "Log-Daten", "en": "Log data" },
+      "text": {
+        "de": "Damit die Datenbank mit den Log-Daten nicht unkontrolliert wächst, bietet A.R.I.A. eine eigene Seite, auf der man einstellt, **wie lange Log-Daten aufbewahrt** werden.\n\nZusätzlich gibt es automatische Bereinigung und das Zurücksetzen der Statistiken.",
+        "en": "So the log database doesn't grow out of control, A.R.I.A. has its own page to set **how long log data is kept**.\n\nAutomatic clean-up and statistics reset are available too."
+      },
+      "shot": { "route": "/config/logs" }
+    },
+    {
+      "id": "module-registry",
+      "section": "betrieb",
+      "title": { "de": "Modul-Register", "en": "Module registry" },
+      "text": {
+        "de": "Das **Modul-Register** zeigt übersichtlich alle A.R.I.A.-Module und ihre Funktionstüchtigkeit, dazu detaillierte Beschreibungen jedes Moduls.",
+        "en": "The **module registry** lists all A.R.I.A. modules and their health, plus a detailed description of each module."
+      },
+      "shot": { "route": "/config/admin/modules" }
+    },
+    {
+      "id": "dev-tools",
+      "section": "betrieb",
+      "title": { "de": "System-Baukasten", "en": "System toolkit" },
+      "text": {
+        "de": "Zu den regulären Funktionen kommen einige Werkzeuge, die unter «System & Entwicklung» abgelegt, aber für alle Benutzer verfügbar sind.\n\nDer **LLM Prompt Debugger** ist einer davon, weitere sind der **File Editor** und der **Error Interpreter**.",
+        "en": "On top of the regular features there are tools filed under «System & development» that every user can use.\n\nThe **LLM prompt debugger** is one of them, others are the **file editor** and the **error interpreter**."
+      },
+      "shot": { "route": "/config/llm/debug" }
+    }
+  ],
+  "gallery": {
+    "title": { "de": "Alle Themes", "en": "All themes" },
+    "text": {
+      "de": "Jedes Theme bringt seinen eigenen Hintergrund mit. Klick auf ein Bild für die grosse Ansicht.",
+      "en": "Every theme comes with its own background. Click an image to enlarge it."
+    },
+    "themes": ["matrix", "sunset", "harbor", "paper", "cyberpunk", "cyberpunk-neo", "nyan-cat", "puke-unicorn", "pixel", "crt-amber", "deep-space"],
+    "shot": { "route": "/", "focus": "#messages .msg-assistant:has(table)" }
+  }
+}

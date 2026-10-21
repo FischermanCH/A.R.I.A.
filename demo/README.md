@@ -21,9 +21,14 @@ scripts/demo/reset.sh
 `reset.sh` removes only resources whose exact Compose project/name starts with
 `aria-demo`, recreates the deterministic fictitious seed, and starts it again.
 Set `ARIA_DEMO_PORT` to change the host port. Pages and prepared chats work
-without a language-model provider. For optional live chat, set the normal LLM
-fields in `demo/generated/config/config.yaml` to an endpoint dedicated to this
-demo; never point it at a production data volume.
+without a language-model provider: the `llm-stub` service
+(`scripts/demo/llm_stub.py`) answers LLM buttons such as guardrail drafts and
+connection metadata with fixed fictitious JSON and never contacts a provider.
+The demo ARIA container has no outbound internet (proxy block), so the prepared
+«update available» state and the connection status cache from
+`scripts/demo/seed_features.py` stay deterministic. For optional live chat, set
+the normal LLM fields in `demo/generated/config/config.yaml` to an endpoint
+dedicated to this demo; never point it at a production data volume.
 
 The seed contains no real people, hosts, addresses, paths, credentials, tool
 outputs or documents. The published login above is a deliberate demo
