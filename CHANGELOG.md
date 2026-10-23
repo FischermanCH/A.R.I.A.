@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1052 - 2026-10-24 [intern]
+
+### Fixed
+
+- Keeps Chat, Vibe:Lab, Settings, Notes and Memories at the full flexible height of the app frame, both with and without a pending approval. Named grid areas decouple the content from optional notice and restart banners.
+- Permanently checks both approval states on desktop, tablet and iPhone. The public version remains `0.1.0-alpha1007`.
+
 ## 0.1.0-alpha1051 - 2026-10-23 [intern]
 
 ### Added

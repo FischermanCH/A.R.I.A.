@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1052 - 2026-10-24 [intern]
+
+### Behoben
+
+- Hält Chat, Vibe:Lab, Einstellungen, Notizen und Memories mit und ohne offene Freigabe immer über die volle flexible Höhe des App-Rahmens. Benannte Grid-Bereiche entkoppeln den Inhalt von optionalen Hinweis- und Neustart-Bannern.
+- Prüft beide Freigabezustände dauerhaft auf Desktop, Tablet und iPhone. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
 ## 0.1.0-alpha1051 - 2026-10-23 [intern]
 
 ### Neu
