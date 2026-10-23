@@ -9,7 +9,12 @@ temporary directory first and only moved into place when every shot passed.
 
 Per-shot keys: route, fill ({selector: {"de": ..., "en": ...}}), click
 (selector list, in order), wait_for, focus (scrollIntoView center),
-viewport ([w, h], default 1280x900).
+viewport ([w, h], default 1280x900), frame ("shell" = default for features,
+"page" = whole viewport incl. background, default for the theme gallery).
+
+Feature shots ("shell"): only the A.R.I.A. window (.app-shell) is captured,
+cropped to what is visible in the viewport, page background transparent,
+stored as WebP with alpha channel.
 
 Run against the demo (scripts/demo/reset.sh):
   .venv/bin/python scripts/release/capture_feature_screenshots.py
@@ -18,6 +23,7 @@ Run against the demo (scripts/demo/reset.sh):
 from __future__ import annotations
 
 import argparse
+import io
 import json
 from pathlib import Path
 import shutil
@@ -25,6 +31,7 @@ import tempfile
 from typing import Any
 from urllib.parse import urlencode
 
+from PIL import Image
 from playwright.sync_api import Page, sync_playwright
 
 from demo_capture import capture, focus, login, safe_source
@@ -33,6 +40,43 @@ from demo_capture import capture, focus, login, safe_source
 LANGS = ("de", "en")
 DEFAULT_VIEWPORT = (1280, 900)
 FEATURE_THEME = "matrix"
+SHELL_SELECTOR = ".app-shell"
+SHELL_MARGIN = 10  # px Rand um das Fenster (transparent)
+MAX_BYTES = 400_000
+# Seitenhintergrund (Farbe, Hintergrundbild) für die Fenster-Aufnahme ausblenden.
+TRANSPARENT_CSS = """
+html, body { background: transparent !important; background-image: none !important; }
+html::before, html::after, body::before, body::after { display: none !important; }
+"""
+
+
+def _capture_shell(page: Page, target: Path) -> int:
+    """Only the A.R.I.A. window, cropped to the viewport, transparent background, WebP with alpha."""
+    style = page.add_style_tag(content=TRANSPARENT_CSS)
+    try:
+        page.wait_for_timeout(150)
+        box = page.locator(SHELL_SELECTOR).first.bounding_box()
+        if not box:
+            raise RuntimeError(f"{SHELL_SELECTOR} not visible")
+        vp = page.viewport_size or {"width": DEFAULT_VIEWPORT[0], "height": DEFAULT_VIEWPORT[1]}
+        x0 = max(0.0, box["x"] - SHELL_MARGIN)
+        y0 = max(0.0, box["y"] - SHELL_MARGIN)
+        x1 = min(float(vp["width"]), box["x"] + box["width"] + SHELL_MARGIN)
+        y1 = min(float(vp["height"]), box["y"] + box["height"] + SHELL_MARGIN)
+        png = page.screenshot(clip={"x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0}, omit_background=True)
+    finally:
+        style.evaluate("node => node.remove()")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with Image.open(io.BytesIO(png)) as image:
+        rgba = image.convert("RGBA")
+        for quality in (80, 70, 60):
+            rgba.save(target, "WEBP", quality=quality, method=6)
+            if target.stat().st_size <= MAX_BYTES:
+                break
+    size = target.stat().st_size
+    if size > MAX_BYTES:
+        raise RuntimeError(f"screenshot exceeds 400 KB: {target} ({size})")
+    return size
 
 
 def _goto(page: Page, base: str, route: str, lang: str) -> None:
@@ -92,7 +136,7 @@ def _check_demo_state(page: Page, base: str) -> None:
         )
 
 
-def _shoot(page: Page, base: str, shot: dict[str, Any], lang: str, target: Path, label: str) -> int:
+def _shoot(page: Page, base: str, shot: dict[str, Any], lang: str, target: Path, label: str, frame: str = "shell") -> int:
     width, height = shot.get("viewport") or DEFAULT_VIEWPORT
     page.set_viewport_size({"width": int(width), "height": int(height)})
     _goto(page, base, str(shot["route"]), lang)
@@ -111,6 +155,8 @@ def _shoot(page: Page, base: str, shot: dict[str, Any], lang: str, target: Path,
         focus(locator)
     page.wait_for_timeout(600)
     safe_source(page, label)
+    if str(shot.get("frame", frame)) == "shell":
+        return _capture_shell(page, target)
     return capture(page, target)
 
 
@@ -163,7 +209,7 @@ def main() -> None:
                 for theme in themes:
                     _set_appearance(page, base, theme)
                     for lang in LANGS:
-                        size = _shoot(page, base, gallery["shot"], lang, staging / "themes" / lang / f"{theme}.webp", f"{lang}/theme-{theme}")
+                        size = _shoot(page, base, gallery["shot"], lang, staging / "themes" / lang / f"{theme}.webp", f"{lang}/theme-{theme}", frame="page")
                         rows.append(("themes", theme, lang, size))
                 _check_demo_state(page, base)
             finally:
