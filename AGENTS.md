@@ -203,3 +203,28 @@ Die Website liest per n8n ausschliesslich den committeten Stand von `main`
   Bei jedem Public Release die Feature-Screenshots neu erzeugen und mitcommitten.
 - Vor dem Abschluss einer Aufgabe prüfen: `git status` darf für `CHANGELOG.de.md`,
   die Hilfe-Dokumente und `docs/website/` keine uncommitteten Änderungen zeigen.
+
+### English changelog (`CHANGELOG.md`)
+
+- Every new build gets its entry in BOTH files in the same commit:
+  `CHANGELOG.de.md` and `CHANGELOG.md`, with an identical heading
+  (`## 0.1.0-alpha<N> - <YYYY-MM-DD> [public|intern]`). `CHANGELOG.de.md` is
+  authoritative for build, date and status; the website takes only the text
+  from `CHANGELOG.md` (a missing build shows the German text with «Only
+  available in German»).
+- Sub-sections mirror the German entry: `### Neu` = `### Added`,
+  `### Geändert` = `### Changed`, `### Behoben` = `### Fixed`,
+  `### Sicherheit` = `### Security` (exactly; the website hides it for
+  unpublished internal builds).
+- English text: a faithful, not literal, translation in clear neutral
+  technical **British English** (organise, colour, behaviour, licence,
+  localise, centre). Code, paths, commands and versions unchanged in backticks.
+  No internal hostnames, IPs, user names or paths beyond the German text.
+- Before finishing a task run the check; the `diff` must be empty and the
+  security counts must match:
+
+```bash
+diff <(grep -oE '^## 0\.1\.0-alpha[0-9]+ - [0-9-]+ \[(public|intern)\]' CHANGELOG.de.md) \
+     <(grep -oE '^## 0\.1\.0-alpha[0-9]+ - [0-9-]+ \[(public|intern)\]' CHANGELOG.md | head -n $(grep -cE '^## 0\.1\.0-alpha' CHANGELOG.de.md))
+grep -c '^### Sicherheit' CHANGELOG.de.md; grep -c '^### Security' CHANGELOG.md
+```

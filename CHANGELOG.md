@@ -1,13 +1,287 @@
 # Changelog
 
-## 0.1.0-alpha1007 - 2026-10-12
+## 0.1.0-alpha1051 - 2026-10-23 [intern]
+
+### Added
+
+- Pending Vibe:Lab approvals now appear on every page as a notice bar and a marker on the menu; the approval card stays within reach directly above the input.
+- Adds the Discord category `vibelab_events` (off by default) with short, redacted run messages and a public link to Vibe:Lab.
+
+### Fixed
+
+- Popovers are now opaque and never clipped on any device, and running commands, genuine silence from Codex and changes not yet applied to the project are clearly visible.
+- Viewport diagnostics and updates are also linked from the matching settings groups. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1050 - 2026-10-22 [intern]
+
+### Fixed
+
+- Vibe:Lab picks up runs started or resumed on other devices within five seconds and refreshes the transcript, completion and apply state without moving your reading position.
+- The apply box reflects the state on the server, explains errors in plain language and stays fully usable even in narrow phone windows.
+- The app frame never exceeds the visible viewport, and the safe-area edge carries the ARIA background. An admin-only viewport diagnostics page reports the real device values and offers a copy button.
+
+## 0.1.0-alpha1049 - 2026-10-22 [intern]
+
+### Changed
+
+- Organises the settings into six groups supplied by the modules and moves product information, licences and updates into the shared Help tab bar.
+- Gives Notes and Statistics the shared page header without removing any of their content or functions.
+
+### Fixed
+
+- Closes the remaining iPhone gaps in the landscape header, the standalone bottom edge, page information and project selection, and makes browser favicons transparent while the install icons stay opaque. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1048 - 2026-10-21 [intern]
+
+### Fixed
+
+- Pins the app frame on iPhone and iPad to the visual viewport, stops the page from shifting after swipes and keyboard changes, and applies each safe area exactly once to the header and the input area.
+- Keeps page information closed by default, closes it on an outside tap, Escape or when a menu opens, and shows it on phones as a bounded inline section. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1047 - 2026-10-21 [intern]
+
+### Changed
+
+- Moves Vibe:Lab onto the shared app frame and the central device layer, combines project and layout selection, and shows the host status once, compactly, in the header.
+- Turns the agent notice into collapsible page information and keeps the archive action and archive count on a single line. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1046 - 2026-10-21 [intern]
+
+### Changed
+
+- Replaces the previous ARIA mark throughout with the new, single logo and derives the favicons, the Apple touch icon and all manifest/PWA icons from it unchanged. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1045 - 2026-10-20 [intern]
+
+### Changed
+
+- Introduces the shared app frame and the central device layer of the `navigation_shell` module for phone, tablet and desktop.
+- Unifies the page header, tab bar and collapsible information; chat session details now live in the user menu.
+- Adds an exception list for page styles not yet migrated, which may only ever shrink. The login page and the content area of `/memories` are unchanged; Vibe:Lab follows in alpha1046. The public version remains `0.1.0-alpha1007`.
+- Corrects the visible keyboard height so the composer is no longer cut off, sizes the header per device at 48/64/92 px, extends the frame to the bottom edge and puts the chat actions on one line on tablet and desktop.
+
+## 0.1.0-alpha1044 - 2026-10-19 [intern]
+
+- Adds the installable iOS web app including safe areas, fixes two-run windows in landscape and on iPad, restores the iPad window selection and cleanly separates the terminal notice and run actions on phones. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1043 - 2026-10-19 [intern]
+
+- Improves the second run on phones in Vibe:Lab, the layout with the iOS keyboard open, the terminal key bar, the LLM menu and model chip, and the iPad window header. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1042 - 2026-10-18 [intern]
+
+- Every open Vibe:Lab popup on a phone now fits on screen, can be reached, excludes the others and closes on an outside tap or Escape.
+- Restores compact run actions on phones and transcript space in short landscape views; model and reasoning effort are stored per window and the model chip stays readable.
+
+## 0.1.0-alpha1041 - 2026-10-18 [intern]
+
+- Fixes Vibe:Lab terminal navigation and layout on phones, approval controls, the transport and display of Codex reasoning effort, and wrapping run footers; adds the permanent 3×3 basics smoke gate. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1040 - 2026-10-18 [intern]
+
+- Makes the model and reasoning effort chosen in Vibe:Lab binding and verifiable from the provider's response, consolidates the phone rules, keeps approval actions in compact cards and lets `/clear` and `/cls` archive the whole window with a safe stop and undo. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1039 - 2026-10-18 [intern]
+
+- Keeps nested Codex commentary out of the final result, wires the stored model and reasoning-effort detection to the real Vibe:Lab controls, keeps wide results and commands within the visible run and corrects the approved touch layout. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1038 - 2026-10-18 [intern]
+
+- Fixes JSON-RPC ID collisions in Codex approvals, adds model and reasoning-effort selection with honest per-model cost display, corrects Vibe:Lab exports and Markdown bounds, and implements the approved phone and tablet layout. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1037 - 2026-10-18 [intern]
+
+- Stabilises stopping in Vibe:Lab, long live runs including completion detection, host metric timeouts and complete server-side Markdown exports. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1036 - 2026-10-17 [intern]
+
+- Brings Vibe:Lab on the desktop closer to the Codex app: compact header, stop/clear/reset, project file mentions, pasted images, a context ring and optional completion and approval signals. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1035 - 2026-10-17 [intern]
+
+- Rebuilds Vibe:Lab on phones and tablets in portrait as a full-screen touch grid with the input always visible, restores inline SVG controls and window settings, and fixes the result fallback, counting and the copy label. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1034 - 2026-10-17 [intern]
+
+- Replaces the fixed 180-second limit in Vibe:Lab with configurable inactivity and total limits that pause while the owner is deciding on an approval, adds the approved compact iPhone/iPad mode and refines live results, previews, rings, wording and the coding agent statistics. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1033 - 2026-10-17 [intern]
+
+- Refines Vibe:Lab on iPhone and desktop with a full-height chat, labelled rings, highlighted phase-based results, calm equally sized actions and complete live approval cards; the coding agent statistics get a compact layout for quota and reset date. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1032 - 2026-10-17 [intern]
+
+- Vibe:Lab now uses the same timeline view live and after reloading, shared scrolling to the latest message, compact ring indicators in the title bar and reliably reloaded coding agent statistics.
+
+## 0.1.0-alpha1031 - 2026-10-17 [intern]
+
+- Fixes the work history in Vibe:Lab, feedback when discarding committed changes, coding agent statistics, the run archive, storing uploads outside the project repository and the compact five-cell metrics row. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1030 - 2026-10-17 [intern]
+
+- Adds the Codex work history, weekly quota and estimated run costs; shows coding agent costs separately on `/stats`; explains applying or discarding isolated changes; and archives older runs in one go. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1029 - 2026-10-17 [intern]
+
+- Fixes the truncated version notice on `/stats` and refines Vibe:Lab with per-turn reasoning, contextual slash commands, labelled run actions, structured coloured diffs and a pre-merge check. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1028 - 2026-10-17 [intern]
+
+- The statistics page now highlights the installed version clearly, and the fixed account menu is organised into Work, Knowledge and System. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1027 - 2026-10-17 [intern]
+
+- Vibe:Lab shows new files in the review, commits approved agent changes locally on the session branch, rejects empty merges and keeps every expandable diff with its run.
+- Live, reloaded and older expanded runs use the same server renderer, with a reasoning summary and compact approval and status details. `/stats` once again shows the installed version and the cached update status. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1026 - 2026-10-17 [intern]
+
+- Fixes Vibe:Lab approval delivery: waiting replies are delivered even without a new Codex event, a missing pending entry never turns Allow into Deny, and the card immediately shows sent, waiting, failed or expired.
+- Replays a cleaned real Codex 0.157 recording of an L1 write; reasoning summaries replace duplicated protocol parts, waiting for an approval suppresses stale heartbeats and each run shows its start only once.
+- Older coding agent runs can be opened in place, accessibly, with their full history, approvals, status menu and visible action icons. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1025 - 2026-10-16 [intern]
+
+- Vibe:Lab windows bound to a different project from the workspace work again: terminal, metrics, uploads and agent runs derive their permissions from the window binding.
+- Coding agent runs now follow the approved calm history with chronological run lines, one current run frame, compact approvals and a status and action line.
+- Multi-run exports are fixed; in server load, label and value now sit together in front of the LED bar.
+
+## 0.1.0-alpha1024 - 2026-10-16 [intern]
+
+- Vibe:Lab now resumes exactly the stored Codex thread within the same run and shows runs in chronological chat order.
+- Terminal sessions are separated by project and SSH target, replace broken sessions, no longer block each other globally while connecting and avoid tight polling; Reconnect and Close sit in the shared menu.
+- On phones and tablets the input or terminal stays in the visible area, with compact controls and a touch key bar added.
+- Coding agent runs can show provider-supplied reasoning summaries and plans live; each project can choose off, short or detailed.
+- Exports, file change labels, project Git status and stylesheet recovery deliver complete, localised diagnostics.
+
+## 0.1.0-alpha1023 - 2026-10-16 [intern]
+
+- Replaces the old combination of root and relative path in Vibe:Lab with an absolute project folder, including a non-destructive upgrade migration and visible errors right at the field.
+- Adds an explicit local Git assistant with a read-only size and storage preview, exclusion of embedded repositories and confirmation before the first commit; a remote is never created or changed.
+- Completes real Codex file change details, Resume actions for finished runs, compact archive deletion with an exact clean-up of the development history, and terminal reattachment when the layout changes.
+- Fixes the window drawer controls and overflow at narrow widths without touching the working approval, thread, terminal and deletion preview paths from alpha1022.
+
+## 0.1.0-alpha1022 - 2026-10-16 [intern]
+
+- The Codex thread ID is now stored correctly in Vibe:Lab; existing runs are backfilled from their stored real `threadId` events. Runs without an old thread ID can be deleted safely but not resumed without context.
+- The Vibe:Lab management pages and the workspace are aligned with ARIA's existing page cards. A new linter rule prevents undefined layout and header classes.
+- The terminal sits transparently on the shared stage. The run archive is directly reachable and localised; file approvals show bounded details, and agent replies are rendered safely as Markdown.
+
+## 0.1.0-alpha1021 - 2026-10-15 [intern]
+
+- Aligns page frames, icon navigation, title controls, menus, coding agent cards and the management of the standard guardrails with ARIA's existing shared building blocks.
+- Separates several Vibe:Lab windows more clearly without changing the alpha1020 stage surface, and shows live load permanently without superfluous window buttons.
+- Groups coding agent runs and adds permanent archiving, restoring and an explicit deletion preview with a Codex session clean-up limited exactly to the thread; nothing is ever deleted automatically.
+- The public version remains `0.1.0-alpha1007`; this internal build makes no provider or live system calls.
+
+## 0.1.0-alpha1020 - 2026-10-15 [intern]
+
+- Every Vibe:Lab window now uses the same 38-pixel grid, the same transparent dark stage body, accent border, 14-pixel radius and soft glow as the memory browser stage.
+- The stage colours live in shared theme tokens; the memory browser surface is preserved and the inner Vibe:Lab layers are transparent.
+- The public version remains `0.1.0-alpha1007`; this internal build does not change any Vibe:Lab behaviour.
+
+## 0.1.0-alpha1019 - 2026-10-15 [intern]
+
+- Corrects Vibe:Lab autonomy: L0 asks before every action, L1 uses a read-only sandbox and every change needs an approval; L2/L3 keep their documented rights within ARIA's non-overridable floor.
+- Adds Security → Standard guardrails with the rule "Coding agents only in Vibe:Lab", active by default, explicit SSH exceptions, typed confirmation when relaxing it and logging in the activity journal.
+- Makes the project the single source of the autonomy level, detects unapproved changes at L0/L1 and adds safe discarding, retention, a storage warning and clean-up of clean, merged working copies.
+- Aligns Vibe:Lab windows, menus, upload, history and export with the proven chat and memory building blocks; the protected memory browser is unchanged.
+- The public version remains `0.1.0-alpha1007`; a real provider-backed agent run is not part of this build's offline gate.
+
+## 0.1.0-alpha1018 - 2026-10-15 [intern]
+
+- Corrects the Codex approval path in Vibe:Lab: an unavailable or failed channel is logged and shown instead of wrongly counting as allowed; the diagnostics include the reply and all following protocol messages.
+- Every Vibe:Lab window is now bound to its own project, files and development history; the global files sidebar no longer takes up space.
+- The chat action menu is reused in LLM and coding agent windows, while the CRT/glass look of the Vibe:Lab windows is kept.
+- L1–L3 Codex sessions use the on-request policy so that ordinary reads in the working folder do not ask needlessly; ARIA's hard safety floor still decides on every agent request.
+
+## 0.1.0-alpha1017 - 2026-10-15 [intern]
+
+- Completes the Codex approval return path in Vibe:Lab: ARIA keeps the JSON-RPC request ID assigned by the server and replies, in the documented request-specific format, to exactly its own app-server process.
+- Makes agent activity traceable: bounded, redacted diagnostics for start, approval reply, follow-up, stderr and exit, an updated heartbeat line and an honest timeout naming the request still awaited.
+- Combines streamed agent deltas into one growing reply, renders the final result through ARIA's safe Markdown renderer, localises legacy agent status values and aligns the single-window bar with the standard page width.
+- Adds shared Enter-to-send, Shift+Enter for line breaks, command hints and area-specific action menus to Vibe:Lab. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1016 - 2026-10-14 [intern]
+
+- Replaces the accidental proxy into the owner's Codex service with exactly one isolated `codex app-server --stdio` process per Vibe:Lab turn and implements the documented initialise/thread/turn handshake for Codex CLI 0.157.0.
+- Shows and stores the task, progress, approvals, reply, heartbeats, honest timeouts and bounded, redacted diagnostics in the original coding agent area; cancelling ends only ARIA's own session process.
+- Adds concrete Git/worktree pre-checks, empty diffs with a base commit, traffic lights for sign-in and compatibility, and ARIA's conservative confirmation floor for every autonomy level.
+- Refines the Vibe:Lab windows with a glass/monitor style based on theme tokens, readable active layout buttons, a centred default format for a single window and a disk calculation that matches `df`.
+- The public version remains `0.1.0-alpha1007`. The structured gates use contract fakes only; a real provider-backed agent run is deliberately left unproven and reserved for the owner's test.
+
+## 0.1.0-alpha1015 - 2026-10-14 [intern]
+
+- Vibe:Lab uses the whole remaining screen as a real window area with persistently stored one-, two-, three- and four-window layouts, draggable dividers, window swapping and maximise/restore.
+- Moves exchange files and the development history into a drawer that is closed by default; the upload target now only appears in the paperclip dialogue and on the file entry itself.
+- Restores the spelling **Vibe:Lab** consistently in the German and English interface; module ID and routes are unchanged.
+- Adds the usual large, rounded page frame to `/stats` without changing any checks, data or runtime behaviour.
+- The public version remains `0.1.0-alpha1007`; the approved global ARIA header and all pages outside Vibe:Lab are unchanged.
+
+## 0.1.0-alpha1014 - 2026-10-14 [intern]
+
+- Fixes input in the direct terminal: the raw xterm data stream is now tested against a PTY with real line discipline, so `pwd` and Enter produce exactly one command and one result.
+- Shows CPU, RAM, load and disk as ten proportionally lit, neatly aligned green, amber or red segments that are visible in every theme.
+- Replaces raw JSON and internal states in coding agent approvals with localised, human-readable cards, status labels and restrained branch details; the raw content only remains in collapsed technical details.
+- Uses the same input component for LLM and coding agent areas with upload and send on one line, replaces emoji symbols with SVGs and improves area selection and exchange files.
+- Hardens the alpha1011 comparison for non-Vibe pages with explicitly named text masks and unmasked geometry, spacing and position checks. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1013 - 2026-10-14 [intern]
+
+- Restores all page headers outside Vibe:Lab exactly to the approved alpha1011 structure and removes the rejected site-wide R34 header experiment.
+- Builds the Vibe:Lab workspace beneath ARIA's unchanged header, removes the duplicate upload and makes project reads exclusive, bounded and honestly localised in German when they fail.
+- Adds structured adapters for Claude Code and the Codex app server, ARIA's own L0–L3 floors, persistent sessions, atomic approval cards that expire after 15 minutes, worktree branches and cost budget checks.
+- Adds an admin-only direct SSH PTY area with a local xterm.js, no recording of input or output, a bounded run time and compact LED meters on top of the existing 15-second metrics cache.
+- The public version remains `0.1.0-alpha1007`; a real provider-backed coding agent run is deliberately not part of the automated gate.
+
+## 0.1.0-alpha1012 - 2026-10-14 [intern]
+
+- A mandatory, registry-backed page header unifies all authenticated page types; the new browser rule R34 checks DOM and typography.
+- The development area is now visibly called **Vibe:Lab** and, in full screen, takes over ARIA's identity, menu, areas, input and a sidebar that never overflows.
+- LLM areas get project-bound, read-only access to files, tree, search and Git with a realpath boundary, a secret block, bounded results and a compact journal.
+- Completion messages from detached Vibe:Lab jobs land exactly once in the originating area and no longer in the main chat.
+- Confirmed creation of project folders within the allowed root, optional `git init -b main`, visible upload targets outside the repository, and polish for forms and lists.
+
+## 0.1.0-alpha1011 - 2026-10-13 [intern]
+
+- Fixes the empty Vibe:Lab workspace on first use: missing legacy areas are repaired, a usable area or a clear stage 2 lock card always appears, and expanding to one to four areas is deterministic.
+- Moves project and coding agent setup into the shared page layouts, with real SSH, agent and profile pickers, field help, a folder browser, preserved validation errors, guided navigation and an automatic read-only capability test.
+- Accepts absolute repository paths within an allowed remote root and stores them normalised as relative paths; paths outside the root, missing folders and unreachable targets are reported precisely at the field without losing any input.
+- Restores the early publication of the start-up checks on `/stats`, treats lazy checks that have not loaded yet as neutral and explains amber pricing coverage with the exact number of unpriced web searches.
+- Adds first-use and upgrade regression coverage; coding agent execution stays locked until stage 2. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1010 - 2026-10-13 [intern]
+
+- Adds Vibe:Lab stage 1 as a main work area of its own, with persistent one- to four-area layouts, project management, area switching on mobile and a full-screen LLM workspace consistent with the theme.
+- Vibe:Lab LLM areas use ARIA's existing pipeline and the normal per-user chat history; only project and area metadata and compact, redacted project history projections are added.
+- Adds admin-only coding agent connections on top of existing SSH profiles, allowed roots and read-only capability snapshots; coding agent execution stays hard-locked until stage 2.
+- Adds bounded project uploads through a neutral remote workspace port with MIME and hash checks, an adjustable quota, single deletion, image hand-over depending on the image model and resumable project clean-up.
+- Adds a preview and targeted deletion of the development history, cached read-only host metrics, and more honest upload times and display names for existing documents. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1009 - 2026-10-13 [intern]
+
+- Reworks "Manage documents" into collapsed collection rows with readable names, document tables, local upload times, a restrained typed delete confirmation and a shared technical section.
+- Adds private source retention per collection (`off`, extracted text or original file), with extracted text as the default for new collections, an adjustable per-user quota and a free-space check before writing; existing collections stay off.
+- Adds a separate, secret-free document backup with a manifest, retained sources and checksums, plus owner, integrity and quota checks on restore.
+- Adds confirmed agent jobs for re-embedding a single collection or all documents: source preview, shadow generations, pause/resume/cancel at document boundaries, validation and retained fallback generations.
+- Keeps embedding model changes pending while documents exist and only activates the target model after a fully verified complete reindex. ARIA snapshots still need their own typed extra confirmation. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1008 - 2026-10-13 [intern]
+
+- Adds a per-user document lifecycle manifest and a persistent operations journal with an exact preview, resumable checkpoints, temporary rollback evidence and a non-destructive backfill of existing imports.
+- Adds the separate "Manage documents" page with complete deletion of documents and collections, consistency findings, an explicit clean-up preview and typed confirmation for risky classes of orphans.
+- Routes document deletions from the memory browser through the lifecycle authority and refuses to delete individual document chunks; the browser template and DOM are unchanged.
+- Shows Qdrant blocks actually in use separately from logical reservation, document management data and snapshots; growth is only reported after two real daily measurements.
+- Removes the outdated public website content workflow and the duplicate agent job link. The public version remains `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1007 - 2026-10-12 [public]
 
 - Polished owner statistics: removed duplicate meta checks, added local startup time and readable cost axes, and corrected container-backed resource accounting.
 - Made routing-index rebuilds authoritative by deleting stale entries from removed or renamed connection profiles.
 - Expanded assistant replies to the full chat width and replaced the legacy Tool-Box with a compact keyboard-accessible actions menu.
 - Terminal Agent Jobs now show only a “View job” link, live and after reload.
 
-## 0.1.0-alpha1006 - 2026-10-12
+## 0.1.0-alpha1006 - 2026-10-12 [intern]
 
 - Keeps all three `/stats` check groups collapsed on initial load while retaining cached count pills and the concrete linked problem list.
 - Loads check tiles as authenticated HTML fragments only when a group is opened, with a visible loading state, retryable error state and per-page DOM cache.
@@ -15,7 +289,7 @@
 - Loads routing-index and recipe-memory collection state only on demand, in parallel, without provider or embedding calls and with honest yellow timeout results after at most three seconds.
 - Refreshes the next-public-candidate material and demo statistics screenshots. The published version remains `0.1.0-alpha983` until a separate release authorization.
 
-## 0.1.0-alpha1005 - 2026-10-12
+## 0.1.0-alpha1005 - 2026-10-12 [intern]
 
 - Restores the functional breadth of the public Alpha983 statistics page inside the new owner layout: every legacy check and model role is mapped or explicitly documented as intentionally removed.
 - Brings back visible green, yellow and red status lamps on every check tile and three count pills in each group header, with computed-color coverage across all eleven themes.
@@ -23,7 +297,7 @@
 - Restores Chat, embedding and web/search model roles in Technical details, including per-role API bases, shared/split gateway state, usage meter, token log, web requests, native searches and their local cost coverage.
 - Keeps `/stats` passive: opening the page performs no provider, connection, MCP, Qdrant or external price-list call. The published version remains `0.1.0-alpha983` pending separate authorization.
 
-## 0.1.0-alpha1004 - 2026-10-12
+## 0.1.0-alpha1004 - 2026-10-12 [intern]
 
 - Restores three compact, separately collapsible status groups on `/stats`: startup checks, runtime and services, and operations and release. Healthy groups stay closed; warnings and errors open their group automatically.
 - Keeps the statistics page passive by using only startup and runtime snapshots already held locally. Opening `/stats` performs no provider, connection, MCP, Qdrant, or external price-list probe.
@@ -31,7 +305,7 @@
 - Removes the empty rounded status bar above the chat composer; the same element appears only while it contains real progress content.
 - Refreshes the next-public-candidate documentation and affected demo screenshots. The published version remains `0.1.0-alpha983` until a separate release authorization.
 
-## 0.1.0-alpha1003 - 2026-10-12
+## 0.1.0-alpha1003 - 2026-10-12 [intern]
 
 - Replaces the iPhone chat's nested fixed-height message scroller with normal document scrolling, a strictly non-wrapping one-row header and a safe-area-aware sticky composer for every viewport up to 900 px wide or 500 px high.
 - Adds an admin-only `?layout_debug=1` overlay with real viewport, element-rectangle, scroll-container, user-agent and CSS-version evidence for on-device Safari review.
@@ -39,7 +313,7 @@
 - Adds release-version cache keys to rendered and stylesheet-owned static assets so an updated phone cannot silently retain stale chat CSS or JavaScript.
 - Extends WebKit and page-layout gates with 844×390 and 667×320 landscape checks, typing/sending, header-row geometry, overflow ancestry and versioned assets. Public remains Alpha983 pending separate publication authorization.
 
-## 0.1.0-alpha1002 - 2026-10-12
+## 0.1.0-alpha1002 - 2026-10-12 [intern]
 
 - Reworks the phone chat geometry for Safari with a compact single-row header and composer, dynamic visual-viewport tracking, independently scrolling messages, and protected space for the jump-to-latest control in portrait and landscape.
 - Replaces the Activity Journal's always-visible date fields with an explicit All/Today/7 days/30 days/Custom period selector while preserving date-query deep links.
@@ -47,7 +321,7 @@
 - Extends the WebKit and page-linter coverage for iPhone viewports, landscape scrolling, visible period state and local-day grouping.
 - Refreshes the next-public-candidate notes and screenshots from Alpha1001 to Alpha1002; publication remains a separate owner-authorized step and the current public pin remains Alpha983.
 
-## 0.1.0-alpha1001 - 2026-10-11
+## 0.1.0-alpha1001 - 2026-10-11 [intern]
 
 - Prepares the next public release candidate with a non-blocking Native recipe snapshot: persistent manifest scans run in a provider-free startup task, while a first turn waits at most 200 ms and never performs the slow filesystem walk itself.
 - Keeps unfiltered Activity Journal dates empty across reload, history navigation and WebKit/Safari-style form restoration; query-string dates remain explicit and stable.
@@ -55,7 +329,7 @@
 - Adds an honest public summary of the changes since Alpha983, updated README and Docker Hub copy, GitHub release notes, and a non-publishing Alpha1001 runbook.
 - The published version remains `0.1.0-alpha983` until a separate release authorization.
 
-## 0.1.0-alpha1000 - 2026-10-11
+## 0.1.0-alpha1000 - 2026-10-11 [intern]
 
 - Keeps cold or unreachable MCP discovery fully outside the synchronous turn budget and makes the deterministic recipe cache warm path metadata-only.
 - Renders background-job results with the chat's safe Markdown pipeline, records detached jobs exactly once with connection context, and stores journal summaries as plain text.
@@ -63,7 +337,7 @@
 - Proves four-digit alpha ordering across update discovery, local updater TAR selection, image tags, retention and changelog parsing.
 - The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha999 - 2026-10-11
+## 0.1.0-alpha999 - 2026-10-11 [intern]
 
 - Redesigns `/stats` around four owner questions: health, costs, activity and resources, with passive cached data, local-time/locale formatting, a server-rendered 30-day chart, one technical section and a final confirmed danger zone.
 - Aggregates the whole calendar month across active and archived usage logs, adds numeric meter usage to user-scoped journal entries, and keeps the statistics GET free of provider, connection, MCP and price-list calls.
@@ -71,7 +345,7 @@
 - Restores the public alpha982/alpha983 image TARs and permanently protects public alpha604/alpha982/alpha983 TARs in local retention.
 - The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha998 - 2026-10-10
+## 0.1.0-alpha998 - 2026-10-10 [intern]
 
 - Keeps the chat composer inside the visual viewport across long histories, reloads, polling updates, mobile layouts, and all eleven themes; only the message list scrolls.
 - Renders wide assistant Markdown tables inside a bounded horizontal scroller so they cannot widen the page or displace the composer.
@@ -79,7 +353,7 @@
 - Adds page-linter rule R31 and a production-shaped browser regression covering a long polled job notice, every theme, desktop and mobile viewports, reload, focus, and send.
 - The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha997 - 2026-10-10
+## 0.1.0-alpha997 - 2026-10-10 [intern]
 
 - Made detached agent-job completion delivery durable with a SQLite outbox, retryable acknowledgement, cross-worker chat-history locking, and reconciliation on polling and chat reload.
 - Reworked the jobs panel for local and relative times, concise localized steps, collapsed technical telemetry, safe responsive Markdown results, and compact confirmed cleanup actions.
@@ -88,7 +362,7 @@
 - Re-enabled symmetric bilingual page checks and added raw-value, locale-format, and form-geometry rules R28–R30; `/stats` has only the reviewed temporary alpha998 exceptions.
 - The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha996 - 2026-10-10
+## 0.1.0-alpha996 - 2026-10-10 [intern]
 
 - Adds a compact user-scoped Activity journal for completed Native Tool turns and terminal Agent Jobs, with bounded redacted fields and failure-isolated finalize hooks.
 - Adds the on-demand read-only `activity_journal_read` tool; the journal is never injected into prompts automatically. The core registry is 38 tools while the journal is enabled and 37 when disabled.
@@ -98,7 +372,7 @@
 
 > Internal build only. The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha995 - 2026-10-10
+## 0.1.0-alpha995 - 2026-10-10 [intern]
 
 - Freezes the retired daily-context rollup writer: startup and maintenance no longer compact, delete, rewrite, or re-embed legacy daily context and rollup collections.
 - Keeps existing weekly and monthly rollups readable through Memory recall, export, browser inspection, and confirmed per-item deletion, including embedding-dimension collection variants.
@@ -108,7 +382,7 @@
 
 > Internal build only. The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha994 - 2026-10-09
+## 0.1.0-alpha994 - 2026-10-09 [intern]
 
 - Restores the RSS connection inventory in the new overview page type with collapsible category groups, visible counts, an ungrouped fallback, and filtering suitable for large feed collections.
 - Extends the rendered-page gate to English with R25, blocking German interface copy while exempting proper names and user-entered content; bundled connection examples now provide localized descriptions.
@@ -118,7 +392,7 @@
 
 > Internal build only. The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha993 - 2026-10-09
+## 0.1.0-alpha993 - 2026-10-09 [intern]
 
 - Defines primary, secondary, tertiary, danger, tab/filter, chip and form-control roles once in the central UI layer so the same action keeps the same shape and emphasis in every theme.
 - Reduces all eleven themes to colour/typography tokens and decorative backgrounds, removing theme-specific component overrides while preserving each palette and background personality.
@@ -128,7 +402,7 @@
 
 > Internal build only. The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha992 - 2026-10-09
+## 0.1.0-alpha992 - 2026-10-09 [intern]
 
 - Gives every registered page one canonical navigation parent; Help, Qdrant guidance and Licenses now share the Help header even when linked as shortcuts elsewhere.
 - Polishes connection details with one description, a text-only profile reference plus a compact guarded rename action, and one primary save action per settings section.
@@ -138,7 +412,7 @@
 
 > Internal build only. The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha991 - 2026-10-09
+## 0.1.0-alpha991 - 2026-10-09 [intern]
 
 - Adds one inherited Jinja base for each authenticated page type (overview, detail, create, settings, and tool) so page structure has a single construction boundary.
 - Adds the rendered-page linter R1-R16, an explicit allow-list, Markdown/JSON evidence, and the isolated dark/light self-review gate.
@@ -148,7 +422,7 @@
 
 > Internal build only. The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha990 - 2026-10-09
+## 0.1.0-alpha990 - 2026-10-09 [intern]
 
 - Aligns connection overviews and model settings with the approved ARIA UI mockups, removes generic purpose filler, and adds accessible remembered collapsible settings.
 - Makes the Personal model readable and actionable while preserving the Memory browser, claim routes, maintenance behavior and data semantics.
@@ -156,7 +430,7 @@
 - Adds named first-turn timing stages, connection-aware recipe-match diagnostics and avoids action-claim retries for descriptions of already stored data.
 - Adds seeded dark/light browser review coverage U10-U14. Public release metadata remains pinned to 0.1.0-alpha983.
 
-## 0.1.0-alpha989
+## 0.1.0-alpha989 - 2026-10-08 [intern]
 
 ### Unified administration information architecture
 
@@ -167,14 +441,14 @@
 
 > Internal build only. The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha988
+## 0.1.0-alpha988 - 2026-10-08 [intern]
 
 - Rolled out the shared UI clarity pattern to SSH and Webhook connection management: a visible create action, focused settings, a separate connection test, status information, and a final delete danger zone.
 - Replaced reviewed ASCII transliterations in German UI copy with real umlauts and `ß`, backed by a catalog regression test with explicit legitimate-word exceptions.
 - Clarified backup inventory counters and restore caution styling, and renamed the logs settings section to cover both retention/statistics and native traces.
 - Added isolated browser coverage U4-U6 for SSH/Webhook lifecycle flows, pattern guards, and representative German UI rendering.
 
-## 0.1.0-alpha987
+## 0.1.0-alpha987 - 2026-10-08 [intern]
 
 ### UI clarity
 
@@ -185,9 +459,9 @@
 
 > Internal build only. The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha986
+## 0.1.0-alpha986 - 2026-10-08 [intern]
 
-### Security and privacy
+### Security
 
 - Configuration backups are secret-free by default: decrypted credentials and password hashes are excluded, sensitive config fields are cleared, and an explicit manifest states that memories, documents, notes, chats, jobs, Qdrant data and persistent volumes are not part of the backup. Administrators may explicitly add a passphrase-protected scrypt/AES-256-GCM credential bundle; wrong passphrases fail before restore writes begin, while legacy plaintext backups remain readable with a warning.
 - Native-agent traces now default to a minimal format containing bounded metadata, byte counts and SHA-256 fingerprints instead of raw arguments or Tool output. Administrators can select 7/30/90/custom-day retention, a 50-MiB default cap and an explicitly warned full-detail mode.
@@ -201,7 +475,7 @@
 
 > Internal build only. The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha985
+## 0.1.0-alpha985 - 2026-10-08 [intern]
 
 ### Fixed
 
@@ -211,7 +485,7 @@
 
 > Internal build only. The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha984
+## 0.1.0-alpha984 - 2026-10-08 [intern]
 
 ### Fixed
 
@@ -223,7 +497,7 @@
 
 > Internal build only. The public release remains `0.1.0-alpha983`.
 
-## 0.1.0-alpha983
+## 0.1.0-alpha983 - 2026-10-07 [public]
 
 ### Fixed
 
