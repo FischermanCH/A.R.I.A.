@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.1.0-alpha1051 - 2026-10-23 [intern]
+
+### Neu
+
+- Zeigt nötige Vibe:Lab-Freigaben auf allen Seiten als Hinweisband und Menüpunkt-Markierung; die Freigabekarte bleibt direkt über der Eingabe erreichbar.
+- Ergänzt die standardmässig ausgeschaltete Discord-Kategorie `vibelab_events` mit kurzen, redigierten Laufmeldungen und öffentlichem Vibe:Lab-Link.
+
+### Behoben
+
+- Vereinheitlicht deckende, nicht abgeschnittene Popover auf allen Geräten und macht laufende Befehle, echte Codex-Stille sowie noch nicht übernommene Änderungen eindeutig sichtbar.
+- Verknüpft Viewport-Diagnose und Updates zusätzlich aus den passenden Einstellungsgruppen. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1050 - 2026-10-22 [intern]
+
+### Behoben
+
+- Vibe:Lab erkennt auf anderen Geräten gestartete oder fortgesetzte Läufe innerhalb von fünf Sekunden und aktualisiert Verlauf, Abschluss und Übernahmezustand ohne Sprung der Leseposition.
+- Der Übernehmen-Kasten zeigt den serverseitigen Zustand, übersetzt Fehler verständlich ins Deutsche und bleibt auch in schmalen Handyfenstern vollständig bedienbar.
+- Der App-Rahmen überschreitet nie den sichtbaren Viewport; der sichere Rand trägt den ARIA-Hintergrund. Eine admin-geschützte Viewport-Diagnose liefert die echten Gerätewerte samt Kopieren-Knopf.
+
+## 0.1.0-alpha1049 - 2026-10-22 [intern]
+
+### Geändert
+
+- Ordnet die Einstellungen in sechs modulgelieferte Gruppen und verschiebt Produkt-Info, Lizenzen sowie Updates in die gemeinsame Hilfe-Reiterleiste.
+- Vereinheitlicht die Seitenköpfe von Notizen und Statistiken, ohne deren Inhalte und Funktionen zu entfernen.
+
+### Behoben
+
+- Schliesst die verbleibenden iPhone-Lücken bei Querformat-Kopf, Standalone-Unterkante, Seiteninformation und Projektauswahl und liefert transparente Favicons bei weiterhin deckenden Installationsicons. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1048 - 2026-10-21 [intern]
+
+### Behoben
+
+- Fixiert den App-Rahmen auf iPhone und iPad am visuellen Viewport, sperrt Dokumentverschiebungen auch nach Wischen und Tastaturwechseln und wendet die Safe Areas je einmal auf Kopf und Eingabebereich an.
+- Hält Seiteninformationen standardmässig geschlossen, schliesst sie über Aussenklick, Escape oder Menüöffnung und zeigt sie am Handy als begrenzten Inline-Bereich. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1047 - 2026-10-21 [intern]
+
+### Geändert
+
+- Stellt Vibe:Lab auf den gemeinsamen App-Rahmen und die zentrale Geräte-Ebene um, bündelt Projekt- und Layoutwahl und zeigt den Hoststatus einmal kompakt in der Kopfleiste.
+- Vereinheitlicht den Agent-Hinweis als einklappbare Seiteninformation und hält Archivaktion sowie Archivanzahl in einer Zeile. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1046 - 2026-10-21 [intern]
+
+### Geändert
+
+- Ersetzt die bisherige ARIA-Bildmarke konsequent durch das neue, einzige Logo und leitet Favicons, Apple-Touch-Icon sowie alle Manifest-/PWA-Icons unverändert daraus ab. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+
+## 0.1.0-alpha1045 - 2026-10-20 [intern]
+
+### Geändert
+
+- Führt den gemeinsamen App-Rahmen und die zentrale Geräte-Ebene des Moduls `navigation_shell` für Handy, Tablet und Desktop ein.
+- Vereinheitlicht Seitenkopf, Reiterleiste und einklappbare Informationen; Chat-Sitzungsdaten stehen neu im Benutzermenü.
+- Ergänzt eine nur verkleinerbare Ausnahmeliste für noch nicht migrierte Seitenstile. Login und der Inhaltsbereich von `/memories` bleiben unverändert; Vibe:Lab folgt in alpha1046. Die öffentliche Version bleibt `0.1.0-alpha1007`.
+- Korrigiert die sichtbare Tastaturhöhe ohne abgeschnittenen Composer, vereinheitlicht den Kopf geräteabhängig auf 48/64/92 px, führt den Rahmen bis zur Unterkante und richtet die Chat-Aktionen auf Tablet und Desktop einzeilig aus.
+
 ## 0.1.0-alpha1044 - 2026-10-19 [intern]
 
 - Ergänzt die installierbare iOS-Web-App samt Safe Areas, korrigiert Zwei-Lauf-Fenster in Querformat/iPad, stellt die iPad-Fensterwahl wieder her und trennt Terminal-Hinweis sowie Laufaktionen am Handy sauber. Die öffentliche Version bleibt `0.1.0-alpha1007`.
