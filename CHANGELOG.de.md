@@ -10,6 +10,8 @@
 ### Behoben
 
 - Vereinheitlicht deckende, nicht abgeschnittene Popover auf allen Geräten und macht laufende Befehle, echte Codex-Stille sowie noch nicht übernommene Änderungen eindeutig sichtbar.
+- Zeigt die interaktive Freigabekarte auf allen Geräte- und Fenstergrössen genau einmal über der Eingabe; im Lauf bleibt nur ein kompakter Verweis darauf sichtbar.
+- Setzt den letzten Lauf über die Eingabe standardmässig fort und hält Stoppen, Archivieren sowie Rückgängig konsistent.
 - Verknüpft Viewport-Diagnose und Updates zusätzlich aus den passenden Einstellungsgruppen. Die öffentliche Version bleibt `0.1.0-alpha1007`.
 
 ## 0.1.0-alpha1050 - 2026-10-22 [intern]

@@ -10,6 +10,8 @@
 ### Fixed
 
 - Popovers are now opaque and never clipped on any device, and running commands, genuine silence from Codex and changes not yet applied to the project are clearly visible.
+- Shows the interactive approval card exactly once above the input at every device and window size; only a compact reference remains in the run.
+- Continues the most recent run from the input by default and keeps stopping, archiving and undo consistent.
 - Viewport diagnostics and updates are also linked from the matching settings groups. The public version remains `0.1.0-alpha1007`.
 
 ## 0.1.0-alpha1050 - 2026-10-22 [intern]

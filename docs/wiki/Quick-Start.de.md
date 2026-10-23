@@ -26,7 +26,7 @@ ARIA ist darauf ausgelegt, schnell vom Container zur nutzbaren Web-Oberfläche z
 - `/memories` für den grafischen Gedächtnis-Browser und `/memories/import` für Dokumentimporte
 - `/connections/types` für externe Systeme
 - `/recipes` für den Rezepte-Hub und `/recipes/mine` für gespeicherte Rezepte
-- `/config/llm/debug` für Action-/Routing-Dry-runs
+- [LLM-Diagnose öffnen](/config/llm/debug) für Action-/Routing-Dry-runs
 
 ## Deployment-Hinweise
 
