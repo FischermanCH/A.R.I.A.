@@ -187,3 +187,19 @@ The «Funktionen» page on aria-agent.dev is generated from `main`: n8n runs
 - Texts: Swiss Standard German (ä/ö/ü and ss, never ß); the English version is
   written on its own, not a literal translation; no internal hostnames, IPs or
   paths.
+
+## 11. Website-Synchronisation (aria-agent.dev) (owner decision 2026-10-23)
+
+Die Website liest per n8n ausschliesslich den committeten Stand von `main`
+(`git show main:<datei>`), nie das Arbeitsverzeichnis und nie andere Branches.
+
+- Changelog: Nach jedem Build wird der neue Eintrag in `CHANGELOG.de.md` im selben Zug
+  auf `main` committet (nicht pushen). Ein Build ohne committeten Changelog-Eintrag
+  erscheint nicht auf der Website.
+- Hilfe: Änderungen an Hilfe-Dokumenten (gemäss `aria/modules/static_help_docs/manifest.py`)
+  und deren Übersetzungen ebenfalls auf `main` committen.
+- Funktionen-Seite: Ändert sich eine in `docs/website/features.json` beschriebene Funktion,
+  wird `features.json` (Text de und en, `shot`) im selben Commit nachgeführt.
+  Bei jedem Public Release die Feature-Screenshots neu erzeugen und mitcommitten.
+- Vor dem Abschluss einer Aufgabe prüfen: `git status` darf für `CHANGELOG.de.md`,
+  die Hilfe-Dokumente und `docs/website/` keine uncommitteten Änderungen zeigen.
