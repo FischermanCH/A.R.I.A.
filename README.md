@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="aria/static/logo-aria-v01.png" alt="ARIA logo" width="180">
+  <img src="aria/static/aria-logo.svg" alt="ARIA logo" width="180">
 </p>
 
 # ARIA
@@ -7,6 +7,7 @@
 Lean, modular, self-hosted AI assistant with memory, recipes, secure connections, a native tool-calling agent with MCP and controllable background jobs, and a browser-first UI.
 
 **GitHub:** [FischermanCH/A.R.I.A.](https://github.com/FischermanCH/A.R.I.A.)  
+**Website:** [www.aria-agent.dev](https://www.aria-agent.dev)  
 **Docker Hub:** [fischermanch/aria](https://hub.docker.com/r/fischermanch/aria)  
 **Product Homepage:** [fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent](https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/)  
 **Wiki:** [GitHub Wiki](https://github.com/FischermanCH/A.R.I.A./wiki)  
@@ -15,19 +16,15 @@ Lean, modular, self-hosted AI assistant with memory, recipes, secure connections
 
 
 ---
-## Screenshots
 
-The public images below come only from ARIA's isolated, deterministic demo stack. All names,
-connections, conversations, statistics and memory entries are synthetic.
+<h2 align="center">🌐 <a href="https://www.aria-agent.dev">www.aria-agent.dev</a></h2>
 
-<p>
-  <a href="docs/assets/screenshots/en/matrix-chat-tool-table.webp"><img src="docs/assets/screenshots/en/matrix-chat-tool-table.webp" alt="ARIA chat with a safe Markdown Tool result" width="260"></a>
-  <a href="docs/assets/screenshots/en/matrix-statistics.webp"><img src="docs/assets/screenshots/en/matrix-statistics.webp" alt="ARIA owner statistics" width="260"></a>
-  <a href="docs/assets/screenshots/en/matrix-connections.webp"><img src="docs/assets/screenshots/en/matrix-connections.webp" alt="ARIA connection overview" width="260"></a>
-  <a href="docs/assets/screenshots/en/paper-activity-journal.webp"><img src="docs/assets/screenshots/en/paper-activity-journal.webp" alt="ARIA activity journal in the Paper theme" width="260"></a>
-  <a href="docs/assets/screenshots/en/paper-agent-jobs.webp"><img src="docs/assets/screenshots/en/paper-agent-jobs.webp" alt="ARIA background jobs in the Paper theme" width="260"></a>
-  <a href="docs/assets/screenshots/de/matrix-personal-model.webp"><img src="docs/assets/screenshots/de/matrix-personal-model.webp" alt="Persönliches Modell in ARIA" width="260"></a>
-</p>
+<p align="center"><strong>News, features, screenshots, changelog and help now live on ARIA's own website.</strong><br>
+<strong>News, Funktionen, Screenshots, Changelog und Hilfe gibt es neu auf der eigenen ARIA-Website.</strong></p>
+
+<p align="center"><a href="https://www.aria-agent.dev"><strong>→ aria-agent.dev</strong></a></p>
+
+---
 
 
 # English
@@ -564,8 +561,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current published hotfix: `0.1.0-alpha983`
-- Next reviewed release candidate: `0.1.0-alpha1007` (not public until a separate release step)
+- Current published release: `0.1.0-alpha1007`
+- Internal builds after Alpha1007 are not public until a separate release step.
 - Existing public installations on `0.1.0-alpha604` should follow the backup and migration notes in `CHANGELOG.md` before replacing the image.
 
 ## One-line summary
@@ -897,7 +894,7 @@ Echte Secrets bitte nie in Code oder YAML committen.
 
 ## Public-Release-Status
 
-Aktuell veröffentlicht ist `0.1.0-alpha983`. Der nächste geprüfte Release-Kandidat ist `0.1.0-alpha1007` und bleibt bis zu einem getrennt freigegebenen Veröffentlichungsschritt unveröffentlicht. Bestehende Public-Installationen auf `0.1.0-alpha604` sollten vor dem Image-Wechsel die Backup- und Migrationshinweise in `CHANGELOG.de.md` befolgen.
+Aktuell veröffentlicht ist `0.1.0-alpha1007`. Interne Builds nach Alpha1007 bleiben bis zu einem getrennt freigegebenen Veröffentlichungsschritt unveröffentlicht. Bestehende Public-Installationen auf `0.1.0-alpha604` sollten vor dem Image-Wechsel die Backup- und Migrationshinweise in `CHANGELOG.de.md` befolgen.
 
 ## Ein-Satz-Zusammenfassung
 

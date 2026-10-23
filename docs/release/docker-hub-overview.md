@@ -1,5 +1,8 @@
 # ARIA on Docker
 
+> ## 🌐 [www.aria-agent.dev](https://www.aria-agent.dev)
+> **News, features, screenshots, changelog and help now live on ARIA's own website.**
+
 ARIA is a lean, modular, self-hosted AI assistant with memory, recipes, secure connections, a native tool-calling agent with MCP and controllable background jobs, and a browser-first UI.
 
 ## ARIA 0.1.0-alpha1007 release candidate
@@ -316,16 +319,6 @@ Useful chat shortcuts after setup:
 
 For new public installs, prefer `aria-setup` unless you explicitly want to manage the compose directory yourself.
 
-## Screenshots
+## More
 
-<p>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-chat-tool-table.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-chat-tool-table.webp" alt="ARIA chat with a Tool result" width="220"></a>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-statistics.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-statistics.webp" alt="ARIA owner statistics" width="220"></a>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-connections.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/matrix-connections.webp" alt="ARIA connections" width="220"></a>
-</p>
-
-<p>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/paper-activity-journal.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/paper-activity-journal.webp" alt="ARIA activity journal" width="220"></a>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/paper-agent-jobs.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/en/paper-agent-jobs.webp" alt="ARIA Agent Jobs" width="220"></a>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/de/matrix-personal-model.webp"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/de/matrix-personal-model.webp" alt="ARIA Persönliches Modell" width="220"></a>
-</p>
+News, features, screenshots, changelog and help: **[www.aria-agent.dev](https://www.aria-agent.dev)**
