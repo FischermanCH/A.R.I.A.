@@ -228,3 +228,23 @@ diff <(grep -oE '^## 0\.1\.0-alpha[0-9]+ - [0-9-]+ \[(public|intern)\]' CHANGELO
      <(grep -oE '^## 0\.1\.0-alpha[0-9]+ - [0-9-]+ \[(public|intern)\]' CHANGELOG.md | head -n $(grep -cE '^## 0\.1\.0-alpha' CHANGELOG.de.md))
 grep -c '^### Sicherheit' CHANGELOG.de.md; grep -c '^### Security' CHANGELOG.md
 ```
+
+### Documentation push after builds (owner authorisation 2026-10-24)
+
+The owner grants a standing, narrow authorisation to push documentation to
+GitHub so internal builds appear on aria-agent.dev:
+
+- After every successful BUILD/export and the section 11 changelog/help commit,
+  run `scripts/release/push_docs.sh` and report its output.
+- The script pushes `main` only if every commit in `origin/main..main` touches
+  nothing but `CHANGELOG.de.md`, `CHANGELOG.md`, `docs/help/`, `docs/wiki/`,
+  `docs/website/` and `docs/assets/screenshots/{features,themes}/`, the added
+  lines pass its secret/internal-host scan, the changelog headings match and
+  the push is a plain fast-forward. It never forces and never pushes tags or
+  other branches.
+- If it refuses: do NOT push by any other means, do not rewrite history, do not
+  "fix" the check - report the reason and the listed files to the owner.
+- This authorisation covers nothing else: no README, product code, AGENTS.md,
+  Docker Hub, tags, releases or public images.
+- Commit only explicitly staged documentation files on `main`; never sweep the
+  uncommitted working tree into a commit.
