@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha1056 - 2026-10-25 [intern]
+
+### Geändert
+
+- Verkleinert grosse Bilder vor dem Upload auf höchstens 2560 Pixel und 4 MB und hängt hochgeladene Bilder und Dokumente sichtbar an die nächste Nachricht.
+
+### Behoben
+
+- Zeigt bei fehlgeschlagenen Uploads den konkreten deutschen Grund, sperrt das Senden bis zur Behebung und öffnet die Dateiauswahl direkt aus dem Eingabemenü.
+- Hält Popover an ihrem Auslöser innerhalb der zentrierten App-Shell, zeigt bei offener iPhone-Tastatur die letzte Nachricht ohne Safe-Area-Abstand und meldet ausbleibende Antworten erst nach 30 Sekunden.
+
 ## 0.1.0-alpha1055 - 2026-10-24 [intern]
 
 ### Behoben

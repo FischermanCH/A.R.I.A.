@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha1056 - 2026-10-25 [intern]
+
+### Changed
+
+- Reduces large images to at most 2560 pixels and 4 MB before upload, and visibly attaches uploaded images and documents to the next message.
+
+### Fixed
+
+- Reports the specific upload failure in German, blocks sending until it is resolved, and opens the file chooser directly from the composer menu.
+- Keeps popovers anchored to their triggers inside the centred app shell, shows the latest message above an open iPhone keyboard without a safe-area gap, and only reports a silent agent after 30 seconds.
+
 ## 0.1.0-alpha1055 - 2026-10-24 [intern]
 
 ### Fixed
