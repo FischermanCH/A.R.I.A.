@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha1055 - 2026-10-24 [intern]
+
+### Behoben
+
+- Fügt aus der macOS-Fotos-App eingefügte Bilder ohne zusätzlichen Dateipfad ein und behandelt nur bekannte, exakte Schrägstrich-Befehle als Befehle; Pfade bleiben in Vibe:Lab und Hauptchat normale Nachrichten.
+- Entfernt veraltete absolute Arbeitskopiepfade älterer Vibe:Lab-Läufe beim Anzeigen und Exportieren, auch wenn deren gespeicherte Arbeitskopie fehlt oder abweicht.
+- Hält Antwortkarten und Nutzerblasen im iPhone-Hauptchat beim Scrollen auf ihrer festen Breite und zieht die Eingabeleiste bis an die physische Unterkante samt Safe Area.
+
 ## 0.1.0-alpha1054 - 2026-10-24 [intern]
 
 ### Neu

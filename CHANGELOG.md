@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha1055 - 2026-10-24 [intern]
+
+### Fixed
+
+- Pastes images from macOS Photos without inserting an additional file path and only treats known, exact slash commands as commands; paths remain ordinary messages in Vibe:Lab and the main chat.
+- Removes stale absolute worktree paths from older Vibe:Lab runs when rendering and exporting, even when the stored worktree is missing or differs.
+- Keeps result cards and user bubbles at a stable width while scrolling the iPhone main chat, and extends the composer to the physical bottom edge including the safe area.
+
 ## 0.1.0-alpha1054 - 2026-10-24 [intern]
 
 ### Added
