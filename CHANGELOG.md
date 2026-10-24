@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1053 - 2026-10-24 [intern]
+
+### Changed
+
+- Arranges multi-turn Vibe:Lab runs chronologically by turn and uses the same turn structure for the live view, refreshes, older runs and Markdown exports.
+- Restores the small floating gap between the header and content on desktop and tablet, and adds the fictitious demo project for the website preview.
+
+### Fixed
+
+- Anchors menus to their triggers in Chromium, Firefox and WebKit, with Firefox now permanently covered by smoke and popover checks.
+- Keeps Vibe:Lab usable when a coding host is unreachable and provides an in-place retry without reloading the page.
+- Previews pasted images before sending, reports upload errors in German and retains images in the matching user message.
+
 ## 0.1.0-alpha1052 - 2026-10-24 [intern]
 
 ### Fixed

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1053 - 2026-10-24 [intern]
+
+### Geändert
+
+- Ordnet mehrteilige Vibe:Lab-Läufe chronologisch nach Runde und verwendet dieselbe Rundenstruktur für Live-Ansicht, Aktualisierung, ältere Läufe und Markdown-Export.
+- Stellt auf Desktop und Tablet den kleinen schwebenden Abstand zwischen Kopf und Inhalt wieder her und ergänzt das fiktive Demo-Projekt für die Website-Vorschau.
+
+### Behoben
+
+- Verankert Menüs in Chromium, Firefox und WebKit am jeweiligen Auslöser und nimmt Firefox dauerhaft in Smoke- und Popover-Prüfungen auf.
+- Hält Vibe:Lab bei einem unerreichbaren Coding-Host bedienbar und bietet eine lokale Wiederholungsaktion ohne Seiten-Neuladen.
+- Zeigt eingefügte Bilder vor dem Senden als Vorschau, meldet Uploadfehler auf Deutsch und erhält Bilder in der zugehörigen Nutzernachricht.
+
 ## 0.1.0-alpha1052 - 2026-10-24 [intern]
 
 ### Behoben
