@@ -2,6 +2,15 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 mkdir -p "${DEMO_ROOT}/demo/generated"
+# Follow the current source version: use the locally built image of the
+# version in pyproject.toml when it exists, unless ARIA_DEMO_IMAGE is set.
+if [[ -z "${ARIA_DEMO_IMAGE:-}" ]]; then
+  current="$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)-alpha([0-9]+)"/\1-alpha.\2/p' "${DEMO_ROOT}/pyproject.toml" | head -1)"
+  if [[ -n "${current}" ]] && docker image inspect "fischermanch/aria:${current}" >/dev/null 2>&1; then
+    export ARIA_DEMO_IMAGE="fischermanch/aria:${current}"
+  fi
+fi
+echo "ARIA demo image: ${ARIA_DEMO_IMAGE:-default from scripts/demo/seed.py}"
 "${DEMO_ROOT}/.venv/bin/python" "${DEMO_ROOT}/scripts/demo/seed.py" --root "${DEMO_ROOT}"
 "${DEMO_ROOT}/.venv/bin/python" "${DEMO_ROOT}/scripts/demo/seed_notes.py" --root "${DEMO_ROOT}"
 "${DEMO_ROOT}/.venv/bin/python" "${DEMO_ROOT}/scripts/demo/seed_features.py" --root "${DEMO_ROOT}"

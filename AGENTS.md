@@ -178,14 +178,27 @@ The «Funktionen» page on aria-agent.dev is generated from `main`: n8n runs
 - When a UI function described in `docs/website/features.json` changes (route,
   selector, behaviour, new or removed function), update `features.json` in the
   same commit: text `de` and `en`, and `shot`.
-- On every public release (not on internal builds): reset and start the demo
-  (`scripts/demo/reset.sh`), then run
-  `.venv/bin/python scripts/release/capture_feature_screenshots.py` in addition
-  to `capture_public_screenshots.py`. Look at the images and commit them with
-  the release. Do not run pytest while capturing
-  (`tests/test_alpha999_demo_instance.py` rewrites `demo/generated`).
+- The website must stay current WITHOUT owner editing (owner decision
+  2026-10-24). Therefore, after EVERY successful BUILD/export (internal and
+  public), before `scripts/release/push_docs.sh`:
+  1. `scripts/demo/reset.sh` (it starts the demo on the image of the current
+     `pyproject.toml` version automatically),
+  2. `.venv/bin/python scripts/release/capture_feature_screenshots.py`
+     (its public-safety check must pass; do not open or review the images -
+     Claude reviews them on request),
+  3. `python3 scripts/export_features.py --ref HEAD` must report every
+     non-hidden feature with an image, except features that cannot be
+     captured yet - list those in the report,
+  4. commit only `docs/assets/screenshots/features/`, `.../themes/` and
+     `docs/website/features.json` on `main`.
+  Do not run pytest while capturing (`tests/test_alpha999_demo_instance.py`
+  rewrites `demo/generated`). On public releases also run
+  `capture_public_screenshots.py`.
+- New or removed user-visible functions get their `features.json` entry
+  (de + en text, `shot`) in the same work; the AI writes the text itself
+  following the rules below - the owner does not edit the website.
 - Texts: Swiss Standard German (ä/ö/ü and ss, never ß); the English version is
-  written on its own, not a literal translation; no internal hostnames, IPs or
+  written on its own in British English, not a literal translation; no internal hostnames, IPs or
   paths.
 
 ## 11. Website-Synchronisation (aria-agent.dev) (owner decision 2026-10-23)
@@ -194,13 +207,13 @@ Die Website liest per n8n ausschliesslich den committeten Stand von `main`
 (`git show main:<datei>`), nie das Arbeitsverzeichnis und nie andere Branches.
 
 - Changelog: Nach jedem Build wird der neue Eintrag in `CHANGELOG.de.md` im selben Zug
-  auf `main` committet (nicht pushen). Ein Build ohne committeten Changelog-Eintrag
+  auf `main` committet (Push nur über `scripts/release/push_docs.sh`). Ein Build ohne committeten Changelog-Eintrag
   erscheint nicht auf der Website.
 - Hilfe: Änderungen an Hilfe-Dokumenten (gemäss `aria/modules/static_help_docs/manifest.py`)
   und deren Übersetzungen ebenfalls auf `main` committen.
 - Funktionen-Seite: Ändert sich eine in `docs/website/features.json` beschriebene Funktion,
   wird `features.json` (Text de und en, `shot`) im selben Commit nachgeführt.
-  Bei jedem Public Release die Feature-Screenshots neu erzeugen und mitcommitten.
+  Nach jedem Build die Feature-Screenshots neu erzeugen und mitcommitten (Abschnitt 10).
 - Vor dem Abschluss einer Aufgabe prüfen: `git status` darf für `CHANGELOG.de.md`,
   die Hilfe-Dokumente und `docs/website/` keine uncommitteten Änderungen zeigen.
 
