@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha1057 - 2026-10-25 [intern]
+
+### Fixed
+
+- Makes content-addressed Vibe:Lab uploads idempotent on real OpenSSH SFTP targets, reusing identical existing files and atomically replacing differing ARIA-owned targets.
+- Cleans up interrupted `.part` uploads and reports a specific German reason for SFTP write failures instead of exposing the raw `Failure` message.
+- Runs the Vibe:Lab remote gates for upload, deletion, file reads, Git status/diff, merge previews and terminals against a real disposable sshd.
+
 ## 0.1.0-alpha1056 - 2026-10-25 [intern]
 
 ### Changed

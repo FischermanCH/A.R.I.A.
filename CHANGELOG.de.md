@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha1057 - 2026-10-25 [intern]
+
+### Behoben
+
+- Macht inhaltsadressierte Vibe:Lab-Uploads auf echten OpenSSH-SFTP-Zielen idempotent, verwendet bereits vorhandene identische Dateien wieder und ersetzt abweichende eigene Ziele atomar.
+- Räumt abgebrochene `.part`-Uploads auf und zeigt bei SFTP-Schreibfehlern einen konkreten deutschen Grund statt der rohen Meldung `Failure`.
+- Führt die Vibe:Lab-Remote-Gates für Upload, Löschen, Dateilesen, Git-Status/Diff, Merge-Vorschau und Terminal gegen einen echten Wegwerf-sshd aus.
+
 ## 0.1.0-alpha1056 - 2026-10-25 [intern]
 
 ### Geändert
