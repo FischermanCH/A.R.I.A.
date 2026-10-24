@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0-alpha1054 - 2026-10-24 [intern]
+
+### Added
+
+- Adds bilingual Vibe:Lab help covering windows, autonomy, safe working copies, applying changes, continuations, files and synchronisation.
+
+### Changed
+
+- Uses the same grid workspace, composer and result components for the main chat and Vibe:Lab while keeping every existing chat action available.
+- Makes the state and effect of every Vibe:Lab menu item visible, and only shows run-specific actions when they can be performed.
+
+### Fixed
+
+- Exports multi-turn agent runs completely by turn, calculates each turn's duration separately and removes absolute worktree paths from the interface and exports.
+- Reliably displays pasted images in every supported browser before sending and after a reload.
+- Keeps the composer menu fully within the workspace and scrollable, including in narrow windows.
+- Labels running, failed and cancelled chat jobs with the correct localised status.
+
 ## 0.1.0-alpha1053 - 2026-10-24 [intern]
 
 ### Changed

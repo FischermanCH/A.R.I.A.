@@ -7,6 +7,11 @@ from typing import Any
 
 MODULE_MANIFEST: dict[str, Any] = {
     "id": "static_help_docs",
+    "help_navigation": [
+        {"nav_id": "help.overview", "order": 10},
+        {"nav_id": "help.product_info", "order": 20},
+        {"nav_id": "help.licenses", "order": 30},
+    ],
     "name": "Static Help Docs",
     "status": "import_boundary_active",
     "lifecycle": "bootstrap_static",
@@ -23,7 +28,6 @@ MODULE_MANIFEST: dict[str, Any] = {
     ],
     "templates": [
         "help.html",
-        "_help_section_header.html",
         "licenses.html",
         "product_info.html",
     ],
@@ -72,6 +76,16 @@ MODULE_MANIFEST: dict[str, Any] = {
             "summary_i18n": "help.doc_chat_summary",
             "summary_default": "How chat, prompt queue, confirmations, details, and mobile use work.",
             "icon": "llm",
+            "group": "using_aria",
+        },
+        {
+            "id": "vibelab",
+            "label_i18n": "help.doc_vibelab",
+            "label_default": "Vibe:Lab",
+            "path": "docs/help/vibelab.md",
+            "summary_i18n": "help.doc_vibelab_summary",
+            "summary_default": "Coding, focused LLM chats and terminals in isolated project workspaces.",
+            "icon": "terminal",
             "group": "using_aria",
         },
         {

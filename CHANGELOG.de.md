@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0-alpha1054 - 2026-10-24 [intern]
+
+### Neu
+
+- Ergänzt eine zweisprachige Vibe:Lab-Hilfe zu Fenstern, Autonomie, sicheren Arbeitskopien, Übernahme, Fortsetzung, Dateien und Synchronisation.
+
+### Geändert
+
+- Verwendet für Hauptchat und Vibe:Lab dieselbe Raster-Arbeitsfläche, dieselbe Eingabeleiste und dieselben Ergebnisbausteine; alle bisherigen Chat-Aktionen bleiben erreichbar.
+- Macht Zustand und Wirkung jedes Eintrags im Vibe:Lab-Menü sichtbar und blendet laufabhängige Aktionen nur ein, wenn sie ausführbar sind.
+
+### Behoben
+
+- Exportiert mehrteilige Agent-Läufe vollständig pro Runde, berechnet Rundendauern getrennt und entfernt absolute Arbeitskopiepfade aus Ansicht und Export.
+- Zeigt eingefügte Bilder in allen unterstützten Browsern zuverlässig vor dem Senden und nach einem Neuladen an.
+- Hält das Eingabemenü auch in schmalen Fenstern vollständig innerhalb der Arbeitsfläche und scrollbar.
+- Kennzeichnet laufende, fehlgeschlagene und abgebrochene Chat-Aufträge mit dem richtigen lokalisierten Status.
+
 ## 0.1.0-alpha1053 - 2026-10-24 [intern]
 
 ### Geändert
