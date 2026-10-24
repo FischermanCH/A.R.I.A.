@@ -1,3 +1,5 @@
+<p align="center"><a href="https://www.aria-agent.dev"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/aria/static/aria-webapp-512.png" alt="ARIA logo – www.aria-agent.dev" width="180"></a></p>
+
 # ARIA on Docker
 
 > ## 🌐 [www.aria-agent.dev](https://www.aria-agent.dev)

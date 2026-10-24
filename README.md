@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="aria/static/aria-logo.svg" alt="ARIA logo" width="180">
+  <a href="https://www.aria-agent.dev"><img src="aria/static/aria-logo.svg" alt="ARIA logo – www.aria-agent.dev" width="180"></a>
 </p>
 
 # ARIA
