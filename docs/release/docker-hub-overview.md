@@ -37,7 +37,7 @@ Repository and full documentation:
 - Wiki: `https://github.com/FischermanCH/A.R.I.A./wiki`
 - Setup docs: `https://github.com/FischermanCH/A.R.I.A./tree/main/docs/setup`
 - Changelog: `https://github.com/FischermanCH/A.R.I.A./blob/main/CHANGELOG.md`
-- Product Homepage: `https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/`
+- Product Homepage: `https://www.aria-agent.dev`
 
 ## Current alpha highlights
 
