@@ -270,8 +270,8 @@
       "section": "anpassen",
       "title": { "de": "Umfangreiche Einstellungen", "en": "Extensive settings" },
       "text": {
-        "de": "Umfangreiche Möglichkeiten zur **Einstellung** vieler **Parameter** und **Funktionen**.\n\nVon der Optik (Theme) bis zur Sicherheit (Guardrails) ist alles Wichtige zentral an einem Ort zu finden.",
-        "en": "Extensive options to **configure** many **parameters** and **features**.\n\nFrom looks (themes) to security (guardrails), everything important is in one central place."
+        "de": "Umfangreiche Möglichkeiten zur **Einstellung** vieler **Parameter** und **Funktionen**.\n\nVon der Optik (Theme) über Sicherheit (Guardrails) bis zum Betrieb mit Updates ist alles Wichtige zentral an einem Ort zu finden.",
+        "en": "Extensive options to **configure** many **parameters** and **features**.\n\nFrom appearance and guardrails to operational tools and updates, everything important is in one central place."
       },
       "shot": { "route": "/config" }
     },
