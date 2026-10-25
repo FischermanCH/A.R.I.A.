@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1063 - 2026-10-25 [intern]
+
+### Changed
+
+- Loads the animated busy logo at low priority and applies long-lived browser caching to versioned static assets.
+- Consolidates the Operations cards for logs and maintenance by their distinct purpose and places them before the inline sections.
+
+### Fixed
+
+- Reserves space for the action menu in user bubbles so its button cannot cover short or long messages.
+- Completes the English copy in Vibe:Lab, Statistics and Notes, and localises the German warning status for system services.
+
 ## 0.1.0-alpha1062 - 2026-10-25 [intern]
 
 ### Added

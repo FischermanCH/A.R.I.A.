@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1063 - 2026-10-25 [intern]
+
+### Geändert
+
+- Lädt das animierte Beschäftigt-Logo mit niedriger Priorität und nutzt für versionierte statische Dateien einen langlebigen Browser-Cache.
+- Fasst die Betriebskarten für Logs und Wartung nach ihrem eindeutigen Zweck zusammen und ordnet sie vor den eingebetteten Abschnitten an.
+
+### Behoben
+
+- Reserviert in Benutzerblasen Platz für das Aktionsmenü, damit kurze und lange Nachrichten nicht von der Schaltfläche überlagert werden.
+- Vervollständigt die englischen Texte in Vibe:Lab, Statistik und Notizen und lokalisiert den deutschen Warnstatus der System-Services.
+
 ## 0.1.0-alpha1062 - 2026-10-25 [intern]
 
 ### Neu
