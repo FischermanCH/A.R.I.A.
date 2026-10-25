@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1059 - 2026-10-25 [intern]
+
+### Neu
+
+- Zeigt die Karte «Updates» in der Einstellungsgruppe «Betrieb» als Beitrag des `release_update`-Moduls; der Hilfe-Reiter bleibt bestehen.
+
+### Behoben
+
+- Zeigt einen auf Freigabe wartenden Vibe:Lab-Lauf auch in später geöffneten Browsern und auf anderen Geräten im aktiven Fenster und synchronisiert Freigabe sowie Fortsetzung.
+- Nennt auf Freigabekarten immer den echten Befehl samt Ordner und Begründung oder die betroffene Datei samt Änderungsart; unterstützt dabei auch die Codex-0.157-Anfrageformen.
+- Erweitert die Standalone-Shell bei der gemessenen iPhone-Konstellation um die Differenz zwischen Bildschirm- und Layout-Höhe, ohne die Shell bei offener Tastatur zu vergrössern.
+
 ## 0.1.0-alpha1058 - 2026-10-25 [intern]
 
 ### Geändert

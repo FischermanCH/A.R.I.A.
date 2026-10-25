@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1059 - 2026-10-25 [intern]
+
+### Added
+
+- Shows the “Updates” card in the Operations settings group as a contribution from the `release_update` module, while retaining the Help tab.
+
+### Fixed
+
+- Shows Vibe:Lab runs awaiting approval in the active pane of browsers and devices opened later, and synchronises both the decision and continued output.
+- Approval cards always identify the real command with its working folder and reason, or the affected file and change type, including Codex 0.157 request shapes.
+- Extends the standalone shell by the measured difference between the iPhone screen and layout heights without enlarging it while the keyboard is open.
+
 ## 0.1.0-alpha1058 - 2026-10-25 [intern]
 
 ### Changed
