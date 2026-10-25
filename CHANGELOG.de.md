@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha1060 - 2026-10-25 [intern]
+
+### Neu
+
+- Ergänzt die Admin-Viewport-Diagnose um vier auf dem Gerät umschaltbare Varianten A–D, eine lesbare Name/Wert-Ansicht und die protokollierte Übernahme der gewählten Variante samt Live-Werten.
+
+### Behoben
+
+- Nimmt die Standalone-Unterkanten-Erweiterung aus `alpha1059` zurück: Der App-Rahmen bleibt innerhalb der gemessenen Webansicht und schneidet den Composer nicht mehr ab.
+- Vereinheitlicht alle Kopieraktionen mit einem iOS-tauglichen `execCommand`-Ausweichweg für HTTP und sichtbarer Erfolgs- oder Auswahlrückmeldung.
+
 ## 0.1.0-alpha1059 - 2026-10-25 [intern]
 
 ### Neu

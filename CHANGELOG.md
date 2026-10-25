@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha1060 - 2026-10-25 [intern]
+
+### Added
+
+- Adds four on-device variants (A–D) to the admin viewport diagnostics, a readable name/value view, and a control that records the selected variant with its live measurements in the server log.
+
+### Fixed
+
+- Reverts the standalone bottom-edge extension from `alpha1059`: the app frame now stays within the measured web view and no longer clips the composer.
+- Unifies every copy action behind an iOS-compatible `execCommand` fallback for HTTP, with visible success or manual-selection feedback.
+
 ## 0.1.0-alpha1059 - 2026-10-25 [intern]
 
 ### Added
