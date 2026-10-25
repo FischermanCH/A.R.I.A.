@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1058 - 2026-10-25 [intern]
+
+### Changed
+
+- Shows the unchanged animated owner SVG in the header while Chat or Vibe:Lab requests are running, crossfading from the static logo without a layout shift.
+- Keeps the static logo under reduced motion and indicates the busy state with a subtle stationary outline.
+
+### Fixed
+
+- Removes the previous CSS logo rotation and the header variant of the thinking rings completely; message-level thinking rings remain available.
+- Removes settled approval cards from the pinned phone area within two seconds, records the decision compactly in the run, and keeps the composer and any subsequent approval in the correct state.
+- Limits pinned approvals to 40 per cent of the pane and keeps the Vibe:Lab composer flush with the physical bottom edge in the standalone iPhone view.
+
 ## 0.1.0-alpha1057 - 2026-10-25 [intern]
 
 ### Fixed

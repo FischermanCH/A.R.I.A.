@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1058 - 2026-10-25 [intern]
+
+### Geändert
+
+- Zeigt bei laufenden Chat- und Vibe:Lab-Anfragen das unveränderte animierte Owner-SVG im Kopfbereich und blendet ohne Layoutsprung zum statischen Logo über.
+- Behält bei reduzierter Bewegung das statische Logo bei und kennzeichnet den laufenden Zustand mit einem dezenten unbewegten Rand.
+
+### Behoben
+
+- Entfernt die bisherige CSS-Logo-Rotation und die Kopfvariante der Thinking-Ringe vollständig; nachrichtenbezogene Thinking-Ringe bleiben erhalten.
+- Entfernt erledigte Freigabekarten innerhalb von zwei Sekunden aus dem angehefteten Telefonbereich, schreibt die Entscheidung kompakt in den Lauf und hält den Composer sowie die nächste Freigabe im richtigen Zustand.
+- Begrenzt angeheftete Freigaben auf 40 Prozent des Fensters und hält die Vibe:Lab-Eingabe in der iPhone-Standalone-Ansicht bündig an der physischen Unterkante.
+
 ## 0.1.0-alpha1057 - 2026-10-25 [intern]
 
 ### Behoben
