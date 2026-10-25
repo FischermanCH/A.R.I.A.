@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.1.0-alpha1062 - 2026-10-25 [intern]
+
+### Neu
+
+- Ergänzt rundenbezogene Chat-Aktionen mit exakt an Turn-IDs gebundener Löschung und verlustfreiem Rückgängig-Pfad.
+- Ordnet die Hilfe als manifestgesteuerte Kapitelkarten mit Zusammenfassungen und Vor-/Zurück-Navigation.
+
+### Geändert
+
+- Macht Chat-Umschalter und Zeilenmenüs auf Telefonen als Portal-Popovers erreichbar und gestaltet Chatlisten zurückhaltender.
+- Vervollständigt deutsche und englische UI-Texte für Chatverwaltung, Vibe:Lab und Quellenangaben.
+
+### Behoben
+
+- Verhindert, dass der mobile Chat-Umschalter hinter dem Composer liegt oder lange Titel den Pfeil verdrängen.
+- Blendet Sammelaktionen erst nach einer Auswahl ein und zeigt die Chat-Filter als Segmentsteuerung.
+- Hält Zeitstempel, Rundenmenüs, Rückgängig-Hinweise und lange Chattitel auch auf kleinen Bildschirmen vollständig lesbar und bedienbar.
+- Zeigt alle Hilfe-Reiter und echte Kapitel-Icons, entfernt doppelte Zurück-Links und lokalisiert die LLM-Diagnose vollständig.
+- Verwendet im Beschäftigt-Zustand des Kopfbereichs das finale statische ARIA-Logo des Owners, ohne den bestehenden Übergang oder die reduzierte Bewegung zu verändern.
+
+## 0.1.0-alpha1061 - 2026-10-25 [intern]
+
+### Neu
+
+- Führt eine Chat-Verwaltung mit SQLite als verbindlicher Quelle, verlustfreier JSON-Migration, Chat-Umschalter, Suche, Archiv und einstellbarer 90-Tage-Aufbewahrung ein.
+- Zeigt Administratoren mit `?viewport-debug=1` die Geräte- und Unterkantenwerte auf jeder Seite an.
+
+### Geändert
+
+- Verwendet die bestätigte `100lvh`-Shell ohne Variantenumschalter auf allen Seiten und entfernt konkurrierende Vibe:Lab-Höhenregeln.
+
+### Behoben
+
+- Leitet den Übernahmezustand eines Vibe:Lab-Laufs aus Git ab und zeigt bereits enthaltene Änderungen ohne Übernahmeknopf als «Bereits im Projekt».
+- Vereinheitlicht die deutschen Meldungen für alle Fehler beim Übernehmen und Verwerfen.
+
 ## 0.1.0-alpha1060 - 2026-10-25 [intern]
 
 ### Neu

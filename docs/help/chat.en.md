@@ -1,6 +1,6 @@
 # Chat, Queue, and Confirmations
 
-Updated: 2026-07-09
+Updated: 2026-10-25
 
 ## Purpose
 
@@ -17,6 +17,14 @@ You can:
 - remove them
 
 The queue belongs to the current browser tab. It is not a persistent task board and does not survive reloads or browser restarts.
+
+## Managing chats
+
+The title in the header opens the chat switcher. From there you can start an empty chat, search and reopen earlier chats, and rename, pin, archive or delete them after confirmation. **All chats** opens a dedicated view of active and archived conversations.
+
+A new chat never receives context from another chat. During the update, the previous history is migrated losslessly into **Previous history**, while the original JSON file remains as a backup. Archived chats are deleted after 90 days by default; administrators can change this under **Settings → Operations**.
+
+The **⋯** menu on your prompt can remove that exact round, remove every round from that point, or edit and resend the prompt. A deletion can be undone for ten seconds. On commit, ARIA removes only memory entries whose stored provenance points to the deleted turn IDs; text similarity is never used as deletion authority.
 
 ## Cancelling the current request
 

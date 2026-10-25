@@ -20,8 +20,8 @@
       "section": "bedienung",
       "title": { "de": "AI-Chat", "en": "AI chat" },
       "text": {
-        "de": "Moderner AI-**Chat-Client** im charakteristischen Vibe:Lab-Raster, getestet auf Desktop, iPad und iPhone. Antworten erscheinen als klare Ergebniskarten; Werkzeugschritte lassen sich einklappen.\n\nDie sequentielle **Chat-History** kann als `*.md` exportiert oder in Notizen überführt werden.",
-        "en": "A modern AI **chat client** using the distinctive Vibe:Lab grid, tested on desktop, iPad and iPhone. Answers appear as clear result cards, with collapsible tool steps.\n\nThe sequential **chat history** can be exported as `*.md` or turned into notes."
+        "de": "Moderner AI-**Chat-Client** im charakteristischen Vibe:Lab-Raster, getestet auf Desktop, iPad und iPhone. Antworten erscheinen als klare Ergebniskarten; einzelne Runden lassen sich bearbeiten, löschen und während zehn Sekunden rückgängig machen.\n\nMehrere Chats lassen sich durchsuchen, anheften, archivieren und wieder öffnen. Ein neuer Chat beginnt mit leerem Kontext; die **Chat-History** kann als `*.md` exportiert oder in Notizen überführt werden.",
+        "en": "A modern AI **chat client** using the distinctive Vibe:Lab grid, tested on desktop, iPad and iPhone. Answers appear as clear result cards; individual rounds can be edited, deleted and undone for ten seconds.\n\nMultiple chats can be searched, pinned, archived and reopened. A new chat starts with an empty context, while **chat history** can be exported as `*.md` or turned into notes."
       },
       "shot": { "route": "/", "focus": "#messages .msg-assistant:has(table)" }
     },

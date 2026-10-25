@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.1.0-alpha1062 - 2026-10-25 [intern]
+
+### Added
+
+- Adds round-level chat actions with deletion bound to exact turn IDs and a lossless undo path.
+- Organises Help into manifest-driven chapter cards with summaries and previous/next navigation.
+
+### Changed
+
+- Makes the chat switcher and row menus reachable on phones through portal popovers, with calmer chat-list styling.
+- Completes German and English UI copy for chat management, Vibe:Lab and source labels.
+
+### Fixed
+
+- Prevents the mobile chat switcher from sitting behind the composer or long titles displacing its arrow.
+- Hides bulk actions until a chat is selected and presents chat filters as a segmented control.
+- Keeps timestamps, turn menus, undo notices and long chat titles fully readable and operable on small screens.
+- Shows every Help tab and genuine chapter icon, removes duplicate back links and fully localises LLM diagnostics.
+- Uses the owner's final static ARIA logo for the header busy state without changing the existing transition or reduced-motion behaviour.
+
+## 0.1.0-alpha1061 - 2026-10-25 [intern]
+
+### Added
+
+- Introduces chat management with SQLite as the authoritative store, lossless JSON migration, a chat switcher, search, archiving and configurable 90-day retention.
+- Gives administrators a `?viewport-debug=1` readout of device and bottom-edge measurements on every page.
+
+### Changed
+
+- Uses the confirmed `100lvh` shell without an experiment selector on every page and removes competing Vibe:Lab height rules.
+
+### Fixed
+
+- Derives a Vibe:Lab run's transfer state from Git and presents changes already contained in the project without an apply button.
+- Uses consistent German messages for every apply and discard failure path.
+
 ## 0.1.0-alpha1060 - 2026-10-25 [intern]
 
 ### Added

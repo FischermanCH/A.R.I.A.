@@ -1,6 +1,6 @@
 # Chat, Queue und Bestätigungen
 
-Stand: 2026-07-09
+Stand: 2026-10-25
 
 ## Zweck
 
@@ -17,6 +17,14 @@ Du kannst wartende Prompts:
 - entfernen
 
 Die Queue ist pro Browser-Tab. Sie ist nicht als dauerhaftes Aufgabenboard gedacht und überlebt keinen Reload oder Browser-Neustart.
+
+## Chats verwalten
+
+Der Titel im Kopf öffnet den Chat-Umschalter. Dort kannst du einen leeren neuen Chat beginnen, frühere Chats durchsuchen und wieder öffnen sowie Chats umbenennen, anheften, archivieren oder nach Bestätigung löschen. **Alle Chats** zeigt aktive und archivierte Unterhaltungen in einer eigenen Übersicht.
+
+Ein neuer Chat beginnt immer ohne den Kontext anderer Chats. Der bisherige Verlauf wird beim Update verlustfrei als **Bisheriger Verlauf** übernommen; die ursprüngliche JSON-Datei bleibt als Sicherung erhalten. Archivierte Chats werden standardmässig nach 90 Tagen gelöscht. Administratoren können die Frist unter **Einstellungen → Betrieb** ändern.
+
+Über das Menü **⋯** an einem eigenen Prompt kannst du genau diese Runde, alle Runden ab dort oder den Prompt zum Bearbeiten und erneuten Senden wählen. Eine Löschung bleibt zehn Sekunden rückgängig machbar. Beim anschliessenden Commit entfernt ARIA nur Memory-Einträge, deren gespeicherte Herkunft exakt auf die gelöschten Turn-IDs verweist; Textähnlichkeit ist niemals Löschgrundlage.
 
 ## Laufende Anfrage abbrechen
 
