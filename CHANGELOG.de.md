@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1066 - 2026-10-26 [intern]
+
+### Geändert
+
+- Beschränkt das Benutzermenü auf die kuratierte, rollenspezifische Navigation und erschliesst persönliche Einstellungen stattdessen über den Einstellungshub.
+- Lässt die Gruppenreiter im Einstellungshub auf allen unterstützten Breiten umbrechen und zeigt Gruppen auf der Übersicht zunächst als eingeklappte Kacheln.
+
+### Behoben
+
+- Ergänzt lokalisierte Beschreibungen für alle Einstellungskarten und ordnet die Diagnosewerkzeuge konsistent ein.
+- Zeigt in Hilfe, Produkt-Info, Lizenzen und Updates jeweils einen eigenen lokalisierten Untertitel.
+- Vervollständigt die deutschen Texte im Diagnose- und Betriebsbereich.
+
 ## 0.1.0-alpha1065 - 2026-10-26 [intern]
 
 ### Neu

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1066 - 2026-10-26 [intern]
+
+### Changed
+
+- Restricts the user menu to the curated role-specific navigation and exposes personal settings through the Settings hub instead.
+- Allows Settings group tabs to wrap at every supported width and presents groups as collapsed tiles on the overview.
+
+### Fixed
+
+- Adds localised descriptions to every Settings card and organises the diagnostics tools consistently.
+- Gives Help, Product Info, Licences and Updates their own localised subtitles.
+- Completes German copy in the Diagnostics and Operations areas.
+
 ## 0.1.0-alpha1065 - 2026-10-26 [intern]
 
 ### Added
