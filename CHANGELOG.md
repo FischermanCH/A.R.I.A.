@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-alpha1068 - 2026-10-26 [intern]
+
+### Security
+
+- Prevents GitHub calls from page and middleware request paths: update status and changelog data are read exclusively from the local cache there.
+- Limits the worker-wide locked background check to a configurable interval of one to six hours and the manual check to once every five minutes.
+- Conserves the GitHub allowance through ETag/`If-None-Match`, unchanged `304` responses and persistent `403`/`429` backoff based on `X-RateLimit-Reset` and `Retry-After`.
+- Optionally uses a GitHub token from the Secure Store without exposing it in logs, cached errors or the interface.
+
 ## 0.1.0-alpha1067 - 2026-10-26 [intern]
 
 ### Changed

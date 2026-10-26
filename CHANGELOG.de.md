@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-alpha1068 - 2026-10-26 [intern]
+
+### Sicherheit
+
+- Verhindert GitHub-Aufrufe im Seiten- und Middleware-Pfad: Update-Status und Changelog werden dort ausschliesslich aus dem lokalen Cache gelesen.
+- Begrenzt den workerübergreifend gesperrten Hintergrund-Check auf ein konfigurierbares Intervall von einer bis sechs Stunden und den manuellen Check auf einmal pro fünf Minuten.
+- Schont das GitHub-Limit mit ETag/`If-None-Match`, unveränderten `304`-Antworten sowie persistentem Backoff für `403`/`429` anhand von `X-RateLimit-Reset` und `Retry-After`.
+- Unterstützt optional ein GitHub-Token aus dem Secure Store, ohne es in Logs, Cache-Fehlern oder der Oberfläche offenzulegen.
+
 ## 0.1.0-alpha1067 - 2026-10-26 [intern]
 
 ### Geändert
