@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-alpha1065 - 2026-10-26 [intern]
+
+### Neu
+
+- Prüft vor jedem Build rollen- und sichtbarkeitsabhängig, dass alle registrierten Navigationsziele über sichtbare Links erreichbar sind.
+
+### Behoben
+
+- Macht die Verbindungsverwaltung wieder über das Systemmenü, den Einstellungshub, die Verbindungsnavigation und Vibe:Lab erreichbar.
+
 ## 0.1.0-alpha1064 - 2026-10-26 [intern]
 
 ### Geändert

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-alpha1065 - 2026-10-26 [intern]
+
+### Added
+
+- Checks before every build that all registered navigation destinations are reachable through visible links for their applicable roles and visibility levels.
+
+### Fixed
+
+- Makes connection management reachable again from the System menu, Settings hub, connection navigation and Vibe:Lab.
+
 ## 0.1.0-alpha1064 - 2026-10-26 [intern]
 
 ### Changed
