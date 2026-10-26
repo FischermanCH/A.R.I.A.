@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.0-alpha1064 - 2026-10-26 [intern]
+
+### Changed
+
+- Condenses the multi-window Vibe:Lab toolbar into one row on tablets and moves surplus actions into the existing menu.
+- Removes overridden Vibe:Lab style rules without a visible change from the previous build.
+
+### Fixed
+
+- Fully localises Vibe:Lab summaries, effort levels and exports with correct singular and plural forms.
+- Uses the shared copy SVG in chat result headers instead of a font-dependent Unicode character.
+- Presents chat rows on phones and desktop as a single surface with a neatly truncated title, subdued metadata and a right-aligned action menu.
+- Replaces internal agent-job completion reasons in the activity journal and jobs panel with localised, understandable descriptions of their effect.
+
 ## 0.1.0-alpha1063 - 2026-10-25 [intern]
 
 ### Changed

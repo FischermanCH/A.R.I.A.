@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.0-alpha1064 - 2026-10-26 [intern]
+
+### Geändert
+
+- Verdichtet die Vibe:Lab-Werkzeugleiste auf Tablets mit mehreren Fenstern zu einer Zeile und verschiebt überzählige Aktionen in das bestehende Menü.
+- Bereinigt übersteuerte Vibe:Lab-Stilregeln ohne sichtbare Änderung gegenüber dem vorherigen Build.
+
+### Behoben
+
+- Lokalisiert Zusammenfassungen, Aufwandsstufen und Exporte von Vibe:Lab vollständig mit korrekten Einzahl- und Mehrzahlformen.
+- Verwendet im Kopfbereich von Chat-Ergebnissen das gemeinsame Kopieren-SVG statt eines schriftabhängigen Unicode-Zeichens.
+- Richtet Chatzeilen auf Telefonen und Desktop als einzelne Fläche mit sauber gekürztem Titel, ruhigen Metadaten und rechtsbündigem Aktionsmenü aus.
+- Ersetzt interne Abschlussgründe von Agent-Aufträgen im Aktivitätsjournal und Auftragsfenster durch lokalisierte, verständliche Wirkungstexte.
+
 ## 0.1.0-alpha1063 - 2026-10-25 [intern]
 
 ### Geändert
