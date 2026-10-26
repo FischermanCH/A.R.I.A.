@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1069 - 2026-10-26 [intern]
+
+### Fixed
+
+- Connects Claude Code tool approvals through the real `stdio` permission channel, no longer reports user cancellations as execution failures, and shows the Claude model reported by the initialisation event in the run footer.
+
 ## 0.1.0-alpha1068 - 2026-10-26 [intern]
 
 ### Security

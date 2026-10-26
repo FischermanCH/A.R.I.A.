@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1069 - 2026-10-26 [intern]
+
+### Behoben
+
+- Verbindet Claude-Code-Werkzeugfreigaben über den echten `stdio`-Berechtigungskanal, kennzeichnet Benutzerabbrüche nicht mehr als Ausführungsfehler und zeigt das im Initialisierungsereignis gemeldete Claude-Modell im Laufabschluss an.
+
 ## 0.1.0-alpha1068 - 2026-10-26 [intern]
 
 ### Sicherheit
