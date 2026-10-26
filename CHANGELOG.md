@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha1067 - 2026-10-26 [intern]
+
+### Changed
+
+- Anchors Vibe:Lab worktree identity to an immutable project slug instead of the editable display name.
+
+### Fixed
+
+- Keeps existing worktrees visible and cleanable after a project is renamed, while diff, merge, discard and resume continue to use the paths stored for earlier runs.
+- Migrates existing projects to the slug found in their most recently stored worktree, falling back to the current name only when no run history exists.
+
 ## 0.1.0-alpha1066 - 2026-10-26 [intern]
 
 ### Changed

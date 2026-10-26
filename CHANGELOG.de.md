@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha1067 - 2026-10-26 [intern]
+
+### Geändert
+
+- Verankert die Identität von Vibe:Lab-Arbeitskopien in einem unveränderlichen Projekt-Slug statt im bearbeitbaren Anzeigenamen.
+
+### Behoben
+
+- Hält bestehende Arbeitskopien nach dem Umbenennen eines Projekts sichtbar und aufräumbar und verwendet für Diff, Übernehmen, Verwerfen und Fortsetzen alter Läufe weiterhin deren gespeicherte Pfade.
+- Migriert bestehende Projekte anhand ihrer zuletzt gespeicherten Arbeitskopie auf den bisherigen Slug und fällt nur ohne Laufhistorie auf den aktuellen Namen zurück.
+
 ## 0.1.0-alpha1066 - 2026-10-26 [intern]
 
 ### Geändert
