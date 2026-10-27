@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1072 - 2026-10-27 [intern]
+
+### Security
+
+- Restores the L0 approval gate for Vibe:Lab Claude runs: the agent's write actions now reliably raise a confirmation card, even when the target host's user settings would skip permission prompts globally. ARIA launches the agent isolated from those user settings; read access stays auto-allowed as before.
+
 ## 0.1.0-alpha1071 - 2026-10-27 [intern]
 
 ### Fixed

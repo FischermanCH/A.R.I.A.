@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1072 - 2026-10-27 [intern]
+
+### Sicherheit
+
+- Erzwingt die Freigabe bei Vibe:Lab-Claude-Läufen auf Stufe L0 wieder: schreibende Aktionen des Agenten lösen jetzt zuverlässig eine Bestätigungskarte aus, auch wenn die Benutzereinstellungen des Zielhosts Berechtigungsabfragen global überspringen würden. ARIA startet den Agenten dafür isoliert von diesen Benutzereinstellungen; Lesezugriffe bleiben wie bisher automatisch erlaubt.
+
 ## 0.1.0-alpha1071 - 2026-10-27 [intern]
 
 ### Behoben
