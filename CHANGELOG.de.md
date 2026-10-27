@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1077 - 2026-10-27 [intern]
+
+### Geändert
+
+- Der Update-Hinweis oben rechts erscheint jetzt nur noch, wenn wirklich eine neue Version verfügbar ist – als klickbarer Hinweis, der direkt zur Update-Seite führt. Der rein interne Zustand «Update-Prüfung gedrosselt» (ARIAs eigene Update-Prüfung hat ihre Sperre erreicht) zeigt kein rotes Lämpchen mehr; diese Information bleibt auf der Update-Seite.
+
+## 0.1.0-alpha1076 - 2026-10-27 [intern]
+
+### Behoben
+
+- Der Update-Hinweis oben rechts ist jetzt anklickbar: Das rote Update-Lämpchen («Update verfügbar» bzw. «Update-Prüfung gedrosselt») sass bisher in der Menü-Schaltfläche, wo ein Klick nur das Menü öffnete – im gedrosselten Zustand sogar ins Leere. Es ist jetzt ein eigenständiger Link, der direkt zur Update-Seite führt.
+- Vibe:Lab – `/clear` meldet jetzt klar, wie viele Läufe archiviert wurden (korrekte Ein-/Mehrzahl), und sagt «Nichts zu archivieren», wenn das Fenster bereits leer war.
+
 ## 0.1.0-alpha1075 - 2026-10-27 [intern]
 
 ### Behoben

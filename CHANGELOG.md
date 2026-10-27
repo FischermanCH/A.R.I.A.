@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1077 - 2026-10-27 [intern]
+
+### Changed
+
+- The update indicator at the top right now appears only when a new version is actually available — as a clickable hint that goes straight to the updates page. The purely internal "Update check throttled" state (ARIA's own update check hit its rate limit) no longer shows a red lamp; that information stays on the updates page.
+
+## 0.1.0-alpha1076 - 2026-10-27 [intern]
+
+### Fixed
+
+- The update indicator at the top right is now clickable: the red update lamp ("Update available" / "Update check throttled") previously sat inside the menu button, where a click only opened the menu — and in the throttled state led nowhere. It is now a standalone link that goes straight to the updates page.
+- Vibe:Lab – `/clear` now clearly reports how many runs were archived (correct singular/plural), and says "Nothing to archive" when the window was already empty.
+
 ## 0.1.0-alpha1075 - 2026-10-27 [intern]
 
 ### Fixed
