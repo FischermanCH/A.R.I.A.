@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha1074 - 2026-10-27 [intern]
+
+### Behoben
+
+- Menüs schliessen jetzt zuverlässig per Klick daneben: ein Klick ausserhalb eines offenen Menüs schliesst es überall im Shell (auch der Chat-Wechsler am Desktop), statt dass man erneut auf den Menü-Knopf klicken muss.
+- Der «Freigabe nötig»-Punkt oben rechts ist jetzt anklickbar und springt direkt zur wartenden Freigabe, statt nur das Menü zu öffnen.
+- `/clear` im Vibe:Lab erklärt jetzt klar, wenn ein Lauf noch läuft oder auf deine Freigabe wartet (und bietet Stoppen und Archivieren an), statt den alten Lauf kommentarlos stehenzulassen.
+
 ## 0.1.0-alpha1073 - 2026-10-27 [intern]
 
 ### Behoben

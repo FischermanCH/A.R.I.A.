@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha1074 - 2026-10-27 [intern]
+
+### Fixed
+
+- Menus now close reliably on an outside click: clicking outside an open menu dismisses it everywhere in the shell (including the chat switcher on desktop), instead of having to click the menu button again.
+- The «approval required» dot in the top right is now clickable and jumps straight to the waiting approval, instead of only opening the menu.
+- `/clear` in Vibe:Lab now clearly states when a run is still active or waiting for your approval (and offers Stop and archive), instead of silently leaving the old run in place.
+
 ## 0.1.0-alpha1073 - 2026-10-27 [intern]
 
 ### Fixed
