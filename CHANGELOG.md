@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha1073 - 2026-10-27 [intern]
+
+### Fixed
+
+- Removes the misleading model notice on Vibe:Lab Claude runs: because you pick the short name (e.g. "sonnet") for Claude while the agent reports the full model id, every run wrongly showed a "different model used" notice. The notice now appears only on a genuine model mismatch.
+- Makes the model notice agent-neutral: it hard-coded "Codex" even on Claude runs.
+- Hides the "Reasoning effort" selector again for agents without reasoning levels (Claude) in the window menu; it was shown despite an empty list.
+
 ## 0.1.0-alpha1072 - 2026-10-27 [intern]
 
 ### Security

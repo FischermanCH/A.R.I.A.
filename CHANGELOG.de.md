@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha1073 - 2026-10-27 [intern]
+
+### Behoben
+
+- Entfernt die irreführende Modellmeldung bei Vibe:Lab-Claude-Läufen: Da man bei Claude den Kurznamen (z. B. «sonnet») wählt, der Agent aber die vollständige Modellkennung meldet, erschien bei jedem Lauf fälschlich der Hinweis, es werde ein anderes Modell verwendet. Der Hinweis erscheint nun nur noch bei einer echten Modellabweichung.
+- Benennt den Modell-Hinweis neutral: er nannte fest «Codex», auch bei Claude-Läufen.
+- Blendet die Auswahl «Denkaufwand» für Agenten ohne Reasoning-Stufen (Claude) im Fenstermenü wieder aus; sie wurde trotz leerer Liste angezeigt.
+
 ## 0.1.0-alpha1072 - 2026-10-27 [intern]
 
 ### Sicherheit
