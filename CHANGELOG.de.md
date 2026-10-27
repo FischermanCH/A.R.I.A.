@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1071 - 2026-10-27 [intern]
+
+### Behoben
+
+- Startet Claude-Code-Läufe auch mit der vollständigen Hilfeausgabe wieder: der Fähigkeitstest schnitt die Agentenausgabe nach 16 000 Zeichen ab, wodurch das weiter hinten stehende `--verbose`-Flag fehlte und jeder Lauf trotz erkannter Version mit «Coding-Agent fehlt …» abbrach. Der Test liest die Ausgabe nun mit grösserem Limit.
+
 ## 0.1.0-alpha1070 - 2026-10-27 [intern]
 
 ### Behoben

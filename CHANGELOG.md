@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1071 - 2026-10-27 [intern]
+
+### Fixed
+
+- Starts Claude Code runs again even with the full help output: the capability probe truncated the agent output after 16,000 characters, so the `--verbose` flag listed further down was missing and every run aborted with «Coding agent missing …» despite a detected version. The probe now reads the output with a larger limit.
+
 ## 0.1.0-alpha1070 - 2026-10-27 [intern]
 
 ### Fixed
