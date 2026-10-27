@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1078 - 2026-10-28 [intern]
+
+### Behoben
+
+- Vibe:Lab – der Klick auf den Freigabe-Hinweis (roter Punkt bzw. Banderole «Freigabe nötig») öffnet jetzt das richtige Projekt. Bisher wurde das zuerst gelistete Projekt geöffnet, nicht dasjenige mit dem wartenden Lauf.
+
 ## 0.1.0-alpha1077 - 2026-10-27 [intern]
 
 ### Geändert

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1078 - 2026-10-28 [intern]
+
+### Fixed
+
+- Vibe:Lab – clicking the approval indicator (the red dot or the "Approval required" band) now opens the correct project. Previously it opened the first project in the list rather than the one with the waiting run.
+
 ## 0.1.0-alpha1077 - 2026-10-27 [intern]
 
 ### Changed
