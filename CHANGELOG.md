@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1070 - 2026-10-27 [intern]
+
+### Fixed
+
+- Claude Code runs start again: the capability probe did not recognise the `--permission-prompt-tool` flag, so every run aborted with «Coding agent missing …» despite a successful connection.
+- Hides the reasoning-effort control for Claude agents, since Claude offers no effort tiers.
+
 ## 0.1.0-alpha1069 - 2026-10-26 [intern]
 
 ### Fixed

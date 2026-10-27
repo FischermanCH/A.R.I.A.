@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1070 - 2026-10-27 [intern]
+
+### Behoben
+
+- Startet Claude-Code-Läufe wieder: der Fähigkeitstest erkannte das `--permission-prompt-tool`-Flag nicht, wodurch jeder Lauf trotz erfolgreicher Verbindung mit «Coding-Agent fehlt …» abbrach.
+- Blendet den Denkaufwand-Regler für Claude-Agenten aus, da Claude keine Aufwandsstufen anbietet.
+
 ## 0.1.0-alpha1069 - 2026-10-26 [intern]
 
 ### Behoben
