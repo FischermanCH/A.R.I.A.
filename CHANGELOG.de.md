@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1075 - 2026-10-27 [intern]
+
+### Behoben
+
+- Vibe:Lab – der Freigabe-Hinweis ist jetzt anklickbar: Der rote Punkt sass bisher in der Menü-Schaltfläche, wo ein Klick nur das Menü öffnete. Er ist jetzt ein eigenständiges, klickbares Element oben rechts und springt direkt zum wartenden Lauf.
+- Vibe:Lab – `/clear` (und `/cls`) setzt das Eingabefeld jetzt auf «Neuer Lauf» zurück. Bisher blieb das Fortsetzungs-Ziel bestehen, sodass der nächste Prompt den soeben archivierten Lauf wieder zurückholte.
+
 ## 0.1.0-alpha1074 - 2026-10-27 [intern]
 
 ### Behoben

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1075 - 2026-10-27 [intern]
+
+### Fixed
+
+- Vibe:Lab – the approval indicator is now clickable: the red dot previously sat inside the menu button, where a click only opened the menu. It is now a standalone clickable element at the top right that jumps straight to the waiting run.
+- Vibe:Lab – `/clear` (and `/cls`) now resets the composer to "New run". Previously the continuation target stayed set, so the next prompt resumed (and un-archived) the run that had just been cleared.
+
 ## 0.1.0-alpha1074 - 2026-10-27 [intern]
 
 ### Fixed
