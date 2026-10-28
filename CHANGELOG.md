@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1080 - 2026-10-28 [intern]
+
+### Added
+
+- Vibe:Lab – a prompt queue per coding-agent window: you can send further tasks while a run is still working. They are collected and started automatically one after another after each finished round – just like in the main chat. Each queued entry can be reordered, edited or removed. While a run waits for your approval the queue pauses until you approve or deny. If a round is cancelled or fails, the queue halts and the remaining tasks stay in place.
+
 ## 0.1.0-alpha1079 - 2026-10-28 [intern]
 
 ### Fixed

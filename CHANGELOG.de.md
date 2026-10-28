@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1080 - 2026-10-28 [intern]
+
+### Neu
+
+- Vibe:Lab – Prompt-Warteschlange pro Agent-Fenster: Du kannst weitere Aufträge abschicken, während ein Lauf noch arbeitet. Sie werden gesammelt und nach jeder fertigen Runde automatisch der Reihe nach gestartet – genau wie im Haupt-Chat. In der Warteschlange lässt sich jeder Eintrag umsortieren, bearbeiten oder entfernen. Wartet ein Lauf auf deine Freigabe, pausiert die Warteschlange, bis du erlaubst oder ablehnst. Wird eine Runde abgebrochen oder schlägt sie fehl, hält die Warteschlange an und die restlichen Aufträge bleiben stehen.
+
 ## 0.1.0-alpha1079 - 2026-10-28 [intern]
 
 ### Behoben
