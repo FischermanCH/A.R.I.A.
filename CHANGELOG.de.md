@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha1082 - 2026-10-28 [intern]
+
+### Behoben
+
+- Website & öffentliche Demo – die Beispiel-Inhalte für die Screenshots auf aria-agent.dev waren teils unglaubwürdig («erfundene» Katalogeinträge, «Demo»-Beschriftungen) und auf englischen Seiten teilweise deutsch. Die ganze Demo wurde überarbeitet: ein glaubwürdiges Heimserver-Szenario, durchgehend zweisprachig, mit neutralen Namen.
+- Website-Export – die Screenshots wurden bei fast jedem Build komplett neu übertragen, obwohl sich nichts Sichtbares änderte. Exporte sind jetzt deterministisch, und Screenshots werden nur noch bei einer echten Änderung ersetzt.
+- Screenshots – interne bzw. zeitbezogene Angaben (Login-Sitzung, Datums-Marker) erscheinen nicht mehr auf den öffentlichen Bildern.
+
+### Neu
+
+- Ein einziges Skript erzeugt nach einem Build alle Website-Screenshots neu, prüft sie automatisch auf unsichere Inhalte und bereitet die Dokumentation zur Veröffentlichung vor.
 ## 0.1.0-alpha1081 - 2026-10-28 [intern]
 
 ### Behoben
