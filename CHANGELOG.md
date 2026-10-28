@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1083 - 2026-10-28 [intern]
+
+### Fixed
+
+- Home page – after restoring an older backup the chat history could be missing a table, which stopped the home page from loading. The chat store now ensures its schema on every access and self-heals such a gap automatically.
+- Localisation – the title automatically created for the imported previous history was always German. It now follows the configured language (English: «Previous history»).
 ## 0.1.0-alpha1082 - 2026-10-28 [intern]
 
 ### Fixed

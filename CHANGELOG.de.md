@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1083 - 2026-10-28 [intern]
+
+### Behoben
+
+- Startseite – nach dem Zurückspielen eines älteren Backups konnte der Chat-Verlauf eine fehlende Tabelle enthalten, wodurch die Startseite nicht mehr lud. Der Chat-Speicher stellt sein Schema jetzt bei jedem Zugriff selbst sicher und heilt eine solche Lücke automatisch.
+- Mehrsprachigkeit – der automatisch angelegte Titel des übernommenen bisherigen Verlaufs war immer deutsch. Er folgt jetzt der eingestellten Sprache (englisch: «Previous history»).
 ## 0.1.0-alpha1082 - 2026-10-28 [intern]
 
 ### Behoben
