@@ -1,3 +1,0 @@
-# Development-only browser harness. Never install this file in the production image.
-playwright==1.55.0
-Pillow==11.3.0
