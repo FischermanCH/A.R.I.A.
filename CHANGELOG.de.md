@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1081 - 2026-10-28 [intern]
+
+### Behoben
+
+- Vibe:Lab – die neue Prompt-Warteschlange wurde bei jeder Aktualisierung als zusätzliches Panel angezeigt, statt das bestehende zu aktualisieren, und `/clear` räumte diese Panels nicht weg. Jetzt gibt es pro Fenster genau ein Warteschlangen-Panel, und `/clear` leert es zuverlässig.
+- Vibe:Lab – während ein Lauf arbeitete, zeigte der Knopf nur «Stopp», sodass sich kein Prompt in die Warteschlange legen liess. «Senden» bleibt jetzt sichtbar (reiht den Prompt ein) und «Stopp» steht daneben.
+
 ## 0.1.0-alpha1080 - 2026-10-28 [intern]
 
 ### Neu

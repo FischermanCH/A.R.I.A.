@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1081 - 2026-10-28 [intern]
+
+### Fixed
+
+- Vibe:Lab – the new prompt queue showed an extra panel on every refresh instead of updating the existing one, and `/clear` did not remove those panels. There is now exactly one queue panel per window, and `/clear` empties it reliably.
+- Vibe:Lab – while a run was working the button showed only "Stop", so a prompt could not be queued. "Send" now stays visible (it enqueues the prompt) with "Stop" beside it.
+
 ## 0.1.0-alpha1080 - 2026-10-28 [intern]
 
 ### Added
