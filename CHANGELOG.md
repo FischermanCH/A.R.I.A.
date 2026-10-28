@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1079 - 2026-10-28 [intern]
+
+### Fixed
+
+- Vibe:Lab – in a Claude run with several rounds, every answer ended up in the first round while the later rounds stayed empty. Each round now shows its answer in the right place.
+
 ## 0.1.0-alpha1078 - 2026-10-28 [intern]
 
 ### Fixed
