@@ -203,7 +203,7 @@
         "de": "Eine **Guardrail** wird definiert und einer Verbindung angehängt. Alle Befehle, die über diese Verbindung abgesetzt werden, durchlaufen dann die entsprechende Guardrail.",
         "en": "A **guardrail** is defined and attached to a connection. Every command sent through that connection then passes through the guardrail."
       },
-      "shot": { "route": "/config/security?guardrail_ref=demo-safe-maintenance", "focus": "details[open] .skill-summary.connection-flow-note" }
+      "shot": { "route": "/config/security?guardrail_ref=safe-maintenance", "focus": "details[open] .skill-summary.connection-flow-note" }
     },
     {
       "id": "guardrail-suggestions",
