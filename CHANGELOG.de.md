@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha1085 - 2026-10-29 [intern]
+
+### Behoben
+
+- Vibe:Lab - nach «Ins Projekt übernehmen» verschwindet die Zeile «Noch nicht übernommen» sofort und wird zu «Bereits im Projekt», ohne Neuladen. Die irrtümliche Warnung über noch nicht übernommene Änderungen beim nächsten Lauf bleibt damit aus.
+- Vibe:Lab - beim Zurückkommen zum Tab gleichen sich abgeschlossene Läufe automatisch mit dem Server ab. Das ist ein sanfter Abgleich statt eines vollen Neuladens; die Warteschlange und bereits getippter Text bleiben erhalten.
+- Einstellungen - die Verbindungs-Unterseiten (Discord, SFTP, SMTP, IMAP, MQTT, RSS, SMB, Websites, HTTP-API, Kalender) erscheinen jetzt im Bereich «Verbindungen» statt «Einstellungen».
+- Chat-Verwaltung - das Suchfeld ist jetzt korrekt beschriftet (Barrierefreiheit).
+- Englische Oberfläche - auf «Betrieb» und in der Chat-Verwaltung erscheinen keine deutschen Resttexte mehr.
+- Viewport-Diagnose - nur noch eine primäre Aktion pro Abschnitt, Abstand zwischen den Varianten-Schaltflächen und eine englische Beschriftung «Adopt».
+
 ## 0.1.0-alpha1084 - 2026-10-29 [intern]
 
 ### Behoben

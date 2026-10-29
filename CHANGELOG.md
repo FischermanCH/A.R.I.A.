@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha1085 - 2026-10-29 [intern]
+
+### Fixed
+
+- Vibe:Lab - after «Apply to project» the «not yet applied» line disappears at once and becomes «Already in project», without a reload. The spurious warning about changes not yet applied on the next run no longer appears.
+- Vibe:Lab - returning to the tab now reconciles finished runs with the server automatically. This is a soft resync instead of a full reload; the queue and any unsent text are preserved.
+- Settings - connection sub-pages (Discord, SFTP, SMTP, IMAP, MQTT, RSS, SMB, Websites, HTTP API, Calendar) now appear under «Connections» instead of «Settings».
+- Chat management - the search field now has a proper label (accessibility).
+- English interface - no leftover German text remains on «Operations» or in chat management.
+- Viewport diagnostics - a single primary action per section, spacing between the variant buttons and an English «Adopt» label.
+
 ## 0.1.0-alpha1084 - 2026-10-29 [intern]
 
 ### Fixed
