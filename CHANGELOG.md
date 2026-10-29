@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1084 - 2026-10-29 [intern]
+
+### Fixed
+
+- Vibe:Lab no longer loads an invalid model URL when no coding-agent connection is configured.
+- Workspaces with two to four panes use the available desktop width again; single-pane workspaces and other pages remain unchanged.
+- Runs that have already been merged or discarded no longer trigger a pending-changes warning, and merged runs can be resumed.
+- The E2E checks now use the current shell, connection and statistics structures.
+
+### Changed
+
+- Untracked project files no longer block merging a Vibe:Lab run. Changes to tracked files remain blocked.
+
 ## 0.1.0-alpha1083 - 2026-10-28 [intern]
 
 ### Fixed

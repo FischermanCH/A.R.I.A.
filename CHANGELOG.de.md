@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1084 - 2026-10-29 [intern]
+
+### Behoben
+
+- Vibe:Lab lädt ohne konfigurierte Coding-Agent-Verbindung keine ungültige Modell-URL mehr.
+- Arbeitsbereiche mit zwei bis vier Bereichen nutzen auf Desktop-Bildschirmen wieder die verfügbare Breite; ein einzelner Bereich und andere Seiten bleiben unverändert.
+- Bereits übernommene oder verworfene Läufe lösen keine Warnung über ausstehende Änderungen mehr aus, und übernommene Läufe können fortgesetzt werden.
+- Die E2E-Prüfungen verwenden die aktuellen Shell-, Verbindungs- und Statistikstrukturen.
+
+### Geändert
+
+- Nicht versionierte Dateien im Projekt blockieren die Übernahme eines Vibe:Lab-Laufs nicht mehr. Änderungen an versionierten Dateien bleiben gesperrt.
+
 ## 0.1.0-alpha1083 - 2026-10-28 [intern]
 
 ### Behoben
