@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1088 - 2026-10-30 [intern]
+
+### Fixed
+
+- Running background tasks are reattached to the active chat after a reload, showing the original prompt in the transcript and continuing there when complete. Saved follow-up prompts then start automatically.
+
 ## 0.1.0-alpha1087 - 2026-10-30 [intern]
 
 ### Fixed

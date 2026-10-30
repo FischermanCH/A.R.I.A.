@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1088 - 2026-10-30 [intern]
+
+### Behoben
+
+- Laufende Hintergrund-Aufträge werden nach einem Reload wieder dem aktiven Chat zugeordnet, mit dem ursprünglichen Prompt im Transkript angezeigt und nach Abschluss dort weitergeführt. Gespeicherte Folge-Prompts starten danach automatisch.
+
 ## 0.1.0-alpha1087 - 2026-10-30 [intern]
 
 ### Behoben
