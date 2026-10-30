@@ -16,7 +16,7 @@ You can:
 - edit them
 - remove them
 
-The queue belongs to the current browser tab. It is not a persistent task board and does not survive reloads or browser restarts.
+The queue survives a reload. If an answer is running, Chat continues it as a background job and automatically resumes the queue when that job finishes. In Vibe:Lab, the active run likewise continues and the preserved queue starts automatically afterwards.
 
 ## Managing chats
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1087 - 2026-10-30 [intern]
+
+### Behoben
+
+- Nach einem Reload setzt der Haupt-Chat eine gespeicherte Prompt-Warteschlange automatisch fort, sobald der laufende Hintergrund-Auftrag abgeschlossen ist.
+
+## 0.1.0-alpha1086 - 2026-10-30 [intern]
+
+### Neu
+
+- Die Prompt-Warteschlangen im Haupt-Chat und in Vibe:Lab werden pro Chat beziehungsweise Fenster im jeweiligen Modulspeicher gesichert. Reihenfolge und Bearbeitungen bleiben nach Neuladen oder Seitenwechsel erhalten; Leeren entfernt die gespeicherte Warteschlange ebenfalls.
+
 ## 0.1.0-alpha1085 - 2026-10-29 [intern]
 
 ### Behoben

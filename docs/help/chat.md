@@ -16,7 +16,7 @@ Du kannst wartende Prompts:
 - bearbeiten
 - entfernen
 
-Die Queue ist pro Browser-Tab. Sie ist nicht als dauerhaftes Aufgabenboard gedacht und überlebt keinen Reload oder Browser-Neustart.
+Die Warteschlange bleibt bei einem Reload erhalten. Läuft dabei gerade eine Antwort, wird sie im Chat als Hintergrund-Auftrag weitergeführt; sobald dieser fertig ist, setzt ARIA die Warteschlange automatisch fort. In Vibe:Lab läuft der aktive Lauf ebenfalls weiter und die erhaltene Warteschlange startet danach automatisch.
 
 ## Chats verwalten
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1087 - 2026-10-30 [intern]
+
+### Fixed
+
+- After a reload, the main chat automatically resumes a saved prompt queue once the running background job has finished.
+
+## 0.1.0-alpha1086 - 2026-10-30 [intern]
+
+### Added
+
+- Prompt queues in the main chat and Vibe:Lab are now saved per chat or pane in each module's own store. Their order and edits survive reloads and navigation, while clearing a queue also removes its stored state.
+
 ## 0.1.0-alpha1085 - 2026-10-29 [intern]
 
 ### Fixed
