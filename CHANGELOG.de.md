@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1090 - 2026-10-31 [intern]
+
+### Behoben
+
+- Abgeschlossene Hintergrund-Aufträge erscheinen im Chat genau einmal als Ergebnis. Der laufende Auftragsblock wird beim Abschluss mit der terminalen Meldung zusammengeführt; der sofortige Reattach noch laufender Aufträge nach einem Neuladen bleibt erhalten.
+
 ## 0.1.0-alpha1088 - 2026-10-30 [intern]
 
 ### Behoben

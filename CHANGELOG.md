@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1090 - 2026-10-31 [intern]
+
+### Fixed
+
+- Completed background jobs now appear exactly once in the chat as a result. Their running block is merged with the terminal notice on completion, while in-progress jobs continue to reattach immediately after a reload.
+
 ## 0.1.0-alpha1088 - 2026-10-30 [intern]
 
 ### Fixed
