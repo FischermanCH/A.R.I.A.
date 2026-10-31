@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1092 - 2026-10-31 [intern]
+
+### Behoben
+
+- Wartende Chat-Prompts starten erst, wenn ein zuvor in den Hintergrund verschobener Auftrag wirklich abgeschlossen ist. Abhängige Folge-Prompts erhalten damit das vollständige Ergebnis ihres Vorgängers.
+
 ## 0.1.0-alpha1090 - 2026-10-31 [intern]
 
 ### Behoben

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1092 - 2026-10-31 [intern]
+
+### Fixed
+
+- Queued chat prompts now start only after a preceding background job has actually finished. Dependent follow-up prompts therefore receive the complete result from their predecessor.
+
 ## 0.1.0-alpha1090 - 2026-10-31 [intern]
 
 ### Fixed
