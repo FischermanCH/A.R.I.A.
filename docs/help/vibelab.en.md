@@ -1,37 +1,25 @@
 # Vibe:Lab
 
-Vibe:Lab brings several projects and development tools together in one working view.
+Vibe:Lab brings coding agents, terminals and ARIA's main chat into one working view.
 
-## Workspaces and projects
+## Connections, agents and workspaces
 
-A **workspace** is a saved arrangement of up to four windows. It remembers which project is bound to each window, whether windows are placed side by side or stacked, and the splitter sizes. A workspace has no folder of its own. Create, rename or delete one from the top bar; layout changes are saved automatically.
+A **connection** provides SSH access and the allowed folders. An **agent** combines that access with a working folder, agent type, and defaults for autonomy, model and budget. Two agents may use the same folder, for example one with Codex and another with Claude.
 
-A **project** holds the project folder, its coding-agent and host binding, autonomy level, and LLM or model defaults. Its work data includes uploads, agent runs and history. Manage projects from the **Vibe:Lab projects** tab at `/vibelab/projects`. Coding-agent and SSH connections themselves are configured in the connections or configuration area.
-
-One workspace can run several projects at the same time. For example, you can keep multiple coding-agent windows open and bind each one to a different project.
+A **workspace** stores only an arrangement of up to four windows; it has no working folder of its own. Create, rename or delete one from the top bar and layout changes are saved automatically. Deleting a workspace does not delete its agents or their work data. Manage connections and agents at `/vibelab/projects`.
 
 ## Window types
 
-- **LLM chat** is available to everyone for a focused conversation about the bound project.
-- **Coding agent** is available to administrators. It edits files and uses tools in the bound project.
-- **Terminal** is available to administrators. It is a direct SSH shell to the bound project's coding host, not a standalone window for an arbitrary SSH connection.
+- **LLM** shows the same active conversation as ARIA's main chat by default, including its history and memory. A particular conversation can be bound explicitly later.
+- **Agent** works with the selected agent in its folder and is available to administrators.
+- **Terminal** gives administrators a direct shell through the selected connection.
 
-## Why the agent uses a separate working copy
+## Isolated work and approvals
 
-Every agent run works in its own Git worktree: an isolated copy that keeps your project folder and parallel work safe, and prevents unfinished changes from appearing unnoticed. Changes become visible only after **Apply to project**. This writes locally and does not push. Review **Changes** first. **Discard** resets the working copy.
+Each agent run uses its own Git worktree. Changes reach the local working folder only after **Apply to working folder**, with no push. Review **Changes** first. **New run** starts with fresh context, while the composer continues the latest run by default.
 
-A continuation builds on the same working copy and context; the **Continues** line makes this explicit. **New run** starts with fresh context.
+L0 asks for approval for actions that write or execute. L1 permits tightly scoped work, L2 works more independently and L3 is the broadest available autonomy. ARIA's fixed safety rules always apply. An uncovered action displays **Approval required** close to the composer. **Continues** marks an existing run; `/cls` and `/clear` archive or clear the current window.
 
-## Autonomy and approvals
+Uploads and runs remain attached to the agent. Vibe:Lab synchronises running state across open devices. If a host is unavailable, history remains intact; check the connection and use **Try again**.
 
-L0 asks for approval for every agent action that writes or executes. L1 permits tightly scoped project work, L2 works more independently, and L3 is the broadest available autonomy. ARIA's fixed safety limits always apply. Terminal commands are entered directly and are not agent actions.
-
-When the current autonomy level does not cover an action, a pinned approval card appears at the bottom and the approval band appears at the top. Allowing or denying applies to that request only. Discord can provide additional notifications.
-
-## Files, images and commands
-
-**Upload file (image, document)** opens the exchange files. You can also paste images; a preview appears before sending and remains available in the message afterwards. `/cls` and `/clear` archive or clear the current window as appropriate for its type.
-
-Vibe:Lab live-syncs running states and new answers across open devices. If the coding host is unreachable, the history remains safe: check the connection, use **Try again**, and only then start a new run. You can still review or discard changes that are already visible.
-
-If a run hangs → **Technical details** → **Copy**. Include the copied details in a fault report; they contain the run state but no secret credentials.
+If a run hangs → **Technical details** → **Copy**. The details contain run state but no secret credentials.

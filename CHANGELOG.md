@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1097 - 2026-11-08 [intern]
+
+### Changed
+
+- Vibe:Lab now separates connections, agents and workspaces. Agents retain their work data, while workspaces manage windows and layout only.
+- LLM windows use the active ARIA main chat by default, with the same history and memory.
+
+### Fixed
+
+- Existing project-bound `vp-` workspaces are migrated to independent `vw-` identifiers. Rename and deletion no longer leave layout or window records behind.
+- Empty agent windows on iPhone pull the composer up beneath the content instead of reserving a large blank area.
+
 ## 0.1.0-alpha1096 - 2026-11-08 [intern]
 
 ### Fixed

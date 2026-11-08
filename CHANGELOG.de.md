@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1097 - 2026-11-08 [intern]
+
+### Geändert
+
+- Vibe:Lab trennt Verbindungen, Agents und Workspaces. Agents behalten ihre Arbeitsdaten, während Workspaces ausschliesslich Fenster und Layout verwalten.
+- LLM-Fenster verwenden standardmässig den aktiven ARIA-Hauptchat mit demselben Verlauf und Memory.
+
+### Behoben
+
+- Bestehende projektgebundene `vp-`-Workspaces werden auf eigenständige `vw-`-IDs migriert. Umbenennen und Löschen hinterlassen keine Layout- oder Fensterreste.
+- Leere Agent-Fenster ziehen auf dem iPhone die Eingabe direkt unter den Inhalt, statt einen grossen Leerraum zu reservieren.
+
 ## 0.1.0-alpha1096 - 2026-11-08 [intern]
 
 ### Behoben
