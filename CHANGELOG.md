@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.1.0-alpha1096 - 2026-11-08 [intern]
+
+### Fixed
+
+- An empty Vibe:Lab agent pane on iPhone and desktop now shows a centred hint instead of a blank area.
+- The demo seeder now uses the independent workspace model and can prepare the website captures again.
+
+## 0.1.0-alpha1095 - 2026-11-07 [intern]
+
+### Fixed
+
+- The Vibe:Lab window menu on iPad now closes again from its menu button or by tapping outside it.
+- The edit link in an empty workspace now opens the project list instead of a project page that does not exist.
+- On iPhone, the first workspace control follows the page header without a wasted band, while run status and the composer remain separate and fully within the viewport.
+
+### Changed
+
+- Help and the feature overview now explain the workspace and project model, the three window types, and parallel projects in one workspace.
+
+## 0.1.0-alpha1094 - 2026-11-01 [intern]
+
+### Added
+
+- Vibe:Lab workspaces are independent, named entities with their own pane layout. Different projects can be assigned to several panes in the same workspace.
+
+### Changed
+
+- Projects now manage only the project folder, coding agent, autonomy and model defaults. On upgrade, existing project-bound layouts are migrated once into same-named workspaces.
+
+## 0.1.0-alpha1093 - 2026-10-31 [intern]
+
+### Fixed
+
+- Vibe:Lab now reconciles layout save conflicts with the current server state, adopts the fresh revision and shows one clear notice instead of raw or duplicated error text.
+- The variant switch now offers only valid layouts for each pane count: side by side or stacked for two panes, and focus or columns for three. It is hidden for one and four panes.
+- The unrelated edit link has been removed from the layout menu.
+
 ## 0.1.0-alpha1092 - 2026-10-31 [intern]
 
 ### Fixed

@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.1.0-alpha1096 - 2026-11-08 [intern]
+
+### Behoben
+
+- Ein leeres Agent-Fenster im Vibe:Lab zeigt auf dem iPhone und Desktop jetzt einen zentrierten Hinweis statt einer leeren Fläche.
+- Der Demo-Seeder verwendet das eigenständige Workspace-Modell und kann die Website-Aufnahmen wieder vorbereiten.
+
+## 0.1.0-alpha1095 - 2026-11-07 [intern]
+
+### Behoben
+
+- Das Fenstermenü im Vibe:Lab lässt sich auf dem iPad wieder über den Menüknopf oder ausserhalb des Menüs schliessen.
+- Der Bearbeiten-Link eines leeren Workspace öffnet die Projektliste statt einer nicht vorhandenen Projektseite.
+- Auf dem iPhone schliesst der erste Workspace-Inhalt ohne unnötiges Leerband an den Seitenkopf an; Laufstatus und Eingabe bleiben getrennt und vollständig im sichtbaren Bereich.
+
+### Geändert
+
+- Hilfe und Funktionsübersicht erklären das Workspace-/Projektmodell, die drei Fenstertypen und parallele Projekte im selben Workspace.
+
+## 0.1.0-alpha1094 - 2026-11-01 [intern]
+
+### Neu
+
+- Vibe:Lab-Arbeitsflächen sind eigenständige, benennbare Einheiten mit eigenem Fensterlayout. Projekte lassen sich unabhängig davon mehreren Fenstern derselben Arbeitsfläche zuordnen.
+
+### Geändert
+
+- Projekte verwalten nur noch Projektordner, Coding-Agent, Autonomie und Modellvorgaben. Beim Upgrade werden bestehende projektgebundene Layouts einmalig als gleichnamige Arbeitsflächen übernommen.
+
+## 0.1.0-alpha1093 - 2026-10-31 [intern]
+
+### Behoben
+
+- Vibe:Lab gleicht Layout-Speicherkonflikte mit dem aktuellen Serverstand ab, übernimmt die frische Revision und zeigt genau eine verständliche Meldung statt rohem oder doppeltem Fehlertext.
+- Der Varianten-Umschalter bietet pro Fensterzahl nur gültige Layouts an: Nebeneinander oder Übereinander bei zwei Fenstern sowie Fokus oder Spalten bei drei Fenstern. Bei einem und vier Fenstern wird kein Umschalter angezeigt.
+- Der nicht zum Layout gehörende Bearbeiten-Link wurde aus dem Layout-Menü entfernt.
+
 ## 0.1.0-alpha1092 - 2026-10-31 [intern]
 
 ### Behoben
