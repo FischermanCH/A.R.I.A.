@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-alpha1098 - 2026-11-09 [intern]
+
+### Behoben
+
+- Workspace erstellen, umbenennen und löschen schlug auf dem Telefon mit einer irreführenden Meldung «Method Not Allowed» fehl. Die Schaltflächen senden ihre Angaben jetzt als urlencodiertes Formular; bei einem Fehler erscheint keine rohe Fehlerseite mehr, sondern die Ansicht wird neu geladen.
+- Das leere Agent-Fenster auf dem iPhone füllt wieder die ganze Höhe; die Eingabe sitzt unten am Bildschirmrand statt mit einer grossen Leerfläche darunter.
+- Die Workspace-Aktionen (Neu, Umbenennen, Löschen) liegen auf dem Telefon in einem kompakten Menü, damit die Beschriftungen nicht mehr abgeschnitten werden.
+- Auf dem Telefon sass unter dem «Vibe:Lab»-Titel eine grosse leere Fläche, bevor die Workspace-Auswahl kam; diese Bande ist entfernt, die Auswahl sitzt jetzt direkt unter dem Titel.
+
 ## 0.1.0-alpha1097 - 2026-11-08 [intern]
 
 ### Geändert

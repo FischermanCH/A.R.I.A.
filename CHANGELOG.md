@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-alpha1098 - 2026-11-09 [intern]
+
+### Fixed
+
+- Creating, renaming and deleting a workspace failed on phones with a misleading «Method Not Allowed» message. The buttons now submit their data as a urlencoded form; on an error the view reloads instead of showing a raw error page.
+- The empty agent window on iPhone fills the full height again, with the composer anchored at the bottom of the screen instead of leaving a large empty band below it.
+- The workspace actions (New, Rename, Delete) now sit in a compact menu on phones so their labels are no longer clipped.
+- On phones a large empty band sat under the «Vibe:Lab» title before the workspace selector; that band is removed and the selector now sits directly under the title.
+
 ## 0.1.0-alpha1097 - 2026-11-08 [intern]
 
 ### Changed
