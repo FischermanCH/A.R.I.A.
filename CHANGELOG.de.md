@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-alpha1108 - 2026-11-11 [intern]
+
+### Geändert
+
+- Vibe:Lab auf dem Handy: Der Projektname erscheint nicht mehr ein zweites Mal direkt unter dem Workspace-Namen, wenn beide identisch sind (für Screenreader bleibt er erhalten). Der freistehende Chip «n archiviert» entfällt auf dem Handy, das Run-Archiv mit Anzahl bleibt im ⋯-Menü der Eingabezeile erreichbar. Auf dem Desktop ändert sich nichts.
+- Die Agent-Auswahl in Vibe:Lab zeigt «Name · Host» statt eines abgeschnittenen Langtexts.
+- Projekt-Seite: Der Chip am Standard-Agent heisst «Standard-Agent» (nicht mehr «Standard», das bei Modell und Denkaufwand etwas anderes bedeutet). Der Hinweis zum Entfernen ist auf eine kurze Zeile gekürzt, und die Wochen-Auslastung von Codex bricht nicht mehr mitten in «18 % der Woche» um.
+
+## 0.1.0-alpha1107 - 2026-11-11 [intern]
+
+### Geändert
+
+- Auf dem Handy nutzt die Projekt-Seite die Bildschirmbreite besser: Die verschachtelten Rahmen haben weniger Innenabstand, die Agent-Karten werden breiter (die Autonomie-Auswahl wird weniger abgeschnitten), Modell und Denkaufwand stehen nebeneinander und «Einstellungen speichern» geht über die volle Breite.
+- In Vibe:Lab auf dem Handy hat die Zeile «Coding-Agent» denselben seitlichen Abstand wie das Eingabefeld und klebt nicht mehr am Rand. Die sichtbare Beschriftung entfällt, für Screenreader bleibt sie erhalten.
+
 ## 0.1.0-alpha1106 - 2026-11-11 [intern]
 
 ### Neu

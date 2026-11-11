@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-alpha1108 - 2026-11-11 [intern]
+
+### Changed
+
+- Vibe:Lab on the phone: the project name no longer appears a second time directly below the workspace name when both are identical (it remains available to screen readers). The stand-alone «n archived» chip is dropped on the phone; the run archive, including its count, stays reachable from the ⋯ menu of the input row. Nothing changes on the desktop.
+- The agent selector in Vibe:Lab shows «name · host» instead of a truncated long label.
+- Project page: the chip on the default agent now reads «default agent» (no longer «default», which means something else for model and reasoning effort). The removal hint is shortened to a single line, and the weekly Codex usage no longer breaks in the middle of «18 % of the week».
+
+## 0.1.0-alpha1107 - 2026-11-11 [intern]
+
+### Changed
+
+- On the phone the project page uses the screen width better: the nested frames have less padding, the agent cards are wider (the autonomy selector is cut off less), model and reasoning effort sit side by side and «Save settings» spans the full width.
+- In Vibe:Lab on the phone the «Coding agent» row has the same side spacing as the input field and no longer sticks to the edge. The visible label is dropped; it remains available to screen readers.
+
 ## 0.1.0-alpha1106 - 2026-11-11 [intern]
 
 ### Added
