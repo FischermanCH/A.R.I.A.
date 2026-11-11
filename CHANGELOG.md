@@ -1,5 +1,93 @@
 # Changelog
 
+## 0.1.0-alpha1106 - 2026-11-11 [intern]
+
+### Added
+
+- Chat answers now render Markdown headings (`#` to `######`) as real headings instead of text with hash signs. Bare web addresses (`https://…`) are clickable, and numbered lists interrupted by paragraphs keep their numbers (2., 3. …) instead of restarting at 1. each time.
+
+### Changed
+
+- On the project page every attached coding agent is now its own framed card: the agent name is bold, next to it the type, a «Default» marker and the status («ready», «not ready», «not checked»). An agent that is not found on the host or not logged in shows a hint. «Remove» sits inside the card of the respective agent; the default agent shows a note to choose another default first instead. Autonomy, model and reasoning effort are in the same card.
+- «Add coding agent» now only offers types that are not attached yet. When Codex and Claude Code are both attached, a note appears instead.
+
+### Fixed
+
+- On narrow screens (phone) the «Attached coding agents» section ran past the right edge. It now fits the width.
+
+## 0.1.0-alpha1105 - 2026-11-11 [intern]
+
+### Fixed
+
+- The finished answer of a background job stayed empty or shortened in the chat whenever the chat was reloaded (for example after switching to another page): only «Background task finished:» with the «View job →» link appeared. On reload the notice was rebuilt from its first paragraph and everything after it was discarded. The full answer now appears directly in the chat, including after a reload. Older notices keep all their paragraphs as well.
+- An agent attached to a project without a model of its own inherited the project's model, so Claude could for example receive a Codex model identifier. It now uses its own default model.
+
+### Changed
+
+- Project settings now show the project's SSH connection instead of a «Coding-Agent connection» block. Below it you pick the default agent from the attached agents.
+- Coding agents can be added directly in the project (type Codex or Claude Code, program path optional). ARIA creates the agent on the project's host, checks it once and attaches it; a separate connection page is no longer needed for this.
+- Texts on the project page consistently say «project» and «add».
+
+## 0.1.0-alpha1104 - 2026-11-11 [intern]
+
+### Fixed
+
+- A question asked in the chat that is answered as a background job now reliably shows its full answer directly in the chat window. In alpha1103 some cases still showed only the shortened «View job →» notice because the detection was too narrow.
+
+### Changed
+
+- On the project edit page the fields and buttons now consistently say «Project» instead of «Agent» (for example «Save project», «Type the project name to confirm»), and obsolete «stage 2» hints have been removed.
+
+## 0.1.0-alpha1103 - 2026-11-10 [intern]
+
+### Changed
+
+- A connection now owns its SSH connection: every coding agent attached to a connection runs over the same host. The runtime uses the connection's SSH, and the attach list only offers agents on that same host; a foreign host is refused.
+- The «Connections & Agents» area is now called «Projects», and its edit page «Project settings».
+- Autonomy, model and reasoning effort are now set only per agent in the «Attached coding agents» section; the duplicated project-wide fields in the form have been removed.
+
+## 0.1.0-alpha1102 - 2026-11-10 [intern]
+
+### Added
+
+- Each coding agent attached to a connection now has its own settings for autonomy, model and reasoning effort. For example, Claude can be given more rights than Codex on the same connection, and vice versa. The hard safety floor and confirmation still always apply.
+
+### Changed
+
+- On a connection's edit page the «Attached coding agents» section now sits at the top, next to the agent selector; that is where you attach agents and set each agent's rights. The link next to the selector now clearly reads «Create a new Coding-Agent connection» (it creates a connection and assigns nothing).
+
+### Fixed
+
+- A question asked in the chat that is answered as a background job now shows its full answer directly in the chat window. Previously only a shortened summary with «View job →» appeared there, and the actual answer lived only in the job window. The link to the job is kept for the step details. Coding-agent jobs in Vibe:Lab keep their compact summary.
+
+## 0.1.0-alpha1101 - 2026-11-09 [intern]
+
+### Fixed
+
+- On iPhone the header of an agent window was overcrowded: the name, type line and context indicator were squeezed into one row and truncated (for example «Mundus P…»). The window name is now fully readable, the redundant type line is dropped on phones, and the context indicator stays in a compact form. The close button (×) was also too large and its border overlapped the header divider lines; it is now as compact as the ⋯ menu and stays cleanly within the row. The ⋯ menu next to the workspace selector was also taller than the select field and crossed the divider into the pane frame below; it is now bounded to the same height and stays above the line.
+- The edit page of a Vibe:Lab agent (Connections & Agents -> Edit) opened as a completely blank page with no header. The cause was an internal lookup that mistakenly treated the project identifier as a workspace identifier and raised an error for every agent. The page renders fully again.
+- Unexpected errors on Vibe:Lab pages are now always logged (some used to be silent), so such cases can no longer go unnoticed.
+
+## 0.1.0-alpha1100 - 2026-11-09 [intern]
+
+### Fixed
+
+- The open Vibe:Lab workspace now shows the same navigation bar at the top as the other Vibe:Lab pages (Vibe:Lab · Connections & Agents · Coding-agent connections). Previously it appeared only in the empty state, so from an open workspace the management pages were reachable only through the main «Connections» menu.
+
+## 0.1.0-alpha1099 - 2026-11-09 [intern]
+
+### Added
+
+- A connection (project folder and host) is now defined once; any number of coding agents can be attached to it (for example Codex and Claude Code). Previously each agent needed its own duplicated project pointing at the same folder.
+- Each agent window chooses which attached agent it uses; LLM chat and terminal panes still need only the connection.
+- Existing duplicate projects that share a folder and host are merged into a single connection on upgrade. Running and archived runs are preserved and keep their agent; the earlier name is kept and can be renamed afterwards.
+
+### Fixed
+
+- On iPad and phone an unbound window now offers a direct agent picker: the «Choose agent» control appears in the window itself, no longer only in the ⋯ menu.
+- On phones the workspace menu and the window buttons (⋯, ×) have enough spacing again and no longer touch.
+- Closing a window no longer leaves an empty window; one window always stays active.
+
 ## 0.1.0-alpha1098 - 2026-11-09 [intern]
 
 ### Fixed

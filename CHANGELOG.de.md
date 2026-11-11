@@ -1,5 +1,93 @@
 # Changelog
 
+## 0.1.0-alpha1106 - 2026-11-11 [intern]
+
+### Neu
+
+- Chat-Antworten stellen Markdown-Überschriften (`#` bis `######`) jetzt als echte Überschriften dar statt als Text mit Rauten. Blanke Web-Adressen (`https://…`) sind klickbar, und nummerierte Listen, die durch Absätze unterbrochen sind, behalten ihre Nummern (2., 3. …) statt jedes Mal bei 1. zu beginnen.
+
+### Geändert
+
+- Auf der Projekt-Seite ist jeder angehängte Coding-Agent jetzt eine eigene Karte mit Rahmen: Der Agent-Name steht fett, daneben Typ, «Standard»-Marke und Status («bereit», «nicht bereit», «nicht geprüft»). Ein Agent, der auf dem Host nicht gefunden wird oder nicht angemeldet ist, zeigt einen Hinweis. «Entfernen» sitzt in der Karte des jeweiligen Agents; beim Standard-Agent steht stattdessen der Hinweis, zuerst einen anderen Standard zu wählen. Autonomie, Modell und Denkaufwand stehen in derselben Karte.
+- «Coding-Agent hinzufügen» bietet nur noch Typen an, die noch nicht angehängt sind. Sind Codex und Claude Code beide angehängt, erscheint stattdessen ein Hinweis.
+
+### Behoben
+
+- Auf schmalen Bildschirmen (Handy) lief der Abschnitt «Angehängte Coding-Agents» rechts über den Rand hinaus. Er passt sich jetzt der Breite an.
+
+## 0.1.0-alpha1105 - 2026-11-11 [intern]
+
+### Behoben
+
+- Die fertige Antwort eines Hintergrund-Auftrags blieb im Chat leer oder gekürzt, sobald man den Chat neu lud (zum Beispiel nach einem Wechsel auf eine andere Seite): Es erschien nur «Hintergrund-Auftrag fertig:» mit dem Link «Job ansehen →». Beim Neuladen wurde die Meldung aus dem ersten Absatz neu aufgebaut und alles danach verworfen. Jetzt steht die vollständige Antwort, auch nach dem Neuladen, direkt im Chat. Ältere Meldungen behalten ebenfalls alle Absätze.
+- Ein an ein Projekt angehängter Agent ohne eigenes Modell erbte das Modell des Projekts, sodass etwa Claude eine Codex-Modellkennung erhalten konnte. Er nutzt jetzt sein eigenes Standardmodell.
+
+### Geändert
+
+- Die Projekt-Einstellungen zeigen jetzt die SSH-Verbindung des Projekts statt eines «Coding-Agent-Verbindung»-Blocks. Darunter wählst du den Standard-Agent aus den angehängten Agents.
+- Coding-Agents lassen sich direkt im Projekt hinzufügen (Typ Codex oder Claude Code, Programmpfad optional). ARIA legt den Agent auf dem Host des Projekts an, prüft ihn einmal und hängt ihn an; eine separate Verbindungsseite ist dafür nicht mehr nötig.
+- Texte auf der Projekt-Seite sprechen durchgängig von «Projekt» und «hinzufügen».
+
+## 0.1.0-alpha1104 - 2026-11-11 [intern]
+
+### Behoben
+
+- Eine im Chat gestellte Frage, die als Hintergrund-Auftrag beantwortet wird, zeigt die vollständige Antwort jetzt zuverlässig direkt im Chatfenster. In alpha1103 blieb in manchen Fällen nur die gekürzte Meldung mit «Job ansehen →» stehen, weil die Erkennung zu eng gefasst war.
+
+### Geändert
+
+- Auf der Projekt-Bearbeiten-Seite heissen Felder und Schaltflächen jetzt durchgängig «Projekt» statt «Agent» (zum Beispiel «Projekt speichern», «Projektname zur Bestätigung eingeben»), und veraltete «Stufe 2»-Hinweise sind entfernt.
+
+## 0.1.0-alpha1103 - 2026-11-10 [intern]
+
+### Geändert
+
+- Eine Verbindung besitzt jetzt ihre SSH-Verbindung selbst: Alle an eine Verbindung angehängten Coding-Agents laufen über denselben Host. Die Laufzeit nutzt die SSH der Verbindung, und beim Anhängen werden nur noch Agents desselben Hosts angeboten; ein fremder Host wird abgelehnt.
+- Der Bereich «Verbindungen & Agents» heisst jetzt «Projekte», die Bearbeiten-Seite «Projekt-Einstellungen».
+- Autonomie, Modell und Denkaufwand werden nur noch pro Agent im Abschnitt «Angehängte Coding-Agents» gesetzt; die doppelten projektweiten Felder im Formular sind entfallen.
+
+## 0.1.0-alpha1102 - 2026-11-10 [intern]
+
+### Neu
+
+- Jeder an eine Verbindung angehängte Coding-Agent hat jetzt eigene Einstellungen für Autonomie, Modell und Denkaufwand. So kann zum Beispiel Claude auf derselben Verbindung mehr Rechte erhalten als Codex und umgekehrt. Die harte Sicherheitsuntergrenze und die Bestätigung gelten weiterhin immer.
+
+### Geändert
+
+- Auf der Bearbeiten-Seite einer Verbindung steht der Abschnitt «Angehängte Coding-Agents» jetzt zuoberst, direkt bei der Agent-Auswahl; dort hängst du Agents an und vergibst pro Agent die Rechte. Der Link neben der Auswahl heisst jetzt klar «Neue Coding-Agent-Verbindung anlegen» (er legt eine Verbindung an und weist nichts zu).
+
+### Behoben
+
+- Eine im Chat gestellte Frage, die als Hintergrund-Auftrag beantwortet wird, zeigt die vollständige Antwort jetzt direkt im Chatfenster. Bisher stand dort nur eine gekürzte Zusammenfassung mit «Job ansehen →», und die eigentliche Antwort lag nur im Job-Fenster. Der Link zum Job bleibt für die Schritt-Details erhalten. Coding-Agent-Aufträge in Vibe:Lab behalten ihre kompakte Zusammenfassung.
+
+## 0.1.0-alpha1101 - 2026-11-09 [intern]
+
+### Behoben
+
+- Auf dem iPhone war die Kopfzeile eines Agenten-Fensters überladen: Name, Typ-Zeile und Kontext-Anzeige drängten sich in eine Zeile und wurden abgeschnitten (zum Beispiel «Mundus P…»). Der Fenstername ist jetzt voll lesbar, die redundante Typ-Zeile entfällt auf dem Telefon, und die Kontext-Anzeige bleibt kompakt erhalten. Ausserdem war der Schliessen-Knopf (×) zu gross und sein Rahmen überschnitt die Trennlinien der Kopfzeile; er ist jetzt gleich kompakt wie das ⋯-Menü und bleibt sauber in der Zeile. Auch das ⋯-Menü neben der Arbeitsbereich-Auswahl war höher als das Auswahlfeld und ragte über die Trennlinie in den Kachelrahmen darunter; es ist jetzt gleich hoch gefasst und bleibt oberhalb der Linie.
+- Die Bearbeiten-Seite eines Vibe:Lab-Agenten (Verbindungen & Agents -> Bearbeiten) öffnete sich als komplett leere Seite ohne Kopfzeile. Ursache war ein interner Zugriff, der die Projekt-Kennung fälschlich als Arbeitsbereichs-Kennung behandelte und so bei jedem Agenten einen Fehler auslöste. Die Seite wird wieder vollständig angezeigt.
+- Unerwartete Fehler auf Vibe:Lab-Seiten werden jetzt immer protokolliert (vorher blieben manche stumm), damit solche Fälle nicht mehr unbemerkt bleiben.
+
+## 0.1.0-alpha1100 - 2026-11-09 [intern]
+
+### Behoben
+
+- In der geöffneten Vibe:Lab-Arbeitsfläche erscheint jetzt oben dieselbe Navigationsleiste wie auf den übrigen Vibe:Lab-Seiten (Vibe:Lab · Verbindungen & Agents · Coding-Agent-Verbindungen). Bisher war sie nur im leeren Zustand sichtbar, sodass die Verwaltungsseiten aus einer offenen Arbeitsfläche nur über das Hauptmenü «Verbindungen» erreichbar waren.
+
+## 0.1.0-alpha1099 - 2026-11-09 [intern]
+
+### Neu
+
+- Eine Verbindung (Projektordner und Host) wird jetzt einmal definiert; an sie lassen sich beliebig viele Coding-Agents anhängen (zum Beispiel Codex und Claude Code). Bisher brauchte jeder Agent ein eigenes, dupliziertes Projekt mit demselben Ordner.
+- Jedes Agenten-Fenster wählt, welchen angehängten Agent es nutzt; LLM-Chat und Terminal brauchen weiterhin nur die Verbindung.
+- Bestehende doppelte Projekte mit gleichem Ordner und Host werden beim Update automatisch zu einer Verbindung zusammengeführt. Laufende und archivierte Durchläufe bleiben erhalten und behalten ihren Agent; der frühere Name bleibt bestehen und kann danach umbenannt werden.
+
+### Behoben
+
+- Auf iPad und Telefon lässt sich im noch nicht zugewiesenen Fenster jetzt direkt ein Agent wählen: Das Feld «Agent wählen» erscheint im Fenster selbst, nicht mehr nur im ⋯-Menü.
+- Auf dem Telefon haben die Rahmen von Workspace-Menü und Fenster-Knöpfen (⋯, ×) wieder genug Abstand und berühren sich nicht mehr.
+- Ein Fenster zu schliessen hinterlässt kein leeres Fenster mehr; es bleibt immer ein Fenster aktiv.
+
 ## 0.1.0-alpha1098 - 2026-11-09 [intern]
 
 ### Behoben
@@ -2172,12 +2260,12 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ### alpha681 — Fixed
 
-- **Public-vs-local Current-Fact-Kollisionen fragen jetzt zwingend zurueck, bevor eine lokale Connection-Action geplant wird.** Wenn eine aktuelle oeffentliche Faktfrage wie `welche Version ist aktuell bei Home Assistant` durch eine passende lokal konfigurierte Connection faelschlich als Runtime-Action gebunden wird, ersetzt die MetaCatalog-Recovery den Turn vor Web/Runtime durch `ask_clarification`: oeffentliche aktuelle Version/Information oder lokale Instanz/Quelle auf dem gebundenen Ziel. Der Fix ist generisch auf `ConnectionActionContract` gebaut, nicht SSH- oder Home-Assistant-spezifisch, und schuetzt damit auch HTTP-API/weitere modulare Connection-Actions. Explizite lokale Ziel-/Instanzfragen wie `welche Version laeuft auf ubnsrv-homeassistant` bleiben Runtime-faehig. Covered by `tests/test_agentic_context_runtime.py::test_current_fact_connection_action_without_explicit_local_authority_requires_clarification`, `...::test_current_fact_connection_clarification_is_generic_for_non_ssh_actions`, `...::test_current_fact_named_connection_ref_does_not_require_connection_clarification`, and `...::test_current_fact_connection_clarification_arbitration_asks_public_or_local`.
+- **Public-vs-local Current-Fact-Kollisionen fragen jetzt zwingend zurueck, bevor eine lokale Connection-Action geplant wird.** Wenn eine aktuelle oeffentliche Faktfrage wie `welche Version ist aktuell bei Home Assistant` durch eine passende lokal konfigurierte Connection fälschlich als Runtime-Action gebunden wird, ersetzt die MetaCatalog-Recovery den Turn vor Web/Runtime durch `ask_clarification`: oeffentliche aktuelle Version/Information oder lokale Instanz/Quelle auf dem gebundenen Ziel. Der Fix ist generisch auf `ConnectionActionContract` gebaut, nicht SSH- oder Home-Assistant-spezifisch, und schuetzt damit auch HTTP-API/weitere modulare Connection-Actions. Explizite lokale Ziel-/Instanzfragen wie `welche Version laeuft auf ubnsrv-homeassistant` bleiben Runtime-faehig. Covered by `tests/test_agentic_context_runtime.py::test_current_fact_connection_action_without_explicit_local_authority_requires_clarification`, `...::test_current_fact_connection_clarification_is_generic_for_non_ssh_actions`, `...::test_current_fact_named_connection_ref_does_not_require_connection_clarification`, and `...::test_current_fact_connection_clarification_arbitration_asks_public_or_local`.
 - **Arbeitsvertrag nachgezogen:** `docs/ai-context/07-agentic-routing-acceptance-contract.md` verlangt nun explizit "Problemklasse vor Fix-Ort", damit sichtbare Einzelfaelle wie `SSH/Home Assistant` nicht mehr zu engen Sonderfall-Patches fuehren.
 
 ### alpha680 — Fixed
 
-- **Aktuelle externe Faktfragen werden nach falschem MetaCatalog-Connections-Routing auf Web-Recovery gezogen.** Wenn Prompts wie `welches ist die neuste apple watch ultra`, `was ist das neueste iPhone` oder `welche Version ist aktuell bei Home Assistant` vom MetaCatalog faelschlich als lokale `connections:search`/semantische RSS-Action geplant werden, gewinnt nun der bestehende source-bound Web-Fallback statt einer leeren lokalen Quellenantwort oder eines unklaren Action-Preflights. Explizit genannte Feed-Leseauftraege wie `lies mac-i-neueste-meldungen ...` bleiben ausgenommen. Covered by `tests/test_agentic_context_runtime.py::test_current_product_question_misrouted_to_empty_connections_requires_web_recovery`, `tests/test_agentic_context_runtime.py::test_current_product_question_misrouted_to_semantic_rss_action_requires_web_recovery`, and `tests/test_agentic_context_runtime.py::test_explicit_named_rss_read_does_not_require_web_recovery`.
+- **Aktuelle externe Faktfragen werden nach falschem MetaCatalog-Connections-Routing auf Web-Recovery gezogen.** Wenn Prompts wie `welches ist die neuste apple watch ultra`, `was ist das neueste iPhone` oder `welche Version ist aktuell bei Home Assistant` vom MetaCatalog fälschlich als lokale `connections:search`/semantische RSS-Action geplant werden, gewinnt nun der bestehende source-bound Web-Fallback statt einer leeren lokalen Quellenantwort oder eines unklaren Action-Preflights. Explizit genannte Feed-Leseauftraege wie `lies mac-i-neueste-meldungen ...` bleiben ausgenommen. Covered by `tests/test_agentic_context_runtime.py::test_current_product_question_misrouted_to_empty_connections_requires_web_recovery`, `tests/test_agentic_context_runtime.py::test_current_product_question_misrouted_to_semantic_rss_action_requires_web_recovery`, and `tests/test_agentic_context_runtime.py::test_explicit_named_rss_read_does_not_require_web_recovery`.
 - **Contract-Preflight bestaetigt keine unsichtbare Aktion mehr.** Bei routed Pending-Actions mit `turn_contract_action_preflight` zeigt der Confirmation-Text jetzt eine konkrete Payload-Zusammenfassung aus Capability, Ziel und Inhalt, z.B. `RSS lesen: rss/mac-i-neueste-meldungen; Home Assistant Version`, statt die widerspruechliche Dry-Run-Summary `ARIA wuerde diese Aktion ohne weitere Rueckfrage freigeben.` zu uebernehmen. Covered by `tests/test_agentic_context_runtime.py::test_routed_confirmation_with_contract_preflight_shows_concrete_read_action`.
 
 ### alpha679 — Fixed
@@ -4182,7 +4270,7 @@ Public roll-up release covering the already internally tested `alpha111` to `alp
 ### Fixed
 - Chat-Antworten koennen jetzt auch sichere interne Markdown-Links wie `/updates` oder `/config/backup/export` rendern; dadurch funktionieren neue Chat-Hilfen fuer Backup, Update, Stats und Aktivitäten als echte klickbare Aktionen statt nur als Text
 - auf `/config` und `/config/connections/searxng` zeigt ARIA jetzt klar, wenn der SearXNG-Stackdienst fehlt oder nur mit Warnstatus antwortet, statt die Websearch-Connection kommentarlos wie einen normal verfuegbaren Dienst wirken zu lassen
-- ein `HTTP 403` vom internen SearXNG-Stack wird nicht mehr faelschlich als "Stackdienst nicht erreichbar" dargestellt; ARIA markiert den Dienst jetzt als erreichbar mit Warnstatus und erklaert, dass meist `format=json` oder eine Limiter-/Zugriffsregel die JSON-Probe blockiert
+- ein `HTTP 403` vom internen SearXNG-Stack wird nicht mehr fälschlich als "Stackdienst nicht erreichbar" dargestellt; ARIA markiert den Dienst jetzt als erreichbar mit Warnstatus und erklaert, dass meist `format=json` oder eine Limiter-/Zugriffsregel die JSON-Probe blockiert
 - der interne GUI-Update-Pfad fuer `aria-pull`-Setups prueft nach dem Recreate jetzt auch ohne `curl` zuverlaessig per Container-Python auf `/health`, statt den Lauf nur mit einem uebersprungenen Host-Healthcheck enden zu lassen
 - die lokalen Update-Helfer (`update-local-aria.sh`, `pull-from-dev.sh`, `aria-host-update.sh`, `export-local-build.sh`) verwenden jetzt portable TAR-Auswahl-Logik statt GNU-awk-spezifischer `match(..., ..., array)`-Muster; dadurch bricht der GUI-Update-Flow in schlankeren Runtime-Umgebungen nicht mehr mit `awk`-Syntaxfehlern ab
 - der `/updates`-Button kann den Update-Helper jetzt auch per AJAX anstossen und faellt fuer Admins bei kurzen Container-Restarts nicht mehr so leicht auf eine leere Browser-Fehlerseite zurueck
