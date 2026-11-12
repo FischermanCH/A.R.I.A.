@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.0-alpha1110 - 2026-11-12 [intern]
+
+### Geändert
+
+- Die Schrift ist insgesamt etwa 1,5 pt kleiner: Fliesstext und Überschriften schrumpfen, ganz kleine Beschriftungen (Chips, Hinweise) bleiben lesbar gross. Nur die Schrift ändert sich – Abstände, Breiten und Tippflächen bleiben gleich gross, und Eingabefelder auf dem Handy behalten 16 px, damit iOS nicht hineinzoomt.
+- Einstellungsseiten: Der Haupteintrag einer Gruppe (z. B. «Persönlichkeit & Stil» auf der Seite «Persönlichkeit») erscheint nicht mehr als Link auf die Seite selbst; von den anderen Seiten der Gruppe bleibt er erreichbar. Eine leere Kopf-Liste wird nicht mehr als leere Karte angezeigt.
+- Vibe:Lab auf dem Handy: Die Agent-Auswahl zeigt nur noch den Namen (alle Agents eines Projekts laufen auf demselben Host, der bisherige Zusatz wurde auf dem Handy abgeschnitten). Der Platzhalter im Eingabefeld ist kürzer («Aufgabe für den Agenten») und wird nicht mehr in der zweiten Zeile abgeschnitten.
+- Coding-Agent-Verbindungen: Die Schaltfläche «Als Vibe:Lab-Agent verwenden» auf jeder Agent-Karte ist jetzt eine Umriss-Schaltfläche (eine Karte, die sich wiederholt, trägt keine Hauptaktion mehr).
+- Projektliste: Zwischen «Arbeitskopien aufräumen» und «Bearbeiten» steht ein Abstand.
+
+### Behoben
+
+- Die Seite «Persönlichkeit» zeigte «Prompt Studio» doppelt (zwei überlappende Listen). Jeder Eintrag erscheint jetzt genau einmal; «Aussehen» und «Sprache» bleiben auch ohne Admin-Modus erreichbar.
+- Vibe:Lab-Archiv: Schlägt «Endgültig löschen» fehl (zum Beispiel weil der Host nicht erreichbar ist), zeigt der Dialog jetzt den Grund an und der Button wird wieder bedienbar. Bisher blieb er ohne jede Meldung gesperrt.
+
+## 0.1.0-alpha1109 - 2026-11-11 [intern]
+
+### Geändert
+
+- Release-Kandidat für die nächste öffentliche Version. In der Vibe:Lab-Verwaltung sind «Bearbeiten» (Projektliste) und «Agent anlegen» (leere Ansicht) jetzt echte Schaltflächen statt unformatierter Links.
+- Neue Entwürfe für die Veröffentlichung unter `docs/release/` (Release-Notes, Upgrade-Hinweis, Runbook mit Staging-Prüfliste und Public-Gates). Nichts davon veröffentlicht oder tagt.
+
 ## 0.1.0-alpha1108 - 2026-11-11 [intern]
 
 ### Geändert

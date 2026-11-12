@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.0-alpha1110 - 2026-11-12 [intern]
+
+### Changed
+
+- The typeface is about 1.5 pt smaller overall: body text and headings shrink, while the very smallest labels (chips, hints) stay comfortably legible. Only the text changes – spacing, widths and tap targets keep their size, and phone input fields keep 16 px so iOS does not zoom in.
+- Settings pages: a group's main entry (for example «Personality & style» on the «Personality» page) no longer links back to the page itself; it stays reachable from the other pages of the group. An empty header list is no longer shown as an empty card.
+- Vibe:Lab on the phone: the agent selector shows only the name (all agents of a project run on the same host, and the former suffix was cut off on phones). The input placeholder is shorter («Task for the agent») and is no longer clipped on its second line.
+- Coding-agent connections: the «Use as a Vibe:Lab agent» button on each agent card is now an outline button (a repeated card no longer carries a primary action).
+- Project list: there is now spacing between the working-copy cleanup and the «Edit» button.
+
+### Fixed
+
+- The «Personality» page listed «Prompt Studio» twice (two overlapping lists). Every entry now appears exactly once; «Appearance» and «Language» remain reachable without admin mode.
+- Vibe:Lab archive: if «Delete permanently» fails (for example because the host is unreachable), the dialog now shows the reason and the button becomes usable again. Previously it stayed disabled without any message.
+
+## 0.1.0-alpha1109 - 2026-11-11 [intern]
+
+### Changed
+
+- Release candidate for the next public version. In the Vibe:Lab management pages «Edit» (project list) and «Add agent» (empty view) are now real buttons instead of unstyled links.
+- New drafts for publication under `docs/release/` (release notes, upgrade note, runbook with staging checklist and public gates). Nothing is published or tagged.
+
 ## 0.1.0-alpha1108 - 2026-11-11 [intern]
 
 ### Changed
