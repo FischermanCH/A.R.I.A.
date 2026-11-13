@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1114 - 2026-11-13 [intern]
+
+### Behoben
+
+- Vibe:Lab: Nach `/clear`, `/cls` oder «Ältere archivieren» lädt die Seite jetzt von selbst neu. Der Zähler «n archiviert» und das Lauf-Archiv stimmen sofort, bisher zeigte erst ein manuelles Neuladen das neue Archiv. «Rückgängig» bleibt nach dem Neuladen erhalten.
+- Vibe:Lab auf dem iPhone: «In Arbeitsordner übernehmen» scrollt nach dem ersten Tipp zur Vorschau. Die Beschreibung und der zweite Knopf stehen jetzt direkt oben und nicht mehr unter dem langen Diff, und eine Fehlermeldung der Vorschau wird ebenfalls ins Bild gescrollt. Während die Vorschau lädt, steht am grauen Knopf «Vorschau wird geladen …», statt dass er einfach nur grau wird.
+
 ## 0.1.0-alpha1113 - 2026-11-13 [intern]
 
 ### Neu

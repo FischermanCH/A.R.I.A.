@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1114 - 2026-11-13 [intern]
+
+### Fixed
+
+- Vibe:Lab: after `/clear`, `/cls` or «Archive older» the page now reloads by itself. The «n archived» counter and the run archive are correct straight away; previously only a manual reload showed the new archive. «Undo» survives the reload.
+- Vibe:Lab on iPhone: «Apply to working folder» scrolls to the preview after the first tap. The description and the second button now sit directly at the top instead of below the long diff, and an error from the preview is scrolled into view as well. While the preview loads, the greyed-out button now reads «Loading preview …» instead of just turning grey.
+
 ## 0.1.0-alpha1113 - 2026-11-13 [intern]
 
 ### Added
