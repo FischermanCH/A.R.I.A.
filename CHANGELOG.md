@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha1112 - 2026-11-13 [intern]
+
+### Fixed
+
+- Vibe:Lab: when Claude wrote several pieces of text between tool calls, they ran together in the answer without a gap («…as requested.Only …»). Each new piece of text now starts as its own paragraph.
+- Chat and Vibe:Lab: bold text wrapped around a command or other code showed the asterisks literally. Bold may now wrap code; asterisks inside code stay unchanged.
+- Vibe:Lab: the «n steps» line counted approval cards although the list does not show them («6 steps · 3 commands»). Only the rows actually shown are counted now.
+
 ## 0.1.0-alpha1111 - 2026-11-13 [intern]
 
 ### Changed

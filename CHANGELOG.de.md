@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha1112 - 2026-11-13 [intern]
+
+### Behoben
+
+- Vibe:Lab: Schrieb Claude zwischen mehreren Werkzeugaufrufen mehrere Textstücke, liefen sie in der Antwort ohne Lücke zusammen («…wie gewünscht.Nur …»). Jedes neue Textstück beginnt jetzt als eigener Absatz.
+- Chat und Vibe:Lab: Fettschrift um einen Befehl oder anderen Code zeigte die Sternchen wörtlich an. Fett darf jetzt Code einschliessen; Sternchen innerhalb von Code bleiben unverändert.
+- Vibe:Lab: Die Zeile «n Schritte» zählte Freigabe-Karten mit, obwohl die Liste sie nicht zeigt («6 Schritte · 3 Befehle»). Gezählt werden nur noch die angezeigten Zeilen.
+
 ## 0.1.0-alpha1111 - 2026-11-13 [intern]
 
 ### Geändert
