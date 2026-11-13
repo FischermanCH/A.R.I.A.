@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1111 - 2026-11-13 [intern]
+
+### Changed
+
+- Vibe:Lab diagnostics: the «Technical details» of a Claude run now show the type, subtype and error flag of the last protocol frames and why the connection ended. These rows were previously empty.
+
+### Fixed
+
+- Vibe:Lab: if the connection to a coding agent dropped while an approval request was open, the run ended without any message. The request stayed on screen as a card although it could never be delivered, and an answer the agent had already written was lost. The run now ends visibly as an error with a clear text, and open approval requests are closed.
+- Vibe:Lab: for a failed run the agent's own explanation is shown (for example Claude's error message). It was previously stored but never displayed.
+- Vibe:Lab: the «n steps» line showed two arrows instead of one.
+- Vibe:Lab: the context chip of Claude windows always read «0 %» although Claude reports no context size. It now shows «–» until real values exist.
+
 ## 0.1.0-alpha1110 - 2026-11-12 [intern]
 
 ### Changed

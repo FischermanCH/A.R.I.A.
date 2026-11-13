@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha1111 - 2026-11-13 [intern]
+
+### Geändert
+
+- Vibe:Lab-Diagnose: Die «Technischen Details» eines Claude-Laufs zeigen Typ, Untertyp und Fehlerflag der letzten Protokoll-Frames sowie den Grund, warum die Verbindung endete. Bisher waren diese Zeilen leer.
+
+### Behoben
+
+- Vibe:Lab: Brach die Verbindung zu einem Coding-Agenten bei einer offenen Rückfrage weg, endete der Lauf ohne Meldung. Die Rückfrage blieb als Karte stehen, obwohl sie nie mehr zugestellt werden konnte, und eine bereits geschriebene Antwort des Agenten ging verloren. Der Lauf endet jetzt sichtbar als Fehler mit einem klaren Text, und offene Rückfragen werden geschlossen.
+- Vibe:Lab: Bei einem fehlgeschlagenen Lauf wird die Begründung des Agenten angezeigt (zum Beispiel Claudes eigene Fehlermeldung). Sie wurde bisher gespeichert, aber nie dargestellt.
+- Vibe:Lab: Die Zeile «n Schritte» zeigte zwei Pfeile statt einem.
+- Vibe:Lab: Die Kontextanzeige stand bei Claude-Fenstern immer auf «0 %», obwohl Claude keine Kontextgrösse meldet. Sie zeigt jetzt «–», solange keine echten Werte vorliegen.
+
 ## 0.1.0-alpha1110 - 2026-11-12 [intern]
 
 ### Geändert
