@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.0-alpha1113 - 2026-11-13 [intern]
+
+### Neu
+
+- Vibe:Lab: Man sieht jetzt zuverlässig, ob ein Coding-Agent noch arbeitet. Im Kopf jedes Agenten-Fensters zeigt ein Status-Chip «Arbeitet · liest `src/main.ts` · seit 1:38 · letzte Ausgabe vor 3 s», «Wartet auf dich», «Keine Ausgabe seit …» (ein langer Befehl oder eine Denkpause ist möglich) oder «Keine Verbindung seit …», wenn ARIA keine Lebenszeichen mehr vom Agenten erhält. Auf dem Handy bleiben Punkt und Zeit.
+- Das ARIA-Logo oben links folgt demselben Zustand auf jeder Seite: grün pulsierend, solange ein Agent arbeitet, amber, wenn einer auf deine Freigabe wartet, gestrichelt bei Ruhe oder Verbindungsverlust. Der Browser-Tab-Titel zeigt den Zustand ebenfalls («● Projekt arbeitet», «◐ Freigabe nötig»), auch in einem Hintergrund-Tab.
+- Die Freigabe-Karte zeigt jetzt, was sich ändert: die entfernten und neuen Zeilen einer Änderung, den Text einer neuen Datei oder den vollen Befehl ohne den langen Arbeitskopie-Pfad. Dazu sagt sie in einem Satz, warum ARIA fragt (zum Beispiel «Dateiänderungen brauchen bei Stufe L1 deine Freigabe») und wo man die Stufe einstellt.
+- Werkzeugschritte erscheinen lesbar: «Liest `src/main.ts`», «Sucht `validate`» oder der Befehl ohne Arbeitskopie-Pfad. Während des Denkens zeigt der Status-Chip «denkt nach». Gedankentext liefert Claude im Stream nicht mit, deshalb gibt es nur diesen Hinweis.
+
+### Geändert
+
+- Die Anzeige stammt allein vom Zustand auf dem Server und nicht mehr von den Anfragen des gerade offenen Tabs. Sie stimmt deshalb auch nach einem Neuladen, auf einem zweiten Gerät und während einer offenen Freigabe. Bewegung wird bei «Bewegung reduzieren» abgeschaltet.
+- Die Kopfzeile eines Agenten-Fensters zeigt die Stufe des Agenten und nicht mehr den Standardwert der Verbindung. Ein Folgeauftrag nutzt die Stufe, auf die der Agent jetzt gestellt ist; bisher behielt ein laufender Lauf die Stufe vom Start (ein auf L3 gestellter Agent fragte weiter).
+- Auf dem Handy ist die Schrift in Vibe:Lab-Fenstern eine Stufe kleiner (Eingabefelder bleiben bei 16 px).
+- Text, den der Agent schreibt, erscheint, sobald der nächste Schritt oder Herzschlag eintrifft, und nicht erst nach 25 Datenpaketen. Die gespeicherte Reihenfolge entspricht damit dem Ablauf.
+
+### Behoben
+
+- Vibe:Lab auf dem iPhone: Die Freigabe-Karte wurde auf einen Streifen zusammengedrückt, die Knöpfe «Erlauben» und «Ablehnen» verschwanden unten. Die Karte behält jetzt eine Mindesthöhe, und die Eingabe klappt zusammen, solange auf die Freigabe gewartet wird.
+- Vibe:Lab: Ein Lauf, der durch einen Neustart von ARIA (zum Beispiel ein Update) endete, stand ohne Begründung auf «Abgebrochen». Er nennt jetzt den Grund und verweist auf «Fortsetzen».
+- Die laufende Zeile «Befehl … läuft seit» zeigte nur die ersten 40 Zeichen des Arbeitskopie-Pfads. Sie zeigt jetzt den Befehl selbst.
+- Vibe:Lab auf dem iPhone: Blieb nach einem beendeten Lauf eine offene Freigabe-Karte stehen (zum Beispiel weil du sie auf einem anderen Gerät entschieden hast), blieb auch das Eingabefeld versteckt. Die Eingabe klappt nur noch zusammen, solange der Lauf der Karte wirklich läuft oder wartet.
+
 ## 0.1.0-alpha1112 - 2026-11-13 [intern]
 
 ### Behoben

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.0-alpha1113 - 2026-11-13 [intern]
+
+### Added
+
+- Vibe:Lab: you can now reliably see whether a coding agent is still working. The header of every agent window shows a status chip: «Working · reads `src/main.ts` · for 1:38 · last output 3 s ago», «Waiting for you», «No output for …» (a long command or a thinking pause is possible) or «No connection for …» when ARIA no longer receives signs of life from the agent. On a phone, the dot and the time remain.
+- The ARIA logo at the top left follows the same state on every page: pulsing green while an agent works, amber while one waits for your approval, dashed when quiet or disconnected. The browser tab title shows the state too («● Project working», «◐ Approval needed»), even in a background tab.
+- The approval card now shows what changes: the removed and added lines of an edit, the text of a new file, or the full command without the long working-copy path. It also says in one sentence why ARIA asks (for example «File changes need your approval at level L1») and where to set the level.
+- Tool steps read clearly: «Reads `src/main.ts`», «Searches `validate`» or the command without the working-copy path. While the agent thinks, the status chip says «thinking». Claude does not send thinking text in the stream, so this hint is all there is.
+
+### Changed
+
+- The indicators come solely from server-side state and no longer from the requests of the tab that happens to be open. They are therefore correct after a reload, on a second device and while an approval is open. Motion is switched off when reduced motion is requested.
+- The header of an agent window shows the agent's own level instead of the connection default. A follow-up uses the level the agent is set to now; previously a continuing run kept the level from its start (an agent set to L3 kept asking).
+- On a phone, text in Vibe:Lab windows is one step smaller (input fields stay at 16 px).
+- Text the agent writes appears as soon as the next step or heartbeat arrives, no longer only after 25 data packets. The stored order now matches what happened.
+
+### Fixed
+
+- Vibe:Lab on iPhone: the approval card was squeezed into a sliver and the «Allow» and «Deny» buttons disappeared below. The card now keeps a minimum height, and the composer folds away while an approval is pending.
+- Vibe:Lab: a run that ended because ARIA restarted (for example after an update) showed «Cancelled» with no explanation. It now gives the reason and points to «Continue».
+- The running line «Command … running for» showed only the first 40 characters of the working-copy path. It now shows the command itself.
+- Vibe:Lab on iPhone: if an open approval card was left behind after a run had ended (for example because you decided it on another device), the composer stayed hidden as well. The composer now folds away only while the card's run is actually running or waiting.
+
 ## 0.1.0-alpha1112 - 2026-11-13 [intern]
 
 ### Fixed
