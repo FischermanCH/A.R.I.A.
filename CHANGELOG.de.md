@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1115 - 2026-11-14 [intern]
+
+### Geändert
+
+- Vibe:Lab auf dem iPhone: deutlich mehr Platz für den Verlauf. Die Titelzeile «Vibe:Lab» entfällt auf dem Handy (Screenreader lesen sie weiterhin vor), Arbeitsbereich-Auswahl, Menü und Info stehen in einer Zeile. Die Agenten-Auswahl sitzt in der schmaleren Kopfzeile des Fensters statt in einer eigenen Zeile. Die Zeile «Neuer Lauf» erscheint nur noch, wenn sie «Setzt fort …» mit dem Knopf «Neuer Lauf» zeigt. Menü, Eingabefeld und «Senden» stehen in einer Zeile, das Modell darunter. Im iPhone-Emulator gewinnt der Verlauf damit rund 84 Punkte Höhe. Desktop, Tablet, das Querformat sowie Terminal- und LLM-Fenster bleiben unverändert.
+
 ## 0.1.0-alpha1114 - 2026-11-13 [intern]
 
 ### Behoben

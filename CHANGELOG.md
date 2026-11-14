@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1115 - 2026-11-14 [intern]
+
+### Changed
+
+- Vibe:Lab on iPhone: much more room for the transcript. The «Vibe:Lab» title row is dropped on phones (screen readers still announce it); workspace picker, menu and info share one row. The agent picker sits in the slimmer window header instead of a row of its own. The «New run» row only appears when it shows «Continues …» with the «New run» button. Menu, input field and «Send» share one row, with the model below. In the iPhone emulator the transcript gains about 84 points of height. Desktop, tablet, landscape orientation and terminal and LLM windows are unchanged.
+
 ## 0.1.0-alpha1114 - 2026-11-13 [intern]
 
 ### Fixed
