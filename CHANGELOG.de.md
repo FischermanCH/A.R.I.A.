@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1118 - 2026-11-14 [intern]
+
+### Behoben
+
+- Das Benutzermenü oben rechts war am Desktop abgeschnitten, sichtbar blieb nur «Name / Rolle». Eine mit dem Steampunk-Theme (alpha1116) versehentlich ergänzte Regel schnitt alle Inhalte der Kopfzeile ab, das betraf alle Themes.
+
 ## 0.1.0-alpha1117 - 2026-11-14 [intern]
 
 ### Neu

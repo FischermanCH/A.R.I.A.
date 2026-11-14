@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha1118 - 2026-11-14 [intern]
+
+### Fixed
+
+- The user menu at the top right was cut off on desktop, leaving only “name / role” visible. A rule added by mistake together with the Steampunk theme (alpha1116) clipped everything inside the top bar, which affected every theme.
+
 ## 0.1.0-alpha1117 - 2026-11-14 [intern]
 
 ### Added
