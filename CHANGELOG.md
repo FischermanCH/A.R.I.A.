@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0-alpha1121 - 2026-11-14 [intern]
+
+### Added
+
+- Settings → Models → “Costs & limit”: the API cost of the running month across all models, broken down by model, and one shared monthly limit. The limit colours the cost chip at the top (amber from 80 %, red from 95 %) and shows the percentage there; it does not block any calls.
+
+### Changed
+
+- The monthly limit is no longer under Settings → Language but on the new “Costs & limit” page. A value that was already set is kept.
+
+- Vibe:Lab, agent window: “New run” and the coding-agent picker now share one line instead of two. That saves a row of height in every window; the picker remains its own form.
+- On desktop, windows between 420 and 600 pixels wide keep the action row (⋯, model, “Send”) beside the input instead of below it.
+- With several windows the “Agent default: Coding agent” note is no longer shown; in a single window it stays. The direct terminal’s notice shows its full text as a tooltip.
+
+### Fixed
+
+- With four windows, especially in the Steampunk theme, the action row with “Send” was cut off at the bottom of agent windows. The transcript now shrinks further and scrolls, so the input area always stays visible.
+
 ## 0.1.0-alpha1120 - 2026-11-14 [intern]
 
 ### Added

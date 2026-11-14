@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0-alpha1121 - 2026-11-14 [intern]
+
+### Neu
+
+- Einstellungen → Modelle → «Kosten & Limit»: Die API-Kosten des laufenden Monats über alle Modelle, aufgeschlüsselt nach Modell, und ein gemeinsames Monatslimit. Das Limit färbt den Kosten-Chip oben (gelb ab 80 %, rot ab 95 %) und zeigt dort den Prozentanteil; es sperrt keine Aufrufe.
+
+### Geändert
+
+- Das Monatslimit steht nicht mehr unter Einstellungen → Sprache, sondern auf der neuen Seite «Kosten & Limit». Ein bereits gesetzter Wert bleibt erhalten.
+
+- Vibe:Lab, Agent-Fenster: «Neuer Lauf» und die Auswahl des Coding-Agents stehen auf einer Zeile statt auf zwei. Das spart in jedem Fenster eine Zeile Höhe; die Auswahl bleibt ein eigenes Formular.
+- Am Desktop behalten Fenster zwischen 420 und 600 Pixel Breite die Aktionszeile (⋯, Modell, «Senden») neben dem Eingabefeld statt darunter.
+- Mit mehreren Fenstern erscheint der Hinweis «Agent-Standard: Coding-Agent» nicht mehr; im Einzelfenster bleibt er. Der Hinweis des direkten Terminals zeigt seinen vollen Text als Tooltip.
+
+### Behoben
+
+- Bei vier Fenstern, besonders im Steampunk-Theme, wurde die Aktionszeile mit «Senden» in den Agent-Fenstern unten abgeschnitten. Der Verlauf lässt sich jetzt enger zusammenschieben und scrollt, der Eingabebereich bleibt immer sichtbar.
+
 ## 0.1.0-alpha1120 - 2026-11-14 [intern]
 
 ### Neu
