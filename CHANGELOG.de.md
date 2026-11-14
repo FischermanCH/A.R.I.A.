@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1119 - 2026-11-14 [intern]
+
+### Neu
+
+- Steampunk-Theme mit mehr Leben: Die Glasröhren glühen langsam auf und ab, die Lampen flackern wie Glühfäden, kleine Anzeigen blinken, ein Lichtstrahl läuft über das Oszilloskop, aus den Rohren steigt Dampf, das Manometer zittert leicht und das Ventilrad dreht sich. Arbeitet A.R.I.A. oder ein Coding-Agent, laufen Röhren, Rad und Manometer lebhafter. Die Effekte liegen nur über dem Rahmenbild am Desktop und ruhen bei «Bewegung reduzieren».
+- Neu in jeder Kopfzeile, in allen Themes und auch auf dem Handy: ein Chip mit dem Kontingent des Coding-Agents, zum Beispiel «Codex noch 82 %». Er zeigt, was der Dienst des Agents zuletzt gemeldet hat (Codex nach jedem Lauf), wird ab 80 % gelb und ab 95 % rot; im Tooltip stehen Zeitraum, Zurücksetzung und Alter der Angabe. Für Agents ohne gemeldetes Kontingent (derzeit Claude) erscheint nichts. Auf dem Handy steht die Kurzform «Codex 82 %».
+- Steampunk-Plakette mit Statuszeile: «BEREIT», «1 AGENT ARBEITET» oder «1 FREIGABE OFFEN», dazu das Kontingent und die Uhrzeit neben der Version und den Lampen.
+
+### Behoben
+
+- Steampunk-Theme: Bei etwas breiteren Fenstern (ab etwa 1,9 : 1) blieb links ein leerer Streifen neben dem Rahmenbild. Das Bild wird jetzt bis zu fünf Prozent grösser skaliert, bis es beide Ränder erreicht; bei noch breiteren Fenstern füllt ein dunkler Messingstreifen den Rest.
+
 ## 0.1.0-alpha1118 - 2026-11-14 [intern]
 
 ### Behoben

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1119 - 2026-11-14 [intern]
+
+### Added
+
+- Steampunk theme with more life: the glass tubes glow slowly up and down, the lamps flicker like filaments, small indicators blink, a beam of light runs across the oscilloscope, steam rises from the pipes, the pressure gauge trembles slightly and the valve wheel turns. While A.R.I.A. or a coding agent is working, tubes, wheel and gauge run livelier. The effects sit only on top of the frame picture on desktop and stand still with “reduce motion”.
+- New in every top bar, in all themes and on phones too: a chip with the coding agent's quota, for example “Codex 82 % left”. It shows what the agent's service last reported (Codex after every run), turns amber from 80 % and red from 95 %; the tooltip gives the period, the reset and how old the figure is. Agents without a reported quota (currently Claude) show nothing. Phones get the short form “Codex 82 %”.
+- Steampunk plate with a status line: “READY”, “1 AGENT WORKING” or “1 APPROVAL OPEN”, plus the quota and the time next to the version and the lamps.
+
+### Fixed
+
+- Steampunk theme: on slightly wider windows (from about 1.9 : 1) an empty strip was left at the left of the frame picture. The picture is now scaled up by at most five per cent until it reaches both edges; on even wider windows a dark brass strip fills the rest.
+
 ## 0.1.0-alpha1118 - 2026-11-14 [intern]
 
 ### Fixed
