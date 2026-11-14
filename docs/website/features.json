@@ -280,8 +280,8 @@
       "section": "anpassen",
       "title": { "de": "Themes", "en": "Themes" },
       "text": {
-        "de": "11 verschiedene **Farbschemata** mit passendem Hintergrund, um A.R.I.A. deinen persönlichen Vorlieben **optisch anzupassen** – [alle Themes in der Galerie](#themes).",
-        "en": "11 different **colour schemes** with matching backgrounds to **make A.R.I.A. look** the way you like – [see all themes in the gallery](#themes)."
+        "de": "12 verschiedene **Farbschemata** mit passendem Hintergrund, um A.R.I.A. deinen persönlichen Vorlieben **optisch anzupassen** – [alle Themes in der Galerie](#themes).",
+        "en": "12 different **colour schemes** with matching backgrounds to **make A.R.I.A. look** the way you like – [see all themes in the gallery](#themes)."
       },
       "shot": { "route": "/config/appearance" }
     },
@@ -362,7 +362,7 @@
       "de": "Jedes Theme bringt seinen eigenen Hintergrund mit. Klick auf ein Bild für die grosse Ansicht.",
       "en": "Every theme comes with its own background. Click an image to enlarge it."
     },
-    "themes": ["matrix", "sunset", "harbor", "paper", "cyberpunk", "cyberpunk-neo", "nyan-cat", "puke-unicorn", "pixel", "crt-amber", "deep-space"],
+    "themes": ["matrix", "sunset", "harbor", "paper", "cyberpunk", "cyberpunk-neo", "nyan-cat", "puke-unicorn", "pixel", "crt-amber", "deep-space", "steampunk"],
     "shot": { "route": "/", "focus": "#messages .msg-assistant:has(table)" }
   }
 }

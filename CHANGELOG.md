@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1116 - 2026-11-14 [intern]
+
+### Added
+
+- A twelfth theme, “Steampunk Lab”, modelled on aria-agent.dev: brass and copper frame with glass tubes, a pressure gauge and a valve wheel. A.R.I.A. sits inside the apparatus's screen, and a plate at the bottom reads “A.R.I.A. TERMINAL” with the version and two lamps. “PWR” is always lit; “HDD” lights up only while A.R.I.A. or a coding agent is really working. Choose it under Settings → Appearance.
+- The picture frame appears only on desktop at 1300 × 860 pixels or more. On smaller windows, tablets and phones the same theme applies without the picture, with a brass border and plate or just the colour palette. Phone and tablet layouts are unchanged. With reduced motion, steam and lamps stay still.
+- Headings and the brand in this theme use the VT323 typeface (SIL Open Font License), shipped locally.
+
+### Fixed
+
+- Vibe:Lab on the iPhone: the “CONTEXT” chip is no longer clipped at its edge, and the agent picker takes all the free space in the header instead of only half, so the agent name is easier to read.
+
 ## 0.1.0-alpha1115 - 2026-11-14 [intern]
 
 ### Changed

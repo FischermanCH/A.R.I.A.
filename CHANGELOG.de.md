@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1116 - 2026-11-14 [intern]
+
+### Neu
+
+- Zwölftes Theme «Steampunk Labor» nach dem Vorbild von aria-agent.dev: Messing- und Kupferrahmen mit Glasröhren, Manometer und Ventilrad. A.R.I.A. sitzt im Bildschirm der Apparatur, unten zeigt ein Typenschild «A.R.I.A. TERMINAL» mit der Version und zwei Lämpchen. «PWR» leuchtet dauerhaft, «HDD» leuchtet nur, wenn A.R.I.A. oder ein Coding-Agent wirklich arbeitet. Auswählbar unter Einstellungen → Darstellung.
+- Der Bildrahmen erscheint nur am Desktop ab 1300 × 860 Pixeln. Auf kleineren Fenstern, Tablets und Handys gilt dasselbe Theme ohne Bild, mit Messingrand und Typenschild bzw. nur mit der Farbwelt. Die Handy- und Tablet-Layouts bleiben unverändert. Bei reduzierter Bewegung stehen Dampf und Lämpchen still.
+- Überschriften und Marke im Theme nutzen die Schrift VT323 (SIL Open Font License), lokal mitgeliefert.
+
+### Behoben
+
+- Vibe:Lab auf dem iPhone: Der Chip «KONTEXT» wird nicht mehr am Rand abgeschnitten, und das Agent-Auswahlfeld bekommt den gesamten freien Platz der Kopfzeile statt nur der Hälfte, der Agent-Name ist besser lesbar.
+
 ## 0.1.0-alpha1115 - 2026-11-14 [intern]
 
 ### Geändert
