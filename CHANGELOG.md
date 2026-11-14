@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1117 - 2026-11-14 [intern]
+
+### Added
+
+- Chats can be organised in folders, including nested ones (up to six levels). “All chats” has a “+ New folder” button; each folder has a ⋯ menu to create sub-folders, rename, move and delete it, plus “New chat in this folder”. Move chats through their ⋯ menu (“Move to folder”) or, on desktop, in bulk via the selection. Folders can be expanded and collapsed and remember their state. A folder can never delete chats: deleting it moves its chats and sub-folders up one level. Search, the archive and the chat menu inside a chat are unchanged; search hits show their folder path.
+- “Appearance” offers the preset “Steampunk Lab / Grid Signal” for the Steampunk Lab theme.
+
+### Fixed
+
+- The ⋯ menu of chats on “All chats” opened off the left edge of the screen on the iPhone (a stale offset survived when the menu opened).
+- “Delete selection” on “All chats” deleted the marked chats without asking. It now asks first, like deleting a single chat.
+
 ## 0.1.0-alpha1116 - 2026-11-14 [intern]
 
 ### Added

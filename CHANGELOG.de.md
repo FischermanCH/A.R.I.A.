@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1117 - 2026-11-14 [intern]
+
+### Neu
+
+- Chats lassen sich in Ordnern ordnen, auch verschachtelt (bis zu sechs Ebenen). Auf «Alle Chats» gibt es «+ Neuer Ordner»; jeder Ordner hat ein ⋯-Menü zum Anlegen von Unterordnern, Umbenennen, Verschieben und Löschen sowie «Neuer Chat in diesem Ordner». Chats verschiebst du über ihr ⋯-Menü («In Ordner verschieben») oder am Desktop gesammelt über die Auswahl. Ordner lassen sich auf- und zuklappen, der Zustand bleibt erhalten. Ein Ordner kann nie Chats löschen: Löschst du ihn, rücken seine Chats und Unterordner eine Ebene nach oben. Suche, Archiv und das Chat-Menü im Chat bleiben unverändert; Treffer in der Suche zeigen ihren Ordnerpfad.
+- Unter «Darstellung» gibt es das Preset «Steampunk Labor / Grid Signal» für das Theme «Steampunk Labor».
+
+### Behoben
+
+- Das ⋯-Menü der Chats auf «Alle Chats» öffnete sich auf dem iPhone links ausserhalb des Bildschirms (ein veralteter Versatz blieb beim Öffnen erhalten).
+- «Auswahl löschen» auf «Alle Chats» löschte die markierten Chats ohne Rückfrage. Jetzt fragt es wie beim Löschen eines einzelnen Chats nach.
+
 ## 0.1.0-alpha1116 - 2026-11-14 [intern]
 
 ### Neu
