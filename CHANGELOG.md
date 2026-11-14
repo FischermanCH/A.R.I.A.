@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1120 - 2026-11-14 [intern]
+
+### Added
+
+- In the main chat the chip at the top now shows the API cost of the running month, for example “API month $12.40” (phone: “$12.40”). The figure comes from A.R.I.A.’s own usage log and is visible to administrators only. The remaining balance at the provider cannot be queried with an API key and is not estimated.
+- Optional: Settings → Language has a “Monthly API cost limit (USD)”. With a limit the chip also shows the share in per cent, turns amber at 80 % and red at 95 %.
+- The coding agent’s quota chip is now called “Codex-Agent 82 % left” and appears only in Vibe:Lab, where an agent is involved. In the Steampunk theme the same rule applies to the plate.
+
+### Changed
+
+- Steampunk theme: the valve wheel no longer turns. The rotating copy sat on top of the wheel in the background picture and could not be kept aligned; the wheel is now simply part of the picture.
+
 ## 0.1.0-alpha1119 - 2026-11-14 [intern]
 
 ### Added

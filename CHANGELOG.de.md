@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha1120 - 2026-11-14 [intern]
+
+### Neu
+
+- Im Hauptchat zeigt der Chip oben jetzt die API-Kosten des laufenden Monats, zum Beispiel «API Monat 12,40 $» (Handy: «12,40 $»). Die Zahl stammt aus der eigenen Nutzungsstatistik von A.R.I.A. und ist nur für Administratoren sichtbar. Das Restguthaben beim Anbieter lässt sich mit einem API-Schlüssel nicht abfragen und wird nicht geschätzt.
+- Optional: unter Einstellungen → Sprache gibt es das «Monatslimit API-Kosten (USD)». Mit Limit zeigt der Chip zusätzlich den Anteil in Prozent, wird ab 80 % gelb und ab 95 % rot.
+- Der Kontingent-Chip des Coding-Agents heisst jetzt «Codex-Agent noch 82 %» und erscheint nur in Vibe:Lab, wo ein Agent im Spiel ist. Im Steampunk-Theme gilt dieselbe Regel für die Plakette.
+
+### Geändert
+
+- Steampunk-Theme: Das Ventilrad dreht sich nicht mehr. Die drehende Kopie lag über dem Rad im Hintergrundbild und liess sich nicht deckungsgleich halten; jetzt bleibt das Rad das Bild.
+
 ## 0.1.0-alpha1119 - 2026-11-14 [intern]
 
 ### Neu
