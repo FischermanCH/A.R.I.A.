@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha1122 - 2026-11-15 [intern]
+
+### Geändert
+
+- «Kosten & Limit» schreibt Beträge mit dem Dezimalzeichen der Sprache (deutsch «0,26 $»), so wie der Chip oben.
+- Terminal: Die Tastenleiste scrollt seitlich ohne breiten Balken. Die Modell-Anzeige im Eingabebereich sitzt auf der Mittellinie der Knöpfe.
+
+### Behoben
+
+- iPhone, Agent-Fenster: Der Chip «KONTEXT» liegt nicht mehr unter dem Agent-Wähler, sondern hat einen festen Abstand. In der Kopfzeile weicht der Markenname dem Kontingent-Chip, statt als «A…» abgeschnitten zu erscheinen.
+
 ## 0.1.0-alpha1121 - 2026-11-14 [intern]
 
 ### Neu

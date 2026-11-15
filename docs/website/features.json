@@ -226,6 +226,16 @@
       "shot": { "route": "/stats", "focus": "[data-stats-section='costs']" }
     },
     {
+      "id": "cost-limit",
+      "section": "kontrolle",
+      "title": { "de": "Monatskosten & Limit", "en": "Monthly cost & limit" },
+      "text": {
+        "de": "Ein Chip in der Kopfzeile zeigt die **API-Kosten des laufenden Monats**, auch auf dem Handy. Die Zahl stammt aus der eigenen Nutzungsstatistik von A.R.I.A.\n\nUnter Einstellungen → Modelle → **Kosten & Limit** siehst du die Kosten pro Modell und kannst ein **gemeinsames Monatslimit** setzen: Der Chip zeigt dann den Prozentanteil und färbt sich ab 80 % gelb, ab 95 % rot.",
+        "en": "A chip in the top bar shows the **API cost of the current month**, on your phone too. The figure comes from A.R.I.A.'s own usage log.\n\nUnder Settings → Models → **Costs & limit** you can see the cost per model and set one **shared monthly limit**: the chip then shows the percentage and turns amber from 80 %, red from 95 %."
+      },
+      "shot": { "route": "/config/llm/costs", "focus": ".config-costs-layout" }
+    },
+    {
       "id": "activity-journal",
       "section": "kontrolle",
       "title": { "de": "Aktivitäts-Journal", "en": "Activity journal" },

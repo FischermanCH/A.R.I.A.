@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha1122 - 2026-11-15 [intern]
+
+### Changed
+
+- “Costs & limit” writes amounts with the decimal separator of the language (German “0,26 $”), like the chip at the top.
+- Terminal: the key bar scrolls sideways without a wide scrollbar. The model name in the input area sits on the centre line of the buttons.
+
+### Fixed
+
+- iPhone, agent window: the “KONTEXT” chip no longer sits under the agent picker but keeps a fixed gap. In the top bar the brand name makes way for the quota chip instead of appearing cut off as “A…”.
+
 ## 0.1.0-alpha1121 - 2026-11-14 [intern]
 
 ### Added
