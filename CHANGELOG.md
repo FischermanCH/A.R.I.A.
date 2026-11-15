@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.0-alpha1124 - 2026-11-15 [intern]
+
+### Added
+
+- Vibe:Lab: “Save run as note”. In the menu next to the input and in the ⋯ of every finished run; task and result are saved as a
+  note in the folder `Vibe-Lab/<month>`. In an LLM window the same menu item saves that window's chat. Previously the text
+  `/chat note` was sent there as a prompt to the agent or the model.
+- Claude quota: Claude Code reports the usage of your subscription (5-hour and weekly windows). The chip shows “Claude agent NN %
+  left” next to Codex; the tooltip adds the week.
+- “Coding agents” statistics: a new “By agent” table (Codex and Claude separately), dollar values marked as an estimate (API
+  equivalent), “unknown” instead of $0 for runs without a cost figure, a heading that no longer mentions only Codex, and a ring
+  that names its window (5 h or week).
+
+### Changed
+
+- Chat answers: blank lines now produce a single paragraph gap instead of stacked line breaks (around lists this added up to
+  200 px of empty space); `*italic*` is rendered instead of showing asterisks.
+- iPhone, main chat: short placeholder “Message…” (the long one was cut off), input field, ⋯ and Send share one height and
+  baseline, smaller scroll-down arrow.
+
+### Fixed
+
+- Terminal on a phone: the “Direct terminal …” notice no longer covers the prompt line (the row grows with the text).
+- iPhone, agent window: the CONTEXT chip keeps a fixed gap to the agent picker.
+
 ## 0.1.0-alpha1123 - 2026-11-15 [intern]
 
 ### Changed

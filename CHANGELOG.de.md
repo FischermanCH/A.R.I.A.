@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.0-alpha1124 - 2026-11-15 [intern]
+
+### Neu
+
+- Vibe:Lab: «Lauf als Notiz speichern». Im Menü neben der Eingabe und im ⋯ jedes fertigen Laufs; Aufgabe und Ergebnis landen
+  als Notiz im Ordner `Vibe-Lab/<Monat>`. Im LLM-Fenster speichert derselbe Menüpunkt den Chat dieses Fensters. Bisher wurde
+  dort der Text `/chat note` als Befehl an den Agenten bzw. ans Modell geschickt.
+- Claude-Kontingent: Claude Code meldet die Nutzung deines Abos (5-Stunden- und Wochenfenster). Der Chip zeigt «Claude-Agent
+  noch NN %» neben Codex, im Hinweistext steht zusätzlich die Woche.
+- Statistik «Coding-Agents»: neue Tabelle «Pro Agent» (Codex und Claude getrennt), Dollarwerte als Schätzwert
+  (API-Äquivalent) gekennzeichnet, «unbekannt» statt 0 $ bei Läufen ohne Kostenangabe, die Überschrift nennt nicht mehr nur Codex,
+  und der Ring nennt sein Fenster (5 h oder Woche).
+
+### Geändert
+
+- Chat-Antworten: Leerzeilen ergeben nur noch einen Absatzabstand statt gestapelter Zeilenumbrüche (um Listen entstanden bis zu
+  200 px Leerraum); `*kursiv*` wird dargestellt statt mit Sternchen.
+- iPhone, Hauptchat: kurzer Platzhalter «Nachricht…» (der lange wurde abgeschnitten), Eingabefeld, ⋯ und Senden gleich hoch auf
+  einer Linie, kleinerer Runter-Pfeil.
+
+### Behoben
+
+- Terminal auf dem Handy: Der Hinweis «Direktes Terminal …» überdeckt die Prompt-Zeile nicht mehr (die Zeile wächst mit dem Text).
+- iPhone, Agent-Fenster: Der KONTEXT-Chip behält einen festen Abstand zum Agent-Auswahlfeld.
+
 ## 0.1.0-alpha1123 - 2026-11-15 [intern]
 
 ### Geändert
