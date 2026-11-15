@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1123 - 2026-11-15 [intern]
+
+### Changed
+
+- iPhone (portrait), Vibe:Lab: a calmer header. A single ⋯ at the top, where the workspace menu used to be, opens the active window's menu: agent and type, the workspace actions (New, Rename, Delete) and “Close window” (only with several windows). The ⋯ and the ✕ in the window header are gone. A window header that carried only those two (terminal and LLM windows) disappears entirely; the agent header keeps “KONTEXT” and the agent picker and gets the full width for them. Desktop, tablet and landscape are unchanged.
+- Terminal on a phone: the first character of the command line is no longer clipped at the edge, the key bar has space at the sides and bottom, and the “Direct terminal …” notice wraps instead of being cut off with “…”.
+
 ## 0.1.0-alpha1122 - 2026-11-15 [intern]
 
 ### Changed

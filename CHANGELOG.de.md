@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha1123 - 2026-11-15 [intern]
+
+### Geändert
+
+- iPhone (Hochformat), Vibe:Lab: ruhigerer Kopf. Ein einziges ⋯ oben, dort wo bisher das Workspace-Menü stand, öffnet das Menü des aktiven Fensters: Agent und Typ, die Workspace-Aktionen (Neu, Umbenennen, Löschen) und «Fenster schliessen» (nur bei mehreren Fenstern). Das ⋯ und das ✕ im Fensterkopf entfallen. Ein Fensterkopf, der nur diese beiden trug (Terminal- und LLM-Fenster), verschwindet ganz; der Agent-Kopf behält «KONTEXT» und den Agent-Wähler und hat dafür die ganze Breite. Desktop, Tablet und Querformat bleiben unverändert.
+- Terminal auf dem Handy: Der erste Buchstabe der Befehlszeile ist nicht mehr am Rand abgeschnitten, die Tastenleiste hat seitlich und unten Abstand, und der Hinweis «Direktes Terminal …» bricht um, statt mit «…» abgeschnitten zu werden.
+
 ## 0.1.0-alpha1122 - 2026-11-15 [intern]
 
 ### Geändert
