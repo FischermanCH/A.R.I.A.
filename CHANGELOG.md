@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0-alpha1125 - 2026-11-15 [intern]
+
+### Added
+
+- iPad: in landscape, from iPad mini size upwards, the Steampunk theme shows the picture frame like the desktop (pipes, gauge,
+  plate); the app area stays comfortably readable at about 810 × 575 pixels. Under Settings → Appearance the picture frame can be
+  switched off for this device. In portrait there is the richer slim frame with plate, rivets and a brass border.
+- iPad: Vibe:Lab shows at most two windows at a time (the active one and its neighbour; a running job or an approval brings its
+  window forward). The saved layout is unchanged and the layout menu offers 1 or 2 windows.
+
+### Changed
+
+- Outdated quota readings: once a quota's reset has passed, the chip and the statistics say “reading outdated” / “reset passed –
+  reading outdated” (dimmed) instead of an old percentage.
+- iPhone, agent window: the CONTEXT chip appears only once the agent reports a context window and is no longer covered by the
+  picker (the width is now given to the chip first).
+- iPhone, terminal: the “Direct terminal …” notice is shorter (the full text is in the tooltip).
+
 ## 0.1.0-alpha1124 - 2026-11-15 [intern]
 
 ### Added

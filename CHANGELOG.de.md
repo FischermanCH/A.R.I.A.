@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0-alpha1125 - 2026-11-15 [intern]
+
+### Neu
+
+- iPad: Das Steampunk-Theme zeigt im Querformat ab iPad-mini-Grösse den Bildrahmen wie der Desktop (Rohre, Manometer,
+  Plakette); die App-Fläche bleibt mit etwa 810 × 575 Pixeln gut lesbar. Unter Einstellungen → Darstellung lässt sich der
+  Bildrahmen für dieses Gerät ausschalten. Im Hochformat gibt es den reicheren schlanken Rahmen mit Plakette, Nieten und Messingrand.
+- iPad: In Vibe:Lab sind höchstens zwei Fenster gleichzeitig sichtbar (das aktive und sein Nachbar; ein laufender Auftrag oder eine
+  Freigabe holt sein Fenster nach vorn). Das gespeicherte Layout bleibt unverändert, das Layout-Menü bietet 1 oder 2 Fenster an.
+
+### Geändert
+
+- Veraltete Kontingent-Werte: Ist der Reset eines Kontingents schon vorbei, zeigen Chip und Statistik «Stand veraltet» bzw.
+  «Reset erfolgt – Wert veraltet» (abgedunkelt) statt einer alten Prozentzahl.
+- iPhone, Agent-Fenster: Der KONTEXT-Chip erscheint erst, wenn der Agent ein Kontextfenster meldet, und wird nie mehr vom
+  Auswahlfeld überdeckt (die Breite wird jetzt zuerst dem Chip zugeteilt).
+- iPhone, Terminal: Der Hinweis «Direktes Terminal …» ist kürzer (die ganze Fassung steht im Tooltip).
+
 ## 0.1.0-alpha1124 - 2026-11-15 [intern]
 
 ### Neu
